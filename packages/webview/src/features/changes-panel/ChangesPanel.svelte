@@ -1,13 +1,22 @@
 <script lang="ts">
 	import type {
 		CommitDetails,
+		FileChange,
 		WorkingTreeAction,
 		WorkingTreeStatus,
 	} from '@git-octopus/shared';
 	import ChangesTab from './ChangesTab.svelte';
 	import CommitTab from './CommitTab.svelte';
+	import CompareTab from './CompareTab.svelte';
 
-	export type PanelTab = 'changes' | 'commit';
+	export type PanelTab = 'changes' | 'commit' | 'compare';
+
+	export interface ComparisonState {
+		fromHash: string | null;
+		toHash: string | null;
+		files: FileChange[];
+		loading: boolean;
+	}
 
 	let {
 		tab,
@@ -16,12 +25,16 @@
 		detailsLoading,
 		branchName,
 		ahead,
+		comparison,
 		ontab,
 		onworkingAction,
 		onopenWorkingFile,
 		onopenDiff,
+		onopenCompareDiff,
 		onpush,
 	}: {
+		comparison: ComparisonState;
+		onopenCompareDiff: (path: string) => void;
 		tab: PanelTab;
 		working: WorkingTreeStatus | null;
 		details: CommitDetails | null;
@@ -53,6 +66,9 @@
 			Changes {#if changeCount > 0}<span class="badge">{changeCount}</span>{/if}
 		</button>
 		<button class:active={tab === 'commit'} onclick={() => ontab('commit')}>Commit</button>
+		{#if comparison.fromHash}
+			<button class:active={tab === 'compare'} onclick={() => ontab('compare')}>Compare</button>
+		{/if}
 	</nav>
 
 	<div class="body">
@@ -64,8 +80,16 @@
 				onaction={onworkingAction}
 				onopenFile={onopenWorkingFile}
 			/>
-		{:else}
+		{:else if tab === 'commit'}
 			<CommitTab {details} loading={detailsLoading} {onopenDiff} />
+		{:else}
+			<CompareTab
+				fromHash={comparison.fromHash}
+				toHash={comparison.toHash}
+				files={comparison.files}
+				loading={comparison.loading}
+				onopenDiff={onopenCompareDiff}
+			/>
 		{/if}
 	</div>
 </aside>

@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
-import { GitOctopusViewProvider } from './adapters/vscode/GitOctopusViewProvider.js';
+import {
+	GitOctopusController,
+	GitOctopusViewProvider,
+} from './adapters/vscode/GitOctopusViewProvider.js';
 import { GitProcessExecutor } from './adapters/process/gitProcessExecutor.js';
 import { DiffService } from './adapters/vscode/DiffService.js';
 import { CommitActionService } from './adapters/vscode/CommitActionService.js';
@@ -9,7 +12,7 @@ import { RepoActionService } from './adapters/vscode/RepoActionService.js';
 export function activate(context: vscode.ExtensionContext): void {
 	const executor = new GitProcessExecutor();
 	const diff = new DiffService(executor);
-	const provider = new GitOctopusViewProvider(
+	const controller = new GitOctopusController(
 		context.extensionUri,
 		executor,
 		diff,
@@ -21,7 +24,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 	statusBar.command = 'git-octopus.focus';
 	statusBar.tooltip = 'Open Git Octopus';
-	provider.onRepoState = ({ repoName, branch }) => {
+	controller.onRepoState = ({ repoName, branch }) => {
 		if (!repoName) {
 			statusBar.hide();
 			return;
@@ -33,12 +36,24 @@ export function activate(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
 		statusBar,
 		vscode.workspace.registerTextDocumentContentProvider(DiffService.scheme, diff),
-		vscode.window.registerWebviewViewProvider(GitOctopusViewProvider.viewType, provider),
-		vscode.commands.registerCommand('git-octopus.refresh', () => void provider.refresh()),
+		vscode.window.registerWebviewViewProvider(
+			GitOctopusViewProvider.viewType,
+			new GitOctopusViewProvider(controller)
+		),
+		vscode.commands.registerCommand('git-octopus.refresh', () => void controller.refresh()),
 		vscode.commands.registerCommand(
 			'git-octopus.focus',
 			() => void vscode.commands.executeCommand('git-octopus.view.focus')
-		)
+		),
+		vscode.commands.registerCommand('git-octopus.openInTab', () => {
+			const panel = vscode.window.createWebviewPanel(
+				'git-octopus.tab',
+				'Git Octopus',
+				vscode.ViewColumn.Active,
+				{ enableScripts: true, retainContextWhenHidden: true }
+			);
+			controller.attach(panel.webview, panel.onDidDispose);
+		})
 	);
 }
 

@@ -28,6 +28,19 @@ export class DiffService implements vscode.TextDocumentContentProvider {
 		await vscode.commands.executeCommand('vscode.diff', left, right, title);
 	}
 
+	/** Diff a file between two arbitrary commits. */
+	public async openCompareDiff(
+		fromHash: string,
+		toHash: string,
+		filePath: string,
+		cwd: string
+	): Promise<void> {
+		const left = this.buildUri(fromHash, filePath, cwd);
+		const right = this.buildUri(toHash, filePath, cwd);
+		const title = `${path.basename(filePath)} (${fromHash.slice(0, 7)} ↔ ${toHash.slice(0, 7)})`;
+		await vscode.commands.executeCommand('vscode.diff', left, right, title);
+	}
+
 	/** Diff a working-tree file against HEAD; the right side is the real file on disk. */
 	public async openWorkingDiff(filePath: string, cwd: string): Promise<void> {
 		const left = this.buildUri('HEAD', filePath, cwd);

@@ -2,7 +2,7 @@
  * Host ↔ webview message protocol.
  * P1: commit graph. P2: commit details, diffs, commit actions. P3: working tree, repos & filters.
  */
-import type { Commit, CommitDetails, WorkingTreeStatus } from '../model/index.js';
+import type { Commit, CommitDetails, FileChange, WorkingTreeStatus } from '../model/index.js';
 
 /** A Git repository discovered in the workspace. */
 export interface RepoInfo {
@@ -40,6 +40,19 @@ export interface LoadCommitDetailsMessage {
 export interface OpenDiffMessage {
 	type: 'openDiff';
 	hash: string;
+	path: string;
+}
+
+export interface LoadComparisonMessage {
+	type: 'loadComparison';
+	fromHash: string;
+	toHash: string;
+}
+
+export interface OpenCompareDiffMessage {
+	type: 'openCompareDiff';
+	fromHash: string;
+	toHash: string;
 	path: string;
 }
 
@@ -113,7 +126,9 @@ export type WebviewToHost =
 	| LoadCommitsMessage
 	| SelectRepoMessage
 	| LoadCommitDetailsMessage
+	| LoadComparisonMessage
 	| OpenDiffMessage
+	| OpenCompareDiffMessage
 	| CommitActionMessage
 	| WorkingTreeActionMessage
 	| RepoActionMessage
@@ -140,6 +155,13 @@ export interface CommitDetailsMessage {
 	details: CommitDetails;
 }
 
+export interface ComparisonMessage {
+	type: 'comparison';
+	fromHash: string;
+	toHash: string;
+	files: FileChange[];
+}
+
 export interface ErrorMessage {
 	type: 'error';
 	message: string;
@@ -148,4 +170,8 @@ export interface ErrorMessage {
 }
 
 /** Messages sent from the extension host to the webview. */
-export type HostToWebview = CommitsMessage | CommitDetailsMessage | ErrorMessage;
+export type HostToWebview =
+	| CommitsMessage
+	| CommitDetailsMessage
+	| ComparisonMessage
+	| ErrorMessage;

@@ -3,6 +3,7 @@
 	import { graphWidth } from '@git-octopus/graph-layout';
 	import { graphColour } from '../../lib/graphColours';
 	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
+	import type { DateFormat, GraphStyle } from '../settings/SettingsWidget.svelte';
 
 	export interface ColumnVisibility {
 		author: boolean;
@@ -15,7 +16,12 @@
 		selectedHash,
 		currentBranch,
 		columns,
+		compareHash,
+		dateFormat,
+		graphStyle,
+		scrollTarget,
 		onselect,
+		oncompare,
 		onaction,
 		ontoggleColumn,
 	}: {
@@ -23,7 +29,13 @@
 		selectedHash: string | null;
 		currentBranch: string | null;
 		columns: ColumnVisibility;
+		compareHash: string | null;
+		dateFormat: DateFormat;
+		graphStyle: GraphStyle;
+		/** Bumping `nonce` scrolls the given hash into view. */
+		scrollTarget: { hash: string; nonce: number } | null;
 		onselect: (hash: string) => void;
+		oncompare: (hash: string) => void;
 		onaction: (action: CommitActionId, commit: Commit) => void;
 		ontoggleColumn: (column: keyof ColumnVisibility) => void;
 	} = $props();
@@ -83,6 +95,7 @@
 		const y2 = cy(i + 1);
 		if (x1 === x2) return `M${x1} ${y1} L${x2} ${y2}`;
 		const ym = (y1 + y2) / 2;
+		if (graphStyle === 'angular') return `M${x1} ${y1} L${x1} ${ym} L${x2} ${ym} L${x2} ${y2}`;
 		return `M${x1} ${y1} C${x1} ${ym} ${x2} ${ym} ${x2} ${y2}`;
 	}
 
@@ -104,10 +117,37 @@
 
 	function fmtDate(epochSeconds: number): string {
 		const date = new Date(epochSeconds * 1000);
-		return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], {
-			hour: '2-digit',
-			minute: '2-digit',
-		})}`;
+		switch (dateFormat) {
+			case 'dateOnly':
+				return date.toLocaleDateString();
+			case 'iso':
+				return date.toISOString().slice(0, 16).replace('T', ' ');
+			case 'relative':
+				return relative(epochSeconds);
+			default:
+				return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], {
+					hour: '2-digit',
+					minute: '2-digit',
+				})}`;
+		}
+	}
+
+	function relative(epochSeconds: number): string {
+		const seconds = Math.max(0, Math.floor(Date.now() / 1000) - epochSeconds);
+		const listUnits: [number, string][] = [
+			[31536000, 'year'],
+			[2592000, 'month'],
+			[86400, 'day'],
+			[3600, 'hour'],
+			[60, 'minute'],
+		];
+		for (const [size, name] of listUnits) {
+			if (seconds >= size) {
+				const value = Math.floor(seconds / size);
+				return `${value} ${name}${value === 1 ? '' : 's'} ago`;
+			}
+		}
+		return 'just now';
 	}
 
 	function openMenu(event: MouseEvent, commit: Commit): void {
@@ -166,6 +206,14 @@
 	function onScroll(): void {
 		if (viewport) scrollTop = viewport.scrollTop;
 	}
+
+	$effect(() => {
+		const target = scrollTarget;
+		if (!target || !viewport) return;
+		const index = rows.findIndex((row) => row.commit.hash === target.hash);
+		if (index === -1) return;
+		viewport.scrollTo({ top: Math.max(0, index * ROW_H - viewport.clientHeight / 2) });
+	});
 </script>
 
 <div class="graph-view">
@@ -231,12 +279,16 @@
 				<div
 					class="row"
 					class:selected={v.row.commit.hash === selectedHash}
+					class:compared={v.row.commit.hash === compareHash}
 					style="top:{v.index * ROW_H}px; height:{ROW_H}px;
 						--graph-w:{graphPx}px; grid-template-columns:{gridTemplate}"
 					role="button"
 					tabindex="0"
 					title={v.row.commit.hash}
-					onclick={() => onselect(v.row.commit.hash)}
+					onclick={(event) => {
+						if (event.ctrlKey || event.metaKey) oncompare(v.row.commit.hash);
+						else onselect(v.row.commit.hash);
+					}}
 					onkeydown={(event) => {
 						if (event.key === 'Enter' || event.key === ' ') onselect(v.row.commit.hash);
 					}}
@@ -354,6 +406,10 @@
 	.row.selected {
 		background: var(--vscode-list-activeSelectionBackground);
 		color: var(--vscode-list-activeSelectionForeground);
+	}
+	.row.compared {
+		outline: 1px dashed var(--gg-accent);
+		outline-offset: -1px;
 	}
 	.refs {
 		display: flex;

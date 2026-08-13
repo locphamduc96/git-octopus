@@ -17,12 +17,15 @@
 	import ControlBar from './features/control-bar/ControlBar.svelte';
 	import FindWidget from './features/find/FindWidget.svelte';
 	import GraphView from './features/graph/GraphView.svelte';
-	import ChangesPanel, { type PanelTab } from './features/changes-panel/ChangesPanel.svelte';
+	import ChangesPanel, {
+		type ComparisonState,
+		type PanelTab,
+	} from './features/changes-panel/ChangesPanel.svelte';
+	import SettingsWidget, { type ViewSettings } from './features/settings/SettingsWidget.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
 
 	type Status = 'loading' | 'ready' | 'error';
 	const STACK_BREAKPOINT = 768;
-	const COMMIT_LIMIT = 300;
 
 	let status = $state<Status>('loading');
 	let rows = $state<GraphRow[]>([]);
@@ -52,13 +55,26 @@
 	let detailsLoading = $state(false);
 	let tab = $state<PanelTab>('changes');
 
+	let settingsOpen = $state(false);
+	let settings = $state<ViewSettings>(
+		saved.settings ?? { commitLimit: 300, dateFormat: 'dateTime', graphStyle: 'rounded' }
+	);
+
+	let comparison = $state<ComparisonState>({
+		fromHash: null,
+		toHash: null,
+		files: [],
+		loading: false,
+	});
+	let scrollTarget = $state<{ hash: string; nonce: number } | null>(null);
+
 	let shell = $state<HTMLDivElement | null>(null);
 	let shellWidth = $state(1200);
 	let shellHeight = $state(600);
 	let panelRatio = $state(saved.panelRatio ?? 0.35);
 
 	$effect(() => {
-		writeState({ columns, panelRatio, showRemoteBranches });
+		writeState({ columns, panelRatio, showRemoteBranches, settings });
 	});
 
 	const stacked = $derived(shellWidth < STACK_BREAKPOINT);
@@ -85,6 +101,14 @@
 		} else if (event.key === 'r') {
 			event.preventDefault();
 			load();
+		} else if (event.key === 'h') {
+			event.preventDefault();
+			const head = rows.find((row) => row.commit.refs.some((ref) => ref.kind === 'head'));
+			scrollTo(head?.commit.hash ?? null);
+		} else if (event.key === 's') {
+			event.preventDefault();
+			const stash = rows.find((row) => row.commit.refs.some((ref) => ref.kind === 'stash'));
+			scrollTo(stash?.commit.hash ?? null);
 		}
 	}
 
@@ -113,6 +137,13 @@
 			} else if (message.type === 'commitDetails') {
 				details = message.details;
 				detailsLoading = false;
+			} else if (message.type === 'comparison') {
+				comparison = {
+					fromHash: message.fromHash,
+					toHash: message.toHash,
+					files: message.files,
+					loading: false,
+				};
 			} else if (message.type === 'error') {
 				errorMessage = message.message;
 				repos = message.repos;
@@ -129,9 +160,33 @@
 		status = 'loading';
 		postToHost({
 			type: 'loadCommits',
-			limit: COMMIT_LIMIT,
+			limit: settings.commitLimit,
 			filters: { branch, showRemoteBranches },
 		});
+	}
+
+	/** Ctrl/Cmd + click: compare the clicked commit against the selected one. */
+	function compareWith(hash: string): void {
+		if (!selectedHash || selectedHash === hash) return;
+		comparison = { fromHash: selectedHash, toHash: hash, files: [], loading: true };
+		tab = 'compare';
+		postToHost({ type: 'loadComparison', fromHash: selectedHash, toHash: hash });
+	}
+
+	function openCompareDiff(path: string): void {
+		if (comparison.fromHash && comparison.toHash) {
+			postToHost({
+				type: 'openCompareDiff',
+				fromHash: comparison.fromHash,
+				toHash: comparison.toHash,
+				path,
+			});
+		}
+	}
+
+	function scrollTo(hash: string | null): void {
+		if (!hash) return;
+		scrollTarget = { hash, nonce: (scrollTarget?.nonce ?? 0) + 1 };
 	}
 
 	function selectRepo(path: string): void {
@@ -228,7 +283,20 @@
 		onfind={() => (findOpen = true)}
 		onfetch={() => postToHost({ type: 'repoAction', action: 'fetch' })}
 		onpull={() => postToHost({ type: 'repoAction', action: 'pull' })}
+		onsettings={() => (settingsOpen = true)}
 	/>
+
+	{#if settingsOpen}
+		<SettingsWidget
+			{settings}
+			onchange={(next) => {
+				const reload = next.commitLimit !== settings.commitLimit;
+				settings = next;
+				if (reload) load();
+			}}
+			onclose={() => (settingsOpen = false)}
+		/>
+	{/if}
 
 	{#if findOpen}
 		<FindWidget
@@ -259,7 +327,12 @@
 					{selectedHash}
 					{currentBranch}
 					{columns}
+					{scrollTarget}
+					compareHash={comparison.toHash}
+					dateFormat={settings.dateFormat}
+					graphStyle={settings.graphStyle}
 					onselect={select}
+					oncompare={compareWith}
 					onaction={runAction}
 					ontoggleColumn={toggleColumn}
 				/>
@@ -281,11 +354,13 @@
 				{detailsLoading}
 				branchName={currentBranch}
 				{ahead}
+				{comparison}
 				onpush={() => postToHost({ type: 'repoAction', action: 'push' })}
 				ontab={(next) => (tab = next)}
 				onworkingAction={workingAction}
 				onopenWorkingFile={openWorkingFile}
 				onopenDiff={openDiff}
+				onopenCompareDiff={openCompareDiff}
 			/>
 		</div>
 	</div>

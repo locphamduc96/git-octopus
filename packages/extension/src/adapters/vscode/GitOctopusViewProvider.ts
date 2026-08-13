@@ -11,10 +11,12 @@ import type { RepoActionService } from './RepoActionService.js';
 
 const DEFAULT_LIMIT = 300;
 
-export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
-	public static readonly viewType = 'git-octopus.view';
-
-	private view?: vscode.WebviewView;
+/**
+ * Owns the repository state and drives every attached webview — the Panel view and any
+ * editor-tab panels share one controller, so they stay in sync.
+ */
+export class GitOctopusController {
+	private listWebviews: vscode.Webview[] = [];
 	private repos: RepoInfo[] = [];
 	private activeRepo: string | null = null;
 	private filters: GraphFilters = { branch: null, showRemoteBranches: true };
@@ -28,19 +30,20 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 		private readonly repoActions: RepoActionService
 	) {}
 
-	public resolveWebviewView(webviewView: vscode.WebviewView): void {
-		this.view = webviewView;
+	/** Notified whenever the active repository or branch changes (drives the status bar item). */
+	public onRepoState?: (state: { repoName: string | null; branch: string | null }) => void;
+
+	/** Wire a webview: set its options, render the HTML and start handling its messages. */
+	public attach(webview: vscode.Webview, onDispose: vscode.Event<void>): void {
 		const mediaUri = vscode.Uri.joinPath(this.extensionUri, 'media', 'webview');
+		webview.options = { enableScripts: true, localResourceRoots: [mediaUri] };
+		webview.html = this.buildHtml(webview, mediaUri);
 
-		webviewView.webview.options = {
-			enableScripts: true,
-			localResourceRoots: [mediaUri],
-		};
-		webviewView.webview.html = this.buildHtml(webviewView.webview, mediaUri);
-
-		webviewView.webview.onDidReceiveMessage((message: WebviewToHost) =>
-			this.handleMessage(message)
-		);
+		this.listWebviews.push(webview);
+		webview.onDidReceiveMessage((message: WebviewToHost) => this.handleMessage(message));
+		onDispose(() => {
+			this.listWebviews = this.listWebviews.filter((item) => item !== webview);
+		});
 	}
 
 	public async refresh(): Promise<void> {
@@ -52,11 +55,8 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 
 		switch (message.type) {
 			case 'ready':
-				await this.discoverRepos();
-				await this.send(message);
-				return;
 			case 'loadCommits':
-				if (message.filters) this.filters = message.filters;
+				if (message.type === 'loadCommits' && message.filters) this.filters = message.filters;
 				await this.discoverRepos();
 				await this.send(message);
 				return;
@@ -66,12 +66,14 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 				await this.refresh();
 				return;
 			case 'openTerminal':
-				if (cwd) {
-					vscode.window.createTerminal({ name: 'Git Octopus', cwd }).show();
-				}
+				if (cwd) vscode.window.createTerminal({ name: 'Git Octopus', cwd }).show();
 				return;
 			case 'openDiff':
 				if (cwd) await this.diff.openDiff(message.hash, message.path, cwd);
+				return;
+			case 'openCompareDiff':
+				if (cwd)
+					await this.diff.openCompareDiff(message.fromHash, message.toHash, message.path, cwd);
 				return;
 			case 'openWorkingDiff':
 				if (cwd) await this.diff.openWorkingDiff(message.path, cwd);
@@ -91,23 +93,20 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 	}
 
 	private async send(message: WebviewToHost): Promise<void> {
-		if (!this.view) return;
+		if (this.listWebviews.length === 0) return;
 		const reply = await routeMessage(message, this.repoContext(), this.filters);
 		if (!reply) return;
 		if (reply.type === 'commits') {
 			this.onRepoState?.({ repoName: reply.repoName, branch: reply.currentBranch });
 		}
-		void this.view.webview.postMessage(reply);
+		for (const webview of this.listWebviews) {
+			void webview.postMessage(reply);
+		}
 	}
-
-	/** Notified whenever the active repository or branch changes (drives the status bar item). */
-	public onRepoState?: (state: { repoName: string | null; branch: string | null }) => void;
 
 	/** Re-scan the workspace, keeping the active repository when it still exists. */
 	private async discoverRepos(): Promise<void> {
-		const listRoots = (vscode.workspace.workspaceFolders ?? []).map(
-			(folder) => folder.uri.fsPath
-		);
+		const listRoots = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
 		this.repos = await findRepos(listRoots);
 		if (!this.activeRepo || !this.repos.some((repo) => repo.path === this.activeRepo)) {
 			this.activeRepo = this.repos[0]?.path ?? null;
@@ -150,6 +149,17 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 	<script type="module" nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
+	}
+}
+
+/** Thin adapter registering the controller as the Panel/Side Bar view. */
+export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
+	public static readonly viewType = 'git-octopus.view';
+
+	public constructor(private readonly controller: GitOctopusController) {}
+
+	public resolveWebviewView(webviewView: vscode.WebviewView): void {
+		this.controller.attach(webviewView.webview, webviewView.onDidDispose);
 	}
 }
 

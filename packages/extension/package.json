@@ -44,6 +44,11 @@
         "category": "Git Octopus",
         "command": "git-octopus.focus",
         "title": "Open Git Octopus"
+      },
+      {
+        "category": "Git Octopus",
+        "command": "git-octopus.openInTab",
+        "title": "Open Git Octopus in Editor Tab"
       }
     ]
   },

@@ -27,6 +27,11 @@ export interface PersistedState {
 	columns: { author: boolean; commit: boolean; date: boolean };
 	panelRatio: number;
 	showRemoteBranches: boolean;
+	settings: {
+		commitLimit: number;
+		dateFormat: 'dateTime' | 'dateOnly' | 'iso' | 'relative';
+		graphStyle: 'rounded' | 'angular';
+	};
 }
 
 export function readState(): Partial<PersistedState> {

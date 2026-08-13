@@ -146,6 +146,17 @@ export async function getCommitDetails(
 	return { hash, body: body.replace(/\n+$/, ''), files: parseNameStatus(nameStatus) };
 }
 
+/** Files that differ between two commits. */
+export async function getComparison(
+	executor: GitExecutor,
+	cwd: string,
+	fromHash: string,
+	toHash: string
+): Promise<FileChange[]> {
+	const output = await executor.run(['diff', '--name-status', '-r', fromHash, toHash], cwd);
+	return parseNameStatus(output);
+}
+
 /** Return the content of `path` at revision `rev`, or '' if it does not exist there. */
 export async function getFileAtRev(
 	executor: GitExecutor,
