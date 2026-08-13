@@ -22,7 +22,6 @@
 		type PanelTab,
 	} from './features/changes-panel/ChangesPanel.svelte';
 	import SettingsWidget, { type ViewSettings } from './features/settings/SettingsWidget.svelte';
-	import Icon from './lib/ui/Icon.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
 
 	type Status = 'loading' | 'ready' | 'error';
@@ -266,34 +265,6 @@
 <svelte:window onkeydown={onKeydown} />
 
 <div class="app">
-	<header class="topbar">
-		<span class="title">
-			<Icon name="source-control" />
-			{repoName ?? 'Git Octopus'}
-		</span>
-		{#if status === 'ready'}
-			<span class="count">{rows.length} commits</span>
-		{/if}
-	</header>
-
-	<ControlBar
-		{repos}
-		{activeRepo}
-		{listBranches}
-		{branch}
-		{showRemoteBranches}
-		{behind}
-		onselectRepo={selectRepo}
-		onselectBranch={selectBranch}
-		ontoggleRemote={toggleRemote}
-		onrefresh={load}
-		onterminal={() => postToHost({ type: 'openTerminal' })}
-		onfind={() => (findOpen = true)}
-		onfetch={() => postToHost({ type: 'repoAction', action: 'fetch' })}
-		onpull={() => postToHost({ type: 'repoAction', action: 'pull' })}
-		onsettings={() => (settingsOpen = true)}
-	/>
-
 	{#if settingsOpen}
 		<SettingsWidget
 			{settings}
@@ -308,15 +279,6 @@
 		/>
 	{/if}
 
-	{#if findOpen}
-		<FindWidget
-			query={findQuery}
-			matchCount={visibleRows.length}
-			onquery={(next) => (findQuery = next)}
-			onclose={closeFind}
-		/>
-	{/if}
-
 	<div
 		class="shell"
 		class:stacked
@@ -325,6 +287,35 @@
 		bind:clientHeight={shellHeight}
 	>
 		<div class="graph-area">
+			<ControlBar
+				{repos}
+				{activeRepo}
+				{repoName}
+				commitCount={status === 'ready' ? rows.length : 0}
+				{listBranches}
+				{branch}
+				{showRemoteBranches}
+				{behind}
+				onselectRepo={selectRepo}
+				onselectBranch={selectBranch}
+				ontoggleRemote={toggleRemote}
+				onrefresh={load}
+				onterminal={() => postToHost({ type: 'openTerminal' })}
+				onfind={() => (findOpen = true)}
+				onfetch={() => postToHost({ type: 'repoAction', action: 'fetch' })}
+				onpull={() => postToHost({ type: 'repoAction', action: 'pull' })}
+				onsettings={() => (settingsOpen = true)}
+			/>
+
+			{#if findOpen}
+				<FindWidget
+					query={findQuery}
+					matchCount={visibleRows.length}
+					onquery={(next) => (findQuery = next)}
+					onclose={closeFind}
+				/>
+			{/if}
+
 			{#if status === 'loading'}
 				<p class="hint">Loading…</p>
 			{:else if status === 'error'}
@@ -383,24 +374,6 @@
 		flex-direction: column;
 		height: 100%;
 	}
-	.topbar {
-		display: flex;
-		align-items: center;
-		gap: var(--gg-space-3);
-		padding: var(--gg-space-1) var(--gg-space-3);
-		border-bottom: 1px solid var(--gg-border);
-		flex: none;
-	}
-	.title {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--gg-space-1);
-		font-weight: 600;
-	}
-	.count {
-		color: var(--gg-fg-muted);
-		font-size: 0.85em;
-	}
 	.shell {
 		flex: 1;
 		display: flex;
@@ -413,6 +386,8 @@
 		flex: 1;
 		min-width: 0;
 		min-height: 0;
+		display: flex;
+		flex-direction: column;
 	}
 	.panel-area {
 		flex: none;

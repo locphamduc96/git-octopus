@@ -142,7 +142,7 @@
 	.toolbar {
 		display: flex;
 		align-items: center;
-		gap: var(--gg-space-1);
+		gap: 1px;
 		padding: var(--gg-space-1) var(--gg-space-2);
 		border-bottom: 1px solid var(--gg-border);
 	}
@@ -152,10 +152,10 @@
 		gap: 3px;
 		background: transparent;
 		color: var(--gg-fg);
-		border: 1px solid var(--gg-border);
-		border-radius: 3px;
+		border: none;
+		border-radius: 4px;
 		cursor: pointer;
-		padding: 2px var(--gg-space-2);
+		padding: 3px 5px;
 	}
 	.toolbar button:hover:not(:disabled) {
 		background: var(--vscode-toolbar-hoverBackground);
