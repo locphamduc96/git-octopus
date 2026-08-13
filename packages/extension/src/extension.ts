@@ -18,10 +18,27 @@ export function activate(context: vscode.ExtensionContext): void {
 		new RepoActionService(executor)
 	);
 
+	const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+	statusBar.command = 'git-octopus.focus';
+	statusBar.tooltip = 'Open Git Octopus';
+	provider.onRepoState = ({ repoName, branch }) => {
+		if (!repoName) {
+			statusBar.hide();
+			return;
+		}
+		statusBar.text = `$(git-branch) ${branch ?? repoName}`;
+		statusBar.show();
+	};
+
 	context.subscriptions.push(
+		statusBar,
 		vscode.workspace.registerTextDocumentContentProvider(DiffService.scheme, diff),
 		vscode.window.registerWebviewViewProvider(GitOctopusViewProvider.viewType, provider),
-		vscode.commands.registerCommand('git-octopus.refresh', () => void provider.refresh())
+		vscode.commands.registerCommand('git-octopus.refresh', () => void provider.refresh()),
+		vscode.commands.registerCommand(
+			'git-octopus.focus',
+			() => void vscode.commands.executeCommand('git-octopus.view.focus')
+		)
 	);
 }
 

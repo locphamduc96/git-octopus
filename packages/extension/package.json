@@ -39,6 +39,11 @@
         "category": "Git Octopus",
         "command": "git-octopus.refresh",
         "title": "Refresh"
+      },
+      {
+        "category": "Git Octopus",
+        "command": "git-octopus.focus",
+        "title": "Open Git Octopus"
       }
     ]
   },

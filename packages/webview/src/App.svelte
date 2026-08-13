@@ -159,6 +159,7 @@
 	}
 
 	function runAction(action: CommitActionId, commit: Commit): void {
+		const stashRef = commit.refs.find((ref) => ref.kind === 'stash');
 		postToHost({
 			type: 'commitAction',
 			action,
@@ -167,6 +168,7 @@
 			branches: commit.refs
 				.filter((ref) => ref.kind === 'branch' && !ref.remote)
 				.map((ref) => (ref.kind === 'branch' ? ref.name : '')),
+			stashName: stashRef?.kind === 'stash' ? stashRef.name : undefined,
 		});
 	}
 
@@ -204,6 +206,7 @@
 		onterminal={() => postToHost({ type: 'openTerminal' })}
 		onfind={() => (findOpen = true)}
 		onfetch={() => postToHost({ type: 'repoAction', action: 'fetch' })}
+		onpull={() => postToHost({ type: 'repoAction', action: 'pull' })}
 	/>
 
 	{#if findOpen}

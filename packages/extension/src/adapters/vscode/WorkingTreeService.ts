@@ -33,6 +33,16 @@ export class WorkingTreeService {
 					return this.runGit(['clean', '-fd', '--', message.path], cwd);
 				}
 			}
+			case 'stash': {
+				const name = await vscode.window.showInputBox({
+					prompt: 'Optional message for the stash',
+					placeHolder: 'Stash message',
+				});
+				if (name === undefined) return false;
+				const args = ['stash', 'push', '--include-untracked'];
+				if (name.trim() !== '') args.push('-m', name.trim());
+				return this.runGit(args, cwd, 'Stashed uncommitted changes.');
+			}
 			case 'commit': {
 				const messageText = (message.message ?? '').trim();
 				if (messageText === '') {

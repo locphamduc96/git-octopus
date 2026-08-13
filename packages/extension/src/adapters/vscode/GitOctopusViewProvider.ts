@@ -93,8 +93,15 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 	private async send(message: WebviewToHost): Promise<void> {
 		if (!this.view) return;
 		const reply = await routeMessage(message, this.repoContext(), this.filters);
-		if (reply) void this.view.webview.postMessage(reply);
+		if (!reply) return;
+		if (reply.type === 'commits') {
+			this.onRepoState?.({ repoName: reply.repoName, branch: reply.currentBranch });
+		}
+		void this.view.webview.postMessage(reply);
 	}
+
+	/** Notified whenever the active repository or branch changes (drives the status bar item). */
+	public onRepoState?: (state: { repoName: string | null; branch: string | null }) => void;
 
 	/** Re-scan the workspace, keeping the active repository when it still exists. */
 	private async discoverRepos(): Promise<void> {

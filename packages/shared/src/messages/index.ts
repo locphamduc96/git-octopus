@@ -53,6 +53,10 @@ export type CommitActionId =
 	| 'reset'
 	| 'addTag'
 	| 'deleteBranch'
+	| 'stashApply'
+	| 'stashPop'
+	| 'stashDrop'
+	| 'stashBranch'
 	| 'copyHash'
 	| 'copySubject';
 
@@ -63,6 +67,8 @@ export interface CommitActionMessage {
 	subject: string;
 	/** Local branch names pointing at this commit (for the delete-branch action). */
 	branches: string[];
+	/** Stash reference (e.g. "stash@{0}") when the commit is a stash. */
+	stashName?: string;
 }
 
 export type WorkingTreeAction =
@@ -71,9 +77,10 @@ export type WorkingTreeAction =
 	| 'stageAll'
 	| 'unstageAll'
 	| 'discard'
+	| 'stash'
 	| 'commit';
 
-export type RepoActionId = 'fetch' | 'push';
+export type RepoActionId = 'fetch' | 'push' | 'pull';
 
 export interface RepoActionMessage {
 	type: 'repoAction';

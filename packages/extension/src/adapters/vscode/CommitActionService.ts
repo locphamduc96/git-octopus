@@ -65,6 +65,11 @@ export class CommitActionService {
 				}
 				return this.runGit(['reset', mode.value, message.hash], cwd, `Reset to ${short}.`);
 			}
+			case 'stashApply':
+			case 'stashPop':
+			case 'stashDrop':
+			case 'stashBranch':
+				return this.runStashAction(message, cwd);
 			case 'deleteBranch': {
 				const branch =
 					message.branches.length === 1
@@ -74,6 +79,29 @@ export class CommitActionService {
 							});
 				if (!branch) return false;
 				return this.runGit(['branch', '-d', branch], cwd, `Deleted branch ${branch}.`);
+			}
+			default:
+				return false;
+		}
+	}
+
+	private async runStashAction(message: CommitActionMessage, cwd: string): Promise<boolean> {
+		const stash = message.stashName;
+		if (!stash) return false;
+		switch (message.action) {
+			case 'stashApply':
+				if (!(await this.confirm(`Apply ${stash} to the working tree?`))) return false;
+				return this.runGit(['stash', 'apply', stash], cwd, `Applied ${stash}.`);
+			case 'stashPop':
+				if (!(await this.confirm(`Pop ${stash} into the working tree?`))) return false;
+				return this.runGit(['stash', 'pop', stash], cwd, `Popped ${stash}.`);
+			case 'stashDrop':
+				if (!(await this.confirm(`Drop ${stash}? This cannot be undone.`))) return false;
+				return this.runGit(['stash', 'drop', stash], cwd, `Dropped ${stash}.`);
+			case 'stashBranch': {
+				const name = await this.askName(`Name for the new branch from ${stash}`);
+				if (!name) return false;
+				return this.runGit(['stash', 'branch', name, stash], cwd, `Created branch ${name}.`);
 			}
 			default:
 				return false;

@@ -39,6 +39,11 @@
 		<button class="push" onclick={onpush} disabled={ahead === 0} title="Push to remote">
 			↑ Push{ahead > 0 ? ` ${ahead}` : ''}
 		</button>
+		<button
+			onclick={() => onaction('stash')}
+			title="Stash uncommitted changes"
+			disabled={changes.length + untracked.length + staged.length === 0}>📦</button
+		>
 		<button onclick={() => onaction('unstageAll')} title="Unstage all">−</button>
 		<button onclick={() => onaction('stageAll')} title="Stage all">+</button>
 		<button class="primary" onclick={commit} disabled={staged.length === 0}>Commit</button>
@@ -132,6 +137,10 @@
 	}
 	.toolbar button:hover:not(:disabled) {
 		background: var(--vscode-toolbar-hoverBackground);
+	}
+	.toolbar button:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 	.toolbar .push {
 		background: var(--vscode-button-secondaryBackground, transparent);

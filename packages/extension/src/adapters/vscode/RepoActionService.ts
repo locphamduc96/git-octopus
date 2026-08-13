@@ -8,18 +8,28 @@ export class RepoActionService {
 
 	/** Returns true when the repository changed and the graph should refresh. */
 	public async run(message: RepoActionMessage, cwd: string): Promise<boolean> {
-		const isFetch = message.action === 'fetch';
-		const args = isFetch ? ['fetch', '--all', '--prune'] : ['push'];
-		const title = isFetch ? 'Git Octopus: fetching…' : 'Git Octopus: pushing…';
+		const mapArgs: Record<RepoActionMessage['action'], string[]> = {
+			fetch: ['fetch', '--all', '--prune'],
+			push: ['push'],
+			pull: ['pull'],
+		};
+		const mapTitle: Record<RepoActionMessage['action'], string> = {
+			fetch: 'Git Octopus: fetching…',
+			push: 'Git Octopus: pushing…',
+			pull: 'Git Octopus: pulling…',
+		};
+		const mapDone: Record<RepoActionMessage['action'], string> = {
+			fetch: 'fetched from remotes.',
+			push: 'pushed to remote.',
+			pull: 'pulled from remote.',
+		};
 
 		return vscode.window.withProgress(
-			{ location: vscode.ProgressLocation.Notification, title },
+			{ location: vscode.ProgressLocation.Notification, title: mapTitle[message.action] },
 			async () => {
 				try {
-					await this.executor.run(args, cwd);
-					vscode.window.showInformationMessage(
-						`Git Octopus: ${isFetch ? 'fetched from remotes.' : 'pushed to remote.'}`
-					);
+					await this.executor.run(mapArgs[message.action], cwd);
+					vscode.window.showInformationMessage(`Git Octopus: ${mapDone[message.action]}`);
 					return true;
 				} catch (err) {
 					vscode.window.showErrorMessage(

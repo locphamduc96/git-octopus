@@ -7,7 +7,9 @@ import {
 	getCommits,
 	getCurrentBranch,
 	getHeadHash,
+	getStashes,
 	getStatus,
+	type StashEntry,
 } from '../../core/git/gitService.js';
 
 export interface RepoContext {
@@ -36,15 +38,24 @@ export async function loadCommits(
 		};
 	}
 	try {
+		const listStashes = await getStashes(ctx.executor, ctx.cwd);
 		const [commits, working, headHash, listBranches, currentBranch, aheadBehind] =
 			await Promise.all([
-				getCommits(ctx.executor, ctx.cwd, limit, filters),
+				getCommits(
+					ctx.executor,
+					ctx.cwd,
+					limit,
+					filters,
+					listStashes.map((stash) => stash.hash)
+				),
 				getStatus(ctx.executor, ctx.cwd),
 				getHeadHash(ctx.executor, ctx.cwd),
 				getBranches(ctx.executor, ctx.cwd),
 				getCurrentBranch(ctx.executor, ctx.cwd),
 				getAheadBehind(ctx.executor, ctx.cwd),
 			]);
+
+		decorateStashes(commits, listStashes);
 		const dirty = working.staged.length > 0 || working.unstaged.length > 0;
 		const listCommits = dirty ? [makeUncommittedNode(headHash), ...commits] : commits;
 		return {
@@ -66,6 +77,21 @@ export async function loadCommits(
 			repos: ctx.repos,
 			activeRepo: ctx.cwd,
 		};
+	}
+}
+
+/**
+ * Tag stash commits with a stash ref. Their 2nd/3rd parents hold the index and untracked snapshots,
+ * which are internal to git — dropping them keeps the graph readable.
+ */
+function decorateStashes(listCommits: Commit[], listStashes: StashEntry[]): void {
+	if (listStashes.length === 0) return;
+	const mapStashByHash = new Map(listStashes.map((stash) => [stash.hash, stash.name]));
+	for (const commit of listCommits) {
+		const name = mapStashByHash.get(commit.hash);
+		if (!name) continue;
+		commit.refs = [...commit.refs, { kind: 'stash', name }];
+		commit.parents = commit.parents.slice(0, 1);
 	}
 }
 

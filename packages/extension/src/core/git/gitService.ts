@@ -20,18 +20,23 @@ function refArgs(filters: GraphFilterOptions): string[] {
 	return filters.showRemoteBranches ? ['--all'] : ['--branches', '--tags', 'HEAD'];
 }
 
-/** Load up to `limit` commits for the current filters, in graph (date) order. */
+/**
+ * Load up to `limit` commits for the current filters, in graph (date) order.
+ * `listExtraRevs` adds revisions not reachable from refs (used for stash commits).
+ */
 export async function getCommits(
 	executor: GitExecutor,
 	cwd: string,
 	limit: number,
-	filters: GraphFilterOptions
+	filters: GraphFilterOptions,
+	listExtraRevs: string[] = []
 ): Promise<Commit[]> {
 	const output = await executor.run(
 		[
 			'log',
 			`--pretty=format:${LOG_FORMAT}`,
 			...refArgs(filters),
+			...listExtraRevs,
 			'--date-order',
 			'-n',
 			String(limit),
@@ -39,6 +44,28 @@ export async function getCommits(
 		cwd
 	);
 	return parseLog(output);
+}
+
+export interface StashEntry {
+	hash: string;
+	/** Stash selector, e.g. "stash@{0}". */
+	name: string;
+}
+
+/** List the repository's stashes, newest first. */
+export async function getStashes(executor: GitExecutor, cwd: string): Promise<StashEntry[]> {
+	try {
+		const output = await executor.run(['stash', 'list', '--pretty=format:%H%x00%gD'], cwd);
+		return output
+			.split('\n')
+			.filter((line) => line !== '')
+			.map((line) => {
+				const [hash, name] = line.split('\0');
+				return { hash, name };
+			});
+	} catch {
+		return [];
+	}
 }
 
 /** Branch names for the Branches dropdown: local branches first, then remote-tracking ones. */

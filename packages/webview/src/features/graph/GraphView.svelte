@@ -55,6 +55,7 @@
 
 	function refLabel(ref: Ref): string {
 		if (ref.kind === 'tag') return ref.name;
+		if (ref.kind === 'stash') return ref.name;
 		if (ref.kind === 'head') return 'HEAD';
 		return ref.remote ? `${ref.remote}/${ref.name}` : ref.name;
 	}
@@ -62,6 +63,7 @@
 	/** Glyph hinting at the ref kind: checked-out, local branch, remote branch or tag. */
 	function refGlyph(ref: Ref): string {
 		if (ref.kind === 'tag') return '🏷';
+		if (ref.kind === 'stash') return '📦';
 		if (ref.kind === 'head') return '✔';
 		if (ref.remote) return '☁';
 		return ref.name === currentBranch ? '✔' : '🖥';
@@ -84,6 +86,17 @@
 
 	const menuItems = $derived.by(() => {
 		if (!menu) return [];
+		const stashRef = menu.commit.refs.find((r) => r.kind === 'stash');
+		if (stashRef) {
+			return [
+				{ id: 'stashApply', label: 'Apply Stash…' },
+				{ id: 'stashPop', label: 'Pop Stash…' },
+				{ id: 'stashBranch', label: 'Create Branch from Stash…' },
+				{ id: 'stashDrop', label: 'Drop Stash…', separatorBefore: true },
+				{ id: 'copyHash', label: 'Copy Commit Hash', separatorBefore: true },
+				{ id: 'copySubject', label: 'Copy Subject' },
+			];
+		}
 		const hasLocalBranch = menu.commit.refs.some((r) => r.kind === 'branch' && !r.remote);
 		const items: { id: string; label: string; separatorBefore?: boolean }[] = [
 			{ id: 'checkout', label: 'Checkout Commit' },

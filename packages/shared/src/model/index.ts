@@ -11,6 +11,7 @@ export interface Person {
 export type Ref =
 	| { kind: 'branch'; name: string; remote?: string }
 	| { kind: 'tag'; name: string }
+	| { kind: 'stash'; name: string }
 	| { kind: 'head' };
 
 export interface Commit {
