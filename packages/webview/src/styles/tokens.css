@@ -1,0 +1,28 @@
+/*
+ * Design tokens — the single mapping from VS Code theme variables to app tokens.
+ * Components reference only var(--gg-*), never a hard-coded colour (see ADR-0002).
+ */
+:root {
+	--gg-bg: var(--vscode-editor-background);
+	--gg-fg: var(--vscode-foreground);
+	--gg-fg-muted: var(--vscode-descriptionForeground);
+	--gg-border: var(--vscode-panel-border);
+	--gg-accent: var(--vscode-textLink-foreground);
+	--gg-font: var(--vscode-font-family);
+	--gg-font-size: var(--vscode-font-size);
+
+	--gg-space-1: 4px;
+	--gg-space-2: 8px;
+	--gg-space-3: 12px;
+	--gg-space-4: 16px;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	background: var(--gg-bg);
+	color: var(--gg-fg);
+	font-family: var(--gg-font);
+	font-size: var(--gg-font-size);
+}

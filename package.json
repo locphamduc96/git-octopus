@@ -1,0 +1,35 @@
+{
+  "name": "git-octopus-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "git-octopus — a Git graph client for VS Code (clean-room rewrite, inspired by Git Graph)",
+  "license": "MIT",
+  "packageManager": "pnpm@10.21.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "@vscode/vsce-sign", "keytar"]
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --parallel --filter @git-octopus/webview --filter git-octopus dev",
+    "test": "pnpm -r test",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "typecheck": "pnpm -r typecheck",
+    "package": "pnpm --filter @git-octopus/webview build && pnpm --filter git-octopus run package"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^20.17.10",
+    "eslint": "^9.17.0",
+    "eslint-plugin-svelte": "^2.46.1",
+    "prettier": "^3.4.2",
+    "prettier-plugin-svelte": "^3.3.2",
+    "svelte": "^5.16.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1",
+    "vitest": "^2.1.8"
+  }
+}
