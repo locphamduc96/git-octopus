@@ -1,6 +1,6 @@
 /**
  * Host ↔ webview message protocol.
- * Phase 1: load the commit graph. Phase 2: commit details + open diffs.
+ * Phase 1: load the commit graph. Phase 2: commit details, diffs, and commit actions.
  */
 import type { Commit, CommitDetails } from '../model/index.js';
 
@@ -24,12 +24,30 @@ export interface OpenDiffMessage {
 	path: string;
 }
 
+export type CommitActionId =
+	| 'checkout'
+	| 'createBranch'
+	| 'merge'
+	| 'deleteBranch'
+	| 'copyHash'
+	| 'copySubject';
+
+export interface CommitActionMessage {
+	type: 'commitAction';
+	action: CommitActionId;
+	hash: string;
+	subject: string;
+	/** Local branch names pointing at this commit (for the delete-branch action). */
+	branches: string[];
+}
+
 /** Messages sent from the webview to the extension host. */
 export type WebviewToHost =
 	| ReadyMessage
 	| LoadCommitsMessage
 	| LoadCommitDetailsMessage
-	| OpenDiffMessage;
+	| OpenDiffMessage
+	| CommitActionMessage;
 
 export interface CommitsMessage {
 	type: 'commits';

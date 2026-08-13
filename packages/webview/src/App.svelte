@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { CommitDetails, GraphRow, HostToWebview } from '@git-octopus/shared';
+	import type {
+		Commit,
+		CommitActionId,
+		CommitDetails,
+		GraphRow,
+		HostToWebview,
+	} from '@git-octopus/shared';
 	import { layoutCommits } from '@git-octopus/graph-layout';
 	import { onHostMessage, postToHost } from './lib/bridge';
 	import GraphView from './features/graph/GraphView.svelte';
@@ -58,6 +64,18 @@
 	function openDiff(path: string): void {
 		if (selectedHash) postToHost({ type: 'openDiff', hash: selectedHash, path });
 	}
+
+	function runAction(action: CommitActionId, commit: Commit): void {
+		postToHost({
+			type: 'commitAction',
+			action,
+			hash: commit.hash,
+			subject: commit.subject,
+			branches: commit.refs
+				.filter((ref) => ref.kind === 'branch' && !ref.remote)
+				.map((ref) => (ref.kind === 'branch' ? ref.name : '')),
+		});
+	}
 </script>
 
 <div class="app">
@@ -78,7 +96,7 @@
 			{:else if rows.length === 0}
 				<p class="hint">No commits found.</p>
 			{:else}
-				<GraphView {rows} {selectedHash} onselect={select} />
+				<GraphView {rows} {selectedHash} onselect={select} onaction={runAction} />
 			{/if}
 		</div>
 

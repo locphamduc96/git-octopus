@@ -1,17 +1,48 @@
 <script lang="ts">
-	import type { GraphRow, Ref } from '@git-octopus/shared';
+	import type { Commit, CommitActionId, GraphRow, Ref } from '@git-octopus/shared';
 	import { graphWidth } from '@git-octopus/graph-layout';
 	import { graphColour } from '../../lib/graphColours';
+	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
 
 	let {
 		rows,
 		selectedHash,
 		onselect,
+		onaction,
 	}: {
 		rows: GraphRow[];
 		selectedHash: string | null;
 		onselect: (hash: string) => void;
+		onaction: (action: CommitActionId, commit: Commit) => void;
 	} = $props();
+
+	let menu = $state<{ x: number; y: number; commit: Commit } | null>(null);
+
+	function openMenu(event: MouseEvent, commit: Commit): void {
+		event.preventDefault();
+		onselect(commit.hash);
+		menu = { x: event.clientX, y: event.clientY, commit };
+	}
+
+	const menuItems = $derived.by(() => {
+		if (!menu) return [];
+		const hasLocalBranch = menu.commit.refs.some((r) => r.kind === 'branch' && !r.remote);
+		const items: { id: string; label: string; separatorBefore?: boolean }[] = [
+			{ id: 'checkout', label: 'Checkout Commit' },
+			{ id: 'createBranch', label: 'Create Branch…' },
+			{ id: 'merge', label: 'Merge into current branch…' },
+		];
+		if (hasLocalBranch) items.push({ id: 'deleteBranch', label: 'Delete Branch…' });
+		items.push({ id: 'copyHash', label: 'Copy Commit Hash', separatorBefore: true });
+		items.push({ id: 'copySubject', label: 'Copy Subject' });
+		return items;
+	});
+
+	function onMenuSelect(id: string): void {
+		const commit = menu?.commit;
+		menu = null;
+		if (commit) onaction(id as CommitActionId, commit);
+	}
 
 	const ROW_H = 24;
 	const COL_W = 14;
@@ -87,6 +118,7 @@
 				onkeydown={(event) => {
 					if (event.key === 'Enter' || event.key === ' ') onselect(v.row.commit.hash);
 				}}
+				oncontextmenu={(event) => openMenu(event, v.row.commit)}
 			>
 				{#each v.row.commit.refs as ref, r (r)}
 					<span class="ref {ref.kind}">{refLabel(ref)}</span>
@@ -97,6 +129,16 @@
 		{/each}
 	</div>
 </div>
+
+{#if menu}
+	<ContextMenu
+		x={menu.x}
+		y={menu.y}
+		items={menuItems}
+		onselect={onMenuSelect}
+		onclose={() => (menu = null)}
+	/>
+{/if}
 
 <style>
 	.graph {
