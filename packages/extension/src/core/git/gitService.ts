@@ -1,6 +1,13 @@
-import type { Commit, CommitDetails, FileChange, FileStatus } from '@git-octopus/shared';
+import type {
+	Commit,
+	CommitDetails,
+	FileChange,
+	FileStatus,
+	WorkingTreeStatus,
+} from '@git-octopus/shared';
 import type { GitExecutor } from './GitExecutor.js';
 import { LOG_FORMAT, parseLog } from './logParser.js';
+import { STATUS_ARGS, parseStatus } from './statusParser.js';
 
 /** Load up to `limit` commits across all refs, in graph (date) order. */
 export async function getCommits(
@@ -13,6 +20,20 @@ export async function getCommits(
 		cwd
 	);
 	return parseLog(output);
+}
+
+/** Read the working tree status (staged & unstaged changes). */
+export async function getStatus(executor: GitExecutor, cwd: string): Promise<WorkingTreeStatus> {
+	return parseStatus(await executor.run(STATUS_ARGS, cwd));
+}
+
+/** Resolve the current HEAD commit hash, or null in an empty repository. */
+export async function getHeadHash(executor: GitExecutor, cwd: string): Promise<string | null> {
+	try {
+		return (await executor.run(['rev-parse', 'HEAD'], cwd)).trim() || null;
+	} catch {
+		return null;
+	}
 }
 
 /** Load the full message body and changed files for a single commit. */

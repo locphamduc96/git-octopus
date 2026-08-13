@@ -1,8 +1,8 @@
 /**
  * Host ↔ webview message protocol.
- * Phase 1: load the commit graph. Phase 2: commit details, diffs, and commit actions.
+ * P1: commit graph. P2: commit details, diffs, commit actions. P3: working tree.
  */
-import type { Commit, CommitDetails } from '../model/index.js';
+import type { Commit, CommitDetails, WorkingTreeStatus } from '../model/index.js';
 
 export interface ReadyMessage {
 	type: 'ready';
@@ -41,18 +41,35 @@ export interface CommitActionMessage {
 	branches: string[];
 }
 
+export type WorkingTreeAction = 'stage' | 'unstage' | 'stageAll' | 'unstageAll' | 'commit';
+
+export interface WorkingTreeActionMessage {
+	type: 'workingTreeAction';
+	action: WorkingTreeAction;
+	path?: string;
+	message?: string;
+}
+
+export interface OpenWorkingDiffMessage {
+	type: 'openWorkingDiff';
+	path: string;
+}
+
 /** Messages sent from the webview to the extension host. */
 export type WebviewToHost =
 	| ReadyMessage
 	| LoadCommitsMessage
 	| LoadCommitDetailsMessage
 	| OpenDiffMessage
-	| CommitActionMessage;
+	| CommitActionMessage
+	| WorkingTreeActionMessage
+	| OpenWorkingDiffMessage;
 
 export interface CommitsMessage {
 	type: 'commits';
 	repoName: string | null;
 	commits: Commit[];
+	working: WorkingTreeStatus | null;
 }
 
 export interface CommitDetailsMessage {

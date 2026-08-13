@@ -5,6 +5,7 @@ import { routeMessage } from '../../app/messageRouter.js';
 import type { RepoContext } from '../../app/useCases/loadCommits.js';
 import type { DiffService } from './DiffService.js';
 import type { CommitActionService } from './CommitActionService.js';
+import type { WorkingTreeService } from './WorkingTreeService.js';
 
 export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'git-octopus.view';
@@ -15,7 +16,8 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 		private readonly extensionUri: vscode.Uri,
 		private readonly executor: GitExecutor,
 		private readonly diff: DiffService,
-		private readonly actions: CommitActionService
+		private readonly actions: CommitActionService,
+		private readonly workingTree: WorkingTreeService
 	) {}
 
 	public resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -34,9 +36,19 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 				if (cwd) await this.diff.openDiff(message.hash, message.path, cwd);
 				return;
 			}
+			if (message.type === 'openWorkingDiff') {
+				const { cwd } = this.repoContext();
+				if (cwd) await this.diff.openWorkingDiff(message.path, cwd);
+				return;
+			}
 			if (message.type === 'commitAction') {
 				const { cwd } = this.repoContext();
 				if (cwd && (await this.actions.run(message, cwd))) await this.refresh();
+				return;
+			}
+			if (message.type === 'workingTreeAction') {
+				const { cwd } = this.repoContext();
+				if (cwd && (await this.workingTree.run(message, cwd))) await this.refresh();
 				return;
 			}
 			const reply = await routeMessage(message, this.repoContext());

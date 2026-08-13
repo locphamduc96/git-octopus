@@ -20,7 +20,12 @@ export interface Commit {
 	committedAt: number; // epoch seconds
 	subject: string;
 	refs: Ref[];
+	/** True for the synthetic "Uncommitted Changes" node at the top of the graph. */
+	isUncommitted?: boolean;
 }
+
+/** Sentinel hash used for the synthetic uncommitted-changes node. */
+export const UNCOMMITTED_HASH = '*uncommitted*';
 
 /** A single connecting line from a graph row down to the next row. */
 export interface GraphEdge {
@@ -37,7 +42,7 @@ export interface GraphRow {
 	edges: GraphEdge[];
 }
 
-export type FileStatus = 'A' | 'M' | 'D' | 'R' | 'C' | 'T' | 'U' | 'X';
+export type FileStatus = 'A' | 'M' | 'D' | 'R' | 'C' | 'T' | 'U' | 'X' | '?';
 
 export interface FileChange {
 	status: FileStatus;
@@ -49,4 +54,9 @@ export interface CommitDetails {
 	hash: string;
 	body: string;
 	files: FileChange[];
+}
+
+export interface WorkingTreeStatus {
+	staged: FileChange[];
+	unstaged: FileChange[];
 }

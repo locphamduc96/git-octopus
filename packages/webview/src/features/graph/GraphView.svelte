@@ -21,6 +21,7 @@
 	function openMenu(event: MouseEvent, commit: Commit): void {
 		event.preventDefault();
 		onselect(commit.hash);
+		if (commit.isUncommitted) return;
 		menu = { x: event.clientX, y: event.clientY, commit };
 	}
 
@@ -103,7 +104,23 @@
 				{/each}
 			{/each}
 			{#each visible as v (v.row.commit.hash)}
-				<circle cx={cx(v.row.nodeColumn)} cy={cy(v.index)} r={NODE_R} fill={graphColour(v.row.nodeColour)} />
+				{#if v.row.commit.isUncommitted}
+					<circle
+						cx={cx(v.row.nodeColumn)}
+						cy={cy(v.index)}
+						r={NODE_R}
+						fill="none"
+						stroke={graphColour(v.row.nodeColour)}
+						stroke-width="2"
+					/>
+				{:else}
+					<circle
+						cx={cx(v.row.nodeColumn)}
+						cy={cy(v.index)}
+						r={NODE_R}
+						fill={graphColour(v.row.nodeColour)}
+					/>
+				{/if}
 			{/each}
 		</svg>
 		{#each visible as v (v.row.commit.hash)}
@@ -123,8 +140,14 @@
 				{#each v.row.commit.refs as ref, r (r)}
 					<span class="ref {ref.kind}">{refLabel(ref)}</span>
 				{/each}
-				<span class="subject">{v.row.commit.subject}</span>
-				<span class="meta">{v.row.commit.author.name} · {fmtDate(v.row.commit.committedAt)}</span>
+				<span class="subject" class:uncommitted={v.row.commit.isUncommitted}
+					>{v.row.commit.subject}</span
+				>
+				<span class="meta">
+					{#if !v.row.commit.isUncommitted}{v.row.commit.author.name} · {/if}{fmtDate(
+						v.row.commit.committedAt
+					)}
+				</span>
 			</div>
 		{/each}
 	</div>
@@ -184,6 +207,9 @@
 		flex: 1;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.subject.uncommitted {
+		font-weight: 600;
 	}
 	.meta {
 		flex: none;
