@@ -62,6 +62,8 @@
 	const NODE_R = 5;
 	/** Radius used when a commit shows its author's avatar instead of a plain dot. */
 	const AVATAR_R = 9;
+	/** Codicon glyph for `archive`, drawn inside the stash node. */
+	const STASH_GLYPH = '';
 	const OVERSCAN = 8;
 	const MIN_COL_W = 60;
 	const MAX_CHIPS = 3;
@@ -364,11 +366,15 @@
 				aria-hidden="true"
 			>
 				{#each visible as v (v.row.commit.hash)}
+					{@const fromStash = v.row.commit.refs.some((ref) => ref.kind === 'stash')}
 					{#each v.row.edges as edge, e (e)}
 						<path
 							d={edgePath(edge.fromColumn, edge.toColumn, v.index)}
 							stroke={graphColour(edge.colour)}
 							stroke-width="2"
+							stroke-dasharray={fromStash && edge.fromColumn === v.row.nodeColumn
+								? '3 3'
+								: undefined}
 							fill="none"
 						/>
 					{/each}
@@ -376,8 +382,20 @@
 				{#each visible as v (v.row.commit.hash)}
 					{@const commit = v.row.commit}
 					{@const isMerge = commit.parents.length > 1}
-					{@const avatar = !commit.isUncommitted && !isMerge ? commit.author.avatarUrl : undefined}
-					{#if commit.isUncommitted}
+					{@const isStash = commit.refs.some((ref) => ref.kind === 'stash')}
+					{@const avatar =
+						!commit.isUncommitted && !isMerge && !isStash ? commit.author.avatarUrl : undefined}
+					{#if isStash}
+						<text
+							x={cx(v.row.nodeColumn)}
+							y={cy(v.index)}
+							fill={graphColour(v.row.nodeColour)}
+							font-family="codicon"
+							font-size="16"
+							text-anchor="middle"
+							dominant-baseline="central">{STASH_GLYPH}</text
+						>
+					{:else if commit.isUncommitted}
 						<circle
 							cx={cx(v.row.nodeColumn)}
 							cy={cy(v.index)}

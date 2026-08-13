@@ -55,7 +55,8 @@ export interface StashEntry {
 /** List the repository's stashes, newest first. */
 export async function getStashes(executor: GitExecutor, cwd: string): Promise<StashEntry[]> {
 	try {
-		const output = await executor.run(['stash', 'list', '--pretty=format:%H%x00%gD'], cwd);
+		// %gd is the short selector ("stash@{0}"); %gD would give the full "refs/stash@{0}".
+		const output = await executor.run(['stash', 'list', '--pretty=format:%H%x00%gd'], cwd);
 		return output
 			.split('\n')
 			.filter((line) => line !== '')

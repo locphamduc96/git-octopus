@@ -31,6 +31,9 @@ export function parseRefs(decoration: string): Ref[] {
 	for (const raw of decoration.split(',')) {
 		const token = raw.trim();
 		if (token === '') continue;
+		// Refs outside heads/remotes/tags are printed in full ("refs/stash", "refs/notes/commits").
+		// They are git's own bookkeeping, not branches, so they never become chips.
+		if (token.startsWith('refs/')) continue;
 		if (token.startsWith('tag: ')) {
 			listRefs.push({ kind: 'tag', name: token.slice(5) });
 		} else if (token.startsWith('HEAD -> ')) {

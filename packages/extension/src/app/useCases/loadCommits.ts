@@ -57,16 +57,16 @@ export async function loadCommits(
 				getAheadBehind(ctx.executor, ctx.cwd),
 			]);
 
-		decorateStashes(commits, listStashes);
+		const listHistory = applyStashes(commits, listStashes);
 		if (filters.fetchAvatars && ctx.avatarUrl) {
-			for (const commit of commits) {
+			for (const commit of listHistory) {
 				if (commit.author.email !== '') {
 					commit.author.avatarUrl = ctx.avatarUrl(commit.author.email);
 				}
 			}
 		}
 		const dirty = working.staged.length > 0 || working.unstaged.length > 0;
-		const listCommits = dirty ? [makeUncommittedNode(headHash), ...commits] : commits;
+		const listCommits = dirty ? [makeUncommittedNode(headHash), ...listHistory] : listHistory;
 		return {
 			type: 'commits',
 			commits: listCommits,
@@ -90,18 +90,30 @@ export async function loadCommits(
 }
 
 /**
- * Tag stash commits with a stash ref. Their 2nd/3rd parents hold the index and untracked snapshots,
- * which are internal to git — dropping them keeps the graph readable.
+ * Label stash commits and hide git's stash plumbing.
+ *
+ * A stash commit has up to three parents: the commit that was checked out, a snapshot of the index,
+ * and a snapshot of the untracked files. Only the first is real history — the other two are commits
+ * git creates for its own bookkeeping, so they are dropped from both the parent list and the graph.
  */
-function decorateStashes(listCommits: Commit[], listStashes: StashEntry[]): void {
-	if (listStashes.length === 0) return;
+function applyStashes(listCommits: Commit[], listStashes: StashEntry[]): Commit[] {
+	if (listStashes.length === 0) return listCommits;
+
 	const mapStashByHash = new Map(listStashes.map((stash) => [stash.hash, stash.name]));
+	const setSnapshots = new Set<string>();
+
 	for (const commit of listCommits) {
 		const name = mapStashByHash.get(commit.hash);
 		if (!name) continue;
 		commit.refs = [...commit.refs, { kind: 'stash', name }];
+		for (const parent of commit.parents.slice(1)) setSnapshots.add(parent);
 		commit.parents = commit.parents.slice(0, 1);
 	}
+
+	// Keep a snapshot commit if some ref points at it, so nothing referenced ever disappears.
+	return listCommits.filter(
+		(commit) => !setSnapshots.has(commit.hash) || commit.refs.length > 0
+	);
 }
 
 function makeUncommittedNode(headHash: string | null): Commit {

@@ -62,6 +62,11 @@ describe('parseRefs', () => {
 		]);
 	});
 
+	it('ignores git-internal refs printed in full, such as refs/stash', () => {
+		expect(parseRefs('refs/stash')).toEqual([]);
+		expect(parseRefs('refs/notes/commits')).toEqual([]);
+	});
+
 	it('keeps a real branch that merely ends in HEAD', () => {
 		expect(parseRefs('origin/feature/HEADless')).toEqual([
 			{ kind: 'branch', name: 'feature/HEADless', remote: 'origin' },
