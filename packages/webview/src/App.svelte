@@ -6,24 +6,34 @@
 		CommitDetails,
 		GraphRow,
 		HostToWebview,
+		RepoInfo,
 		WorkingTreeAction,
 		WorkingTreeStatus,
 	} from '@git-octopus/shared';
 	import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 	import { layoutCommits } from '@git-octopus/graph-layout';
 	import { onHostMessage, postToHost } from './lib/bridge';
+	import ControlBar from './features/control-bar/ControlBar.svelte';
 	import GraphView from './features/graph/GraphView.svelte';
 	import ChangesPanel, { type PanelTab } from './features/changes-panel/ChangesPanel.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
 
 	type Status = 'loading' | 'ready' | 'error';
 	const STACK_BREAKPOINT = 768;
+	const COMMIT_LIMIT = 300;
 
 	let status = $state<Status>('loading');
 	let rows = $state<GraphRow[]>([]);
 	let repoName = $state<string | null>(null);
 	let errorMessage = $state('');
 	let working = $state<WorkingTreeStatus | null>(null);
+
+	let repos = $state<RepoInfo[]>([]);
+	let activeRepo = $state<string | null>(null);
+	let listBranches = $state<string[]>([]);
+	let currentBranch = $state<string | null>(null);
+	let branch = $state<string | null>(null);
+	let showRemoteBranches = $state(true);
 
 	let selectedHash = $state<string | null>(null);
 	let details = $state<CommitDetails | null>(null);
@@ -36,16 +46,6 @@
 	let panelRatio = $state(0.35);
 
 	const stacked = $derived(shellWidth < STACK_BREAKPOINT);
-	const branchName = $derived.by(() => {
-		for (const row of rows) {
-			const isHead = row.commit.refs.some((ref) => ref.kind === 'head');
-			if (!isHead) continue;
-			for (const ref of row.commit.refs) {
-				if (ref.kind === 'branch' && !ref.remote) return ref.name;
-			}
-		}
-		return null;
-	});
 
 	onMount(() => {
 		const off = onHostMessage((message: HostToWebview) => {
@@ -53,12 +53,18 @@
 				rows = layoutCommits(message.commits);
 				repoName = message.repoName;
 				working = message.working;
+				repos = message.repos;
+				activeRepo = message.activeRepo;
+				listBranches = message.listBranches;
+				currentBranch = message.currentBranch;
 				status = 'ready';
 			} else if (message.type === 'commitDetails') {
 				details = message.details;
 				detailsLoading = false;
 			} else if (message.type === 'error') {
 				errorMessage = message.message;
+				repos = message.repos;
+				activeRepo = message.activeRepo;
 				status = 'error';
 				detailsLoading = false;
 			}
@@ -67,9 +73,31 @@
 		return off;
 	});
 
-	function refresh(): void {
+	function load(): void {
 		status = 'loading';
-		postToHost({ type: 'loadCommits', limit: 300 });
+		postToHost({
+			type: 'loadCommits',
+			limit: COMMIT_LIMIT,
+			filters: { branch, showRemoteBranches },
+		});
+	}
+
+	function selectRepo(path: string): void {
+		status = 'loading';
+		branch = null;
+		selectedHash = null;
+		details = null;
+		postToHost({ type: 'selectRepo', path });
+	}
+
+	function selectBranch(next: string | null): void {
+		branch = next;
+		load();
+	}
+
+	function toggleRemote(show: boolean): void {
+		showRemoteBranches = show;
+		load();
 	}
 
 	function select(hash: string): void {
@@ -124,8 +152,20 @@
 		{#if status === 'ready'}
 			<span class="count">{rows.length} commits</span>
 		{/if}
-		<button onclick={refresh} title="Refresh">⟳</button>
 	</header>
+
+	<ControlBar
+		{repos}
+		{activeRepo}
+		{listBranches}
+		{branch}
+		{showRemoteBranches}
+		onselectRepo={selectRepo}
+		onselectBranch={selectBranch}
+		ontoggleRemote={toggleRemote}
+		onrefresh={load}
+		onterminal={() => postToHost({ type: 'openTerminal' })}
+	/>
 
 	<div
 		class="shell"
@@ -142,7 +182,13 @@
 			{:else if rows.length === 0}
 				<p class="hint">No commits found.</p>
 			{:else}
-				<GraphView {rows} {selectedHash} onselect={select} onaction={runAction} />
+				<GraphView
+					{rows}
+					{selectedHash}
+					{currentBranch}
+					onselect={select}
+					onaction={runAction}
+				/>
 			{/if}
 		</div>
 
@@ -159,7 +205,7 @@
 				{working}
 				{details}
 				{detailsLoading}
-				{branchName}
+				branchName={currentBranch}
 				ontab={(next) => (tab = next)}
 				onworkingAction={workingAction}
 				onopenWorkingFile={openWorkingFile}
@@ -189,18 +235,6 @@
 	.count {
 		color: var(--gg-fg-muted);
 		font-size: 0.85em;
-	}
-	.topbar button {
-		margin-left: auto;
-		background: transparent;
-		color: var(--gg-fg);
-		border: 1px solid var(--gg-border);
-		border-radius: 3px;
-		cursor: pointer;
-		padding: 0 var(--gg-space-2);
-	}
-	.topbar button:hover {
-		background: var(--vscode-toolbar-hoverBackground);
 	}
 	.shell {
 		flex: 1;

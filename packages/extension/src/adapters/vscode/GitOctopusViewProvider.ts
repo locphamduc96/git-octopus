@@ -1,16 +1,22 @@
 import * as vscode from 'vscode';
-import type { WebviewToHost } from '@git-octopus/shared';
+import type { GraphFilters, RepoInfo, WebviewToHost } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import { routeMessage } from '../../app/messageRouter.js';
 import type { RepoContext } from '../../app/useCases/loadCommits.js';
+import { findRepos } from '../fs/repoScanner.js';
 import type { DiffService } from './DiffService.js';
 import type { CommitActionService } from './CommitActionService.js';
 import type { WorkingTreeService } from './WorkingTreeService.js';
+
+const DEFAULT_LIMIT = 300;
 
 export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'git-octopus.view';
 
 	private view?: vscode.WebviewView;
+	private repos: RepoInfo[] = [];
+	private activeRepo: string | null = null;
+	private filters: GraphFilters = { branch: null, showRemoteBranches: true };
 
 	public constructor(
 		private readonly extensionUri: vscode.Uri,
@@ -30,48 +36,79 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 		};
 		webviewView.webview.html = this.buildHtml(webviewView.webview, mediaUri);
 
-		webviewView.webview.onDidReceiveMessage(async (message: WebviewToHost) => {
-			if (message.type === 'openDiff') {
-				const { cwd } = this.repoContext();
-				if (cwd) await this.diff.openDiff(message.hash, message.path, cwd);
-				return;
-			}
-			if (message.type === 'openWorkingDiff') {
-				const { cwd } = this.repoContext();
-				if (cwd) await this.diff.openWorkingDiff(message.path, cwd);
-				return;
-			}
-			if (message.type === 'commitAction') {
-				const { cwd } = this.repoContext();
-				if (cwd && (await this.actions.run(message, cwd))) await this.refresh();
-				return;
-			}
-			if (message.type === 'workingTreeAction') {
-				const { cwd } = this.repoContext();
-				if (cwd && (await this.workingTree.run(message, cwd))) await this.refresh();
-				return;
-			}
-			const reply = await routeMessage(message, this.repoContext());
-			if (reply) {
-				void webviewView.webview.postMessage(reply);
-			}
-		});
+		webviewView.webview.onDidReceiveMessage((message: WebviewToHost) =>
+			this.handleMessage(message)
+		);
 	}
 
 	public async refresh(): Promise<void> {
+		await this.send({ type: 'loadCommits', limit: DEFAULT_LIMIT, filters: this.filters });
+	}
+
+	private async handleMessage(message: WebviewToHost): Promise<void> {
+		const cwd = this.activeRepo;
+
+		switch (message.type) {
+			case 'ready':
+				await this.discoverRepos();
+				await this.send(message);
+				return;
+			case 'loadCommits':
+				if (message.filters) this.filters = message.filters;
+				await this.discoverRepos();
+				await this.send(message);
+				return;
+			case 'selectRepo':
+				this.activeRepo = message.path;
+				this.filters = { branch: null, showRemoteBranches: this.filters.showRemoteBranches };
+				await this.refresh();
+				return;
+			case 'openTerminal':
+				if (cwd) {
+					vscode.window.createTerminal({ name: 'Git Octopus', cwd }).show();
+				}
+				return;
+			case 'openDiff':
+				if (cwd) await this.diff.openDiff(message.hash, message.path, cwd);
+				return;
+			case 'openWorkingDiff':
+				if (cwd) await this.diff.openWorkingDiff(message.path, cwd);
+				return;
+			case 'commitAction':
+				if (cwd && (await this.actions.run(message, cwd))) await this.refresh();
+				return;
+			case 'workingTreeAction':
+				if (cwd && (await this.workingTree.run(message, cwd))) await this.refresh();
+				return;
+			default:
+				await this.send(message);
+		}
+	}
+
+	private async send(message: WebviewToHost): Promise<void> {
 		if (!this.view) return;
-		const reply = await routeMessage({ type: 'loadCommits', limit: 300 }, this.repoContext());
-		if (reply) {
-			void this.view.webview.postMessage(reply);
+		const reply = await routeMessage(message, this.repoContext(), this.filters);
+		if (reply) void this.view.webview.postMessage(reply);
+	}
+
+	/** Re-scan the workspace, keeping the active repository when it still exists. */
+	private async discoverRepos(): Promise<void> {
+		const listRoots = (vscode.workspace.workspaceFolders ?? []).map(
+			(folder) => folder.uri.fsPath
+		);
+		this.repos = await findRepos(listRoots);
+		if (!this.activeRepo || !this.repos.some((repo) => repo.path === this.activeRepo)) {
+			this.activeRepo = this.repos[0]?.path ?? null;
 		}
 	}
 
 	private repoContext(): RepoContext {
-		const folder = vscode.workspace.workspaceFolders?.[0];
+		const active = this.repos.find((repo) => repo.path === this.activeRepo) ?? null;
 		return {
 			executor: this.executor,
-			cwd: folder?.uri.fsPath ?? null,
-			repoName: folder?.name ?? null,
+			repos: this.repos,
+			cwd: active?.path ?? null,
+			repoName: active?.name ?? null,
 		};
 	}
 
