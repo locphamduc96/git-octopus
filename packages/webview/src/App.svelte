@@ -387,6 +387,7 @@
 				{detailsLoading}
 				branchName={currentBranch}
 				{ahead}
+				{behind}
 				{comparison}
 				onpush={() => postToHost({ type: 'repoAction', action: 'push' })}
 				onpushForce={() => postToHost({ type: 'repoAction', action: 'pushForce' })}

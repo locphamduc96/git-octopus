@@ -26,6 +26,7 @@
 		detailsLoading,
 		branchName,
 		ahead,
+		behind,
 		comparison,
 		onworkingAction,
 		onopenWorkingFile,
@@ -40,6 +41,7 @@
 		detailsLoading: boolean;
 		branchName: string | null;
 		ahead: number;
+		behind: number;
 		comparison: ComparisonState;
 		onworkingAction: (action: WorkingTreeAction, path?: string, message?: string) => void;
 		onopenWorkingFile: (path: string) => void;
@@ -56,9 +58,15 @@
 	<header>
 		{#if mode === 'changes'}
 			<span class="summary">
-				{changeCount} file change{changeCount === 1 ? '' : 's'}
 				{#if branchName}
-					on <span class="branch">{branchName}</span>
+					<span class="branch" title="Commits and pushes go to this branch">{branchName}</span>
+				{:else}
+					<span class="branch" title="HEAD is detached">detached</span>
+				{/if}
+				{#if ahead > 0}<span class="sync" title="{ahead} commit(s) to push">↑{ahead}</span>{/if}
+				{#if behind > 0}<span class="sync" title="{behind} commit(s) to pull">↓{behind}</span>{/if}
+				{#if changeCount > 0}
+					· {changeCount} change{changeCount === 1 ? '' : 's'}
 				{/if}
 			</span>
 		{:else if mode === 'commit'}
@@ -132,6 +140,10 @@
 		color: var(--vscode-badge-foreground);
 		border-radius: 3px;
 		padding: 0 var(--gg-space-1);
+	}
+	.sync {
+		color: var(--gg-accent);
+		margin-left: var(--gg-space-1);
 	}
 	.mono {
 		font-family: var(--vscode-editor-font-family, monospace);

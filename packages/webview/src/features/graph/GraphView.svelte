@@ -298,31 +298,57 @@
 		title="Right-click to show or hide columns"
 	>
 		<span class="hcell">
-			Branch / Tag
+			<span class="hlabel">Branch / Tag</span>
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<span class="grip" onmousedown={(event) => startResize('ref', event)}></span>
+			<span
+				class="grip resizable"
+				class:active={resizing?.key === 'ref'}
+				title="Drag to resize the Branch / Tag column"
+				onmousedown={(event) => startResize('ref', event)}
+			></span>
 		</span>
-		<span class="hcell">Graph</span>
-		<span class="hcell desc">Description</span>
+		<span class="hcell">
+			<span class="hlabel">Graph</span>
+			<span class="grip"></span>
+		</span>
+		<span class="hcell desc">
+			<span class="hlabel">Description</span>
+			{#if columns.author || columns.commit || columns.date}<span class="grip"></span>{/if}
+		</span>
 		{#if columns.author}
 			<span class="hcell">
-				Author
+				<span class="hlabel">Author</span>
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<span class="grip" onmousedown={(event) => startResize('author', event)}></span>
+				<span
+					class="grip resizable"
+					class:active={resizing?.key === 'author'}
+					title="Drag to resize the Author column"
+					onmousedown={(event) => startResize('author', event)}
+				></span>
 			</span>
 		{/if}
 		{#if columns.commit}
 			<span class="hcell">
-				Commit
+				<span class="hlabel">Commit</span>
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<span class="grip" onmousedown={(event) => startResize('commit', event)}></span>
+				<span
+					class="grip resizable"
+					class:active={resizing?.key === 'commit'}
+					title="Drag to resize the Commit column"
+					onmousedown={(event) => startResize('commit', event)}
+				></span>
 			</span>
 		{/if}
 		{#if columns.date}
 			<span class="hcell date">
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<span class="grip left" onmousedown={(event) => startResize('date', event)}></span>
-				Date
+				<span
+					class="grip left resizable"
+					class:active={resizing?.key === 'date'}
+					title="Drag to resize the Date column"
+					onmousedown={(event) => startResize('date', event)}
+				></span>
+				<span class="hlabel">Date</span>
 			</span>
 		{/if}
 	</div>
@@ -518,8 +544,12 @@
 		position: relative;
 		display: flex;
 		align-items: center;
-		overflow: hidden;
 		white-space: nowrap;
+		min-width: 0;
+	}
+	.hlabel {
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.hcell.desc {
 		justify-content: center;
@@ -527,19 +557,35 @@
 	.hcell.date {
 		justify-content: flex-end;
 	}
+	/* Sits in the grid gap so the divider line lands exactly between two columns. */
 	.grip {
 		position: absolute;
-		right: calc(var(--gg-space-2) / -2 - 2px);
+		right: calc(var(--gg-space-2) * -1);
 		top: 0;
 		bottom: 0;
-		width: 5px;
-		cursor: col-resize;
+		width: var(--gg-space-2);
 	}
 	.grip.left {
 		right: auto;
-		left: calc(var(--gg-space-2) / -2 - 2px);
+		left: calc(var(--gg-space-2) * -1);
 	}
-	.grip:hover {
+	.grip::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		top: 4px;
+		bottom: 4px;
+		width: 1px;
+		background: var(--gg-border);
+	}
+	.grip.resizable {
+		cursor: col-resize;
+	}
+	.grip.resizable:hover::after,
+	.grip.active::after {
+		top: 0;
+		bottom: 0;
+		width: 2px;
 		background: var(--gg-accent);
 	}
 	.scroll {
