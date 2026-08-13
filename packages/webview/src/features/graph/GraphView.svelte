@@ -55,7 +55,8 @@
 		onresizeColumn: (column: ColumnKey, width: number) => void;
 	} = $props();
 
-	const ROW_H = 28;
+	/** Taller than the text needs, so the lane curves have room to read as smooth transitions. */
+	const ROW_H = 34;
 	const COL_W = 20;
 	const PAD = 12;
 	const NODE_R = 5;
