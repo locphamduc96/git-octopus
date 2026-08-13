@@ -457,7 +457,7 @@
 								{#if chip.kind === 'tag'}<Icon name="tag" />{/if}
 								{#if chip.kind === 'stash'}<Icon name="archive" />{/if}
 								<span class="ref-name">{chip.name}</span>
-								{#if chip.hasLocal && !chip.checkedOut}<Icon name="device-desktop" />{/if}
+								{#if chip.hasLocal}<Icon name="device-desktop" />{/if}
 								{#if chip.listRemotes.length > 0}<Icon name="cloud" />{/if}
 							</span>
 						{/each}
