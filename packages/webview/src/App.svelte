@@ -1,63 +1,97 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { HostToWebview } from '@git-octopus/shared';
+	import type { GraphRow, HostToWebview } from '@git-octopus/shared';
+	import { layoutCommits } from '@git-octopus/graph-layout';
 	import { onHostMessage, postToHost } from './lib/bridge';
+	import GraphView from './features/graph/GraphView.svelte';
 
-	let version = $state<string | null>(null);
-	let handshake = $state<'pending' | 'ok'>('pending');
+	type Status = 'loading' | 'ready' | 'error';
+
+	let status = $state<Status>('loading');
+	let rows = $state<GraphRow[]>([]);
+	let repoName = $state<string | null>(null);
+	let errorMessage = $state('');
 
 	onMount(() => {
 		const off = onHostMessage((message: HostToWebview) => {
-			if (message.type === 'pong') {
-				version = message.version;
-				handshake = 'ok';
+			if (message.type === 'commits') {
+				rows = layoutCommits(message.commits);
+				repoName = message.repoName;
+				status = 'ready';
+			} else if (message.type === 'error') {
+				errorMessage = message.message;
+				status = 'error';
 			}
 		});
 		postToHost({ type: 'ready' });
 		return off;
 	});
 
-	function ping(): void {
-		postToHost({ type: 'ping', nonce: Date.now() });
+	function refresh(): void {
+		status = 'loading';
+		postToHost({ type: 'loadCommits', limit: 300 });
 	}
 </script>
 
+<header>
+	<span class="title">🐙 {repoName ?? 'Git Octopus'}</span>
+	{#if status === 'ready'}
+		<span class="count">{rows.length} commits</span>
+	{/if}
+	<button onclick={refresh} title="Refresh">⟳</button>
+</header>
+
 <main>
-	<h1>🐙 Git Octopus</h1>
-	<p class="status" class:ok={handshake === 'ok'}>
-		host bridge: {handshake === 'ok' ? `connected (v${version})` : 'waiting…'}
-	</p>
-	<button onclick={ping}>Ping host</button>
-	<p class="hint">Scaffold — the graph view lands in Feature 002.</p>
+	{#if status === 'loading'}
+		<p class="hint">Loading…</p>
+	{:else if status === 'error'}
+		<p class="error">{errorMessage}</p>
+	{:else if rows.length === 0}
+		<p class="hint">No commits found.</p>
+	{:else}
+		<GraphView {rows} />
+	{/if}
 </main>
 
 <style>
-	main {
-		padding: var(--gg-space-4);
+	header {
+		display: flex;
+		align-items: center;
+		gap: var(--gg-space-3);
+		padding: var(--gg-space-2) var(--gg-space-3);
+		border-bottom: 1px solid var(--gg-border);
+		position: sticky;
+		top: 0;
+		background: var(--gg-bg);
 	}
-	h1 {
-		font-size: 1.2rem;
-		margin: 0 0 var(--gg-space-3);
+	.title {
+		font-weight: 600;
 	}
-	.status {
-		color: var(--gg-fg-muted);
-	}
-	.status.ok {
-		color: var(--gg-accent);
-	}
-	.hint {
+	.count {
 		color: var(--gg-fg-muted);
 		font-size: 0.85em;
-		margin-top: var(--gg-space-4);
 	}
-	button {
-		background: var(--vscode-button-background);
-		color: var(--vscode-button-foreground);
-		border: none;
-		padding: var(--gg-space-1) var(--gg-space-3);
+	header button {
+		margin-left: auto;
+		background: transparent;
+		color: var(--gg-fg);
+		border: 1px solid var(--gg-border);
+		border-radius: 3px;
 		cursor: pointer;
+		padding: 0 var(--gg-space-2);
 	}
-	button:hover {
-		background: var(--vscode-button-hoverBackground);
+	header button:hover {
+		background: var(--vscode-toolbar-hoverBackground);
+	}
+	main {
+		padding: var(--gg-space-2) 0;
+	}
+	.hint,
+	.error {
+		padding: var(--gg-space-3);
+		color: var(--gg-fg-muted);
+	}
+	.error {
+		color: var(--vscode-errorForeground);
 	}
 </style>

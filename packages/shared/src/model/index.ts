@@ -22,15 +22,17 @@ export interface Commit {
 	refs: Ref[];
 }
 
-/** One rendered row of the graph — output of the pure graph-layout engine. */
-export interface GraphRow {
-	commit: Commit;
-	column: number;
-	lines: GraphLine[];
-}
-
-export interface GraphLine {
+/** A single connecting line from a graph row down to the next row. */
+export interface GraphEdge {
 	fromColumn: number;
 	toColumn: number;
 	colour: number;
+}
+
+/** One rendered row of the graph — output of the pure graph-layout engine. */
+export interface GraphRow {
+	commit: Commit;
+	nodeColumn: number;
+	nodeColour: number;
+	edges: GraphEdge[];
 }

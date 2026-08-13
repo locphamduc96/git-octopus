@@ -1,24 +1,19 @@
 import type { HostToWebview, WebviewToHost } from '@git-octopus/shared';
+import { loadCommits, type RepoContext } from './useCases/loadCommits.js';
 
-export interface RouterContext {
-	version: string;
-}
+const DEFAULT_LIMIT = 300;
 
-/**
- * Pure message router: maps an inbound webview message to an optional reply.
- * Kept free of `vscode` imports so it can be unit-tested in isolation.
- * Real use-cases (load commits, checkout, …) plug in here in Feature 002.
- */
+/** Map an inbound webview message to an optional reply, dispatching to use-cases. */
 export function routeMessage(
 	message: WebviewToHost,
-	ctx: RouterContext
-): HostToWebview | undefined {
+	ctx: RepoContext
+): Promise<HostToWebview | undefined> {
 	switch (message.type) {
 		case 'ready':
-			return { type: 'pong', nonce: 0, version: ctx.version };
-		case 'ping':
-			return { type: 'pong', nonce: message.nonce, version: ctx.version };
+			return loadCommits(ctx, DEFAULT_LIMIT);
+		case 'loadCommits':
+			return loadCommits(ctx, message.limit);
 		default:
-			return undefined;
+			return Promise.resolve(undefined);
 	}
 }

@@ -68,6 +68,9 @@ importers:
 
   packages/webview:
     dependencies:
+      '@git-octopus/graph-layout':
+        specifier: workspace:*
+        version: link:../graph-layout
       '@git-octopus/shared':
         specifier: workspace:*
         version: link:../shared

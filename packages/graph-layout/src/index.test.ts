@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Commit } from '@git-octopus/shared';
-import { layoutCommits } from './index.js';
+import { graphWidth, layoutCommits } from './index.js';
 
 function makeCommit(hash: string, parents: string[]): Commit {
 	return {
@@ -14,15 +14,50 @@ function makeCommit(hash: string, parents: string[]): Commit {
 }
 
 describe('layoutCommits', () => {
-	it('returns one row per commit', () => {
-		const listCommits = [makeCommit('a', ['b']), makeCommit('b', [])];
-		const listRows = layoutCommits(listCommits);
-		expect(listRows).toHaveLength(2);
-		expect(listRows[0].commit.hash).toBe('a');
+	it('places a linear history in a single column', () => {
+		const listRows = layoutCommits([
+			makeCommit('a', ['b']),
+			makeCommit('b', ['c']),
+			makeCommit('c', []),
+		]);
+		expect(listRows.map((r) => r.nodeColumn)).toEqual([0, 0, 0]);
+		expect(graphWidth(listRows)).toBe(1);
+		// last commit (no parents) has no outgoing edges
+		expect(listRows[2].edges).toHaveLength(0);
 	});
 
-	it('places every commit on a column (placeholder: column 0)', () => {
-		const listRows = layoutCommits([makeCommit('a', [])]);
-		expect(listRows[0].column).toBe(0);
+	it('branches a merge onto a second column and merges back', () => {
+		// M is a merge of A and B, both children of C.
+		const listRows = layoutCommits([
+			makeCommit('m', ['a', 'b']),
+			makeCommit('a', ['c']),
+			makeCommit('b', ['c']),
+			makeCommit('c', []),
+		]);
+		const mapColumn = Object.fromEntries(listRows.map((r) => [r.commit.hash, r.nodeColumn]));
+		expect(mapColumn).toEqual({ m: 0, a: 0, b: 1, c: 0 });
+		expect(graphWidth(listRows)).toBe(2);
+
+		// M spawns a lane towards column 1 (its second parent B).
+		expect(listRows[0].edges.some((e) => e.toColumn === 1)).toBe(true);
+		// B (column 1) merges back into column 0 at C.
+		const rowB = listRows[2];
+		expect(rowB.edges.some((e) => e.fromColumn === 1 && e.toColumn === 0)).toBe(true);
+	});
+
+	it('gives every commit exactly one row', () => {
+		const listCommits = [makeCommit('a', ['b']), makeCommit('b', [])];
+		expect(layoutCommits(listCommits)).toHaveLength(2);
+	});
+
+	it('assigns distinct colours to diverging branches', () => {
+		const listRows = layoutCommits([
+			makeCommit('m', ['a', 'b']),
+			makeCommit('a', []),
+			makeCommit('b', []),
+		]);
+		const mBranchEdge = listRows[0].edges.find((e) => e.toColumn === 1);
+		expect(mBranchEdge).toBeDefined();
+		expect(mBranchEdge?.colour).not.toBe(listRows[0].nodeColour);
 	});
 });
