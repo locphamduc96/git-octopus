@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseLog } from './logParser.js';
+import { parseLog, parseRefs } from './logParser.js';
 
 const NUL = '\0';
 function line(fields: string[]): string {
@@ -33,5 +33,38 @@ describe('parseLog', () => {
 	it('ignores blank lines and empty output', () => {
 		expect(parseLog('')).toEqual([]);
 		expect(parseLog('\n\n')).toEqual([]);
+	});
+});
+
+describe('parseRefs', () => {
+	it('splits the checked-out branch into a head marker and the branch itself', () => {
+		expect(parseRefs('HEAD -> main')).toEqual([
+			{ kind: 'head' },
+			{ kind: 'branch', name: 'main' },
+		]);
+	});
+
+	it('keeps the remote separate from the branch name', () => {
+		expect(parseRefs('origin/main')).toEqual([
+			{ kind: 'branch', name: 'main', remote: 'origin' },
+		]);
+	});
+
+	it('reads tags', () => {
+		expect(parseRefs('tag: v1.2.0')).toEqual([{ kind: 'tag', name: 'v1.2.0' }]);
+	});
+
+	it('drops <remote>/HEAD, which only mirrors the remote default branch', () => {
+		expect(parseRefs('HEAD -> main, origin/main, origin/HEAD')).toEqual([
+			{ kind: 'head' },
+			{ kind: 'branch', name: 'main' },
+			{ kind: 'branch', name: 'main', remote: 'origin' },
+		]);
+	});
+
+	it('keeps a real branch that merely ends in HEAD', () => {
+		expect(parseRefs('origin/feature/HEADless')).toEqual([
+			{ kind: 'branch', name: 'feature/HEADless', remote: 'origin' },
+		]);
 	});
 });

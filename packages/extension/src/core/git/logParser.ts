@@ -47,9 +47,13 @@ export function parseRefs(decoration: string): Ref[] {
 
 function pushBranch(listRefs: Ref[], name: string): void {
 	const slash = name.indexOf('/');
-	if (slash !== -1) {
-		listRefs.push({ kind: 'branch', name: name.slice(slash + 1), remote: name.slice(0, slash) });
-	} else {
+	if (slash === -1) {
 		listRefs.push({ kind: 'branch', name });
+		return;
 	}
+	const branch = name.slice(slash + 1);
+	// `<remote>/HEAD` is a symbolic ref for the remote's default branch, so it always duplicates
+	// another label on the same commit — showing it adds noise and reads like the local HEAD.
+	if (branch === 'HEAD') return;
+	listRefs.push({ kind: 'branch', name: branch, remote: name.slice(0, slash) });
 }
