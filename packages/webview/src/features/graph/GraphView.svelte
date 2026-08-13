@@ -297,7 +297,7 @@
 		}}
 		title="Right-click to show or hide columns"
 	>
-		<span class="hcell">
+		<span class="hcell indent">
 			<span class="hlabel">Branch / Tag</span>
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<span
@@ -551,6 +551,10 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
+	/* Matches the left inset of the ref chips so the header lines up with the rows below. */
+	.hcell.indent {
+		padding-left: var(--gg-space-2);
+	}
 	.hcell.desc {
 		justify-content: center;
 	}
@@ -635,7 +639,7 @@
 		align-items: center;
 		gap: var(--gg-space-1);
 		overflow: hidden;
-		padding-left: var(--gg-space-1);
+		padding-left: var(--gg-space-2);
 		justify-content: flex-end;
 	}
 	.ref {

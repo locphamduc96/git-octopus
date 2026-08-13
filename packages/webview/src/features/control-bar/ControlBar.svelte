@@ -126,7 +126,9 @@
 		display: flex;
 		align-items: center;
 		gap: var(--gg-space-3);
-		padding: var(--gg-space-1) var(--gg-space-2);
+		height: var(--gg-header-h);
+		box-sizing: border-box;
+		padding: 0 var(--gg-space-2);
 		border-bottom: 1px solid var(--gg-border);
 		flex: none;
 		min-width: 0;

@@ -47,8 +47,9 @@
 
 	let branch = $state<string | null>(null);
 	let showRemoteBranches = $state(saved.showRemoteBranches ?? true);
+	// Author is off by default: avatars now sit on the commit nodes, so the column is redundant.
 	let columns = $state<ColumnVisibility>(
-		saved.columns ?? { author: true, commit: false, date: true }
+		saved.columns ?? { author: false, commit: false, date: true }
 	);
 	let widths = $state<ColumnWidths>({
 		ref: 180,

@@ -162,7 +162,10 @@
 		display: flex;
 		align-items: center;
 		gap: 1px;
-		padding: var(--gg-space-1) var(--gg-space-2);
+		height: var(--gg-header-h);
+		box-sizing: border-box;
+		flex: none;
+		padding: 0 var(--gg-space-2);
 		border-bottom: 1px solid var(--gg-border);
 	}
 	.toolbar button {

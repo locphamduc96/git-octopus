@@ -26,7 +26,7 @@ export function onHostMessage(handler: (message: HostToWebview) => void): () => 
  * Bumped when defaults change in a way that should reach users who already have state stored;
  * a mismatch makes the app fall back to the current defaults instead of the saved preferences.
  */
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 3;
 
 /** View preferences that survive the webview being hidden or reloaded. */
 export interface PersistedState {
