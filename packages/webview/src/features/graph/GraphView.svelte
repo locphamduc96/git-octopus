@@ -68,9 +68,19 @@
 	const MIN_COL_W = 60;
 	const MAX_CHIPS = 3;
 
+	/** Breathing room so the overlay scrollbar never sits on top of the Date column. */
+	const SCROLL_GUTTER = 8;
+
 	let viewport = $state<HTMLDivElement | null>(null);
 	let scrollTop = $state(0);
 	let viewportH = $state(600);
+	let viewportW = $state(0);
+
+	/**
+	 * Width the scrollbar takes out of the scroll area (0 for macOS overlay scrollbars). The header
+	 * sits outside that area, so it needs the same inset to stay aligned with the rows.
+	 */
+	const scrollbarW = $derived(viewport && viewportW ? viewport.offsetWidth - viewportW : 0);
 	let menu = $state<{ x: number; y: number; commit: Commit } | null>(null);
 	let headerMenu = $state<{ x: number; y: number } | null>(null);
 	let resizing = $state<{ key: ColumnKey; startX: number; startWidth: number } | null>(null);
@@ -293,7 +303,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="headers"
-		style="grid-template-columns:{gridTemplate}"
+		style="grid-template-columns:{gridTemplate}; padding-right:{SCROLL_GUTTER + scrollbarW}px"
 		oncontextmenu={(event) => {
 			event.preventDefault();
 			headerMenu = { x: event.clientX, y: event.clientY };
@@ -356,7 +366,13 @@
 		{/if}
 	</div>
 
-	<div class="scroll" bind:this={viewport} bind:clientHeight={viewportH} onscroll={onScroll}>
+	<div
+		class="scroll"
+		bind:this={viewport}
+		bind:clientHeight={viewportH}
+		bind:clientWidth={viewportW}
+		onscroll={onScroll}
+	>
 		<div class="inner" style="height:{totalH}px">
 			<svg
 				class="lines"
@@ -448,7 +464,8 @@
 					class="row"
 					class:selected={v.row.commit.hash === selectedHash}
 					class:compared={v.row.commit.hash === compareHash}
-					style="top:{v.index * ROW_H}px; height:{ROW_H}px; grid-template-columns:{gridTemplate}"
+					style="top:{v.index * ROW_H}px; height:{ROW_H}px; grid-template-columns:{gridTemplate};
+						padding-right:{SCROLL_GUTTER}px"
 					role="button"
 					tabindex="0"
 					title={v.row.commit.hash}
@@ -555,7 +572,6 @@
 		flex: none;
 		height: var(--gg-header-h);
 		box-sizing: border-box;
-		padding: 0 var(--gg-space-2) 0 0;
 		border-bottom: 1px solid var(--gg-border);
 		color: var(--gg-fg-muted);
 	}
@@ -633,7 +649,6 @@
 		display: grid;
 		align-items: center;
 		gap: var(--gg-space-2);
-		padding-right: var(--gg-space-2);
 		cursor: pointer;
 		white-space: nowrap;
 		background: none;
@@ -729,5 +744,10 @@
 	}
 	.date {
 		text-align: right;
+	}
+	/* Monospace keeps the date parts in the same place on every row. */
+	.muted.date {
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-size: 0.8em;
 	}
 </style>
