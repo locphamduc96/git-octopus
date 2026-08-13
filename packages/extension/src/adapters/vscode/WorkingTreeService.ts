@@ -17,6 +17,22 @@ export class WorkingTreeService {
 				return this.runGit(['add', '-A'], cwd);
 			case 'unstageAll':
 				return this.runGit(['reset', '-q', 'HEAD'], cwd);
+			case 'discard': {
+				if (!message.path) return false;
+				const pick = await vscode.window.showWarningMessage(
+					`Discard changes in ${message.path}? This cannot be undone.`,
+					{ modal: true },
+					'Discard'
+				);
+				if (pick !== 'Discard') return false;
+				// Untracked files aren't in HEAD, so checkout fails — fall back to removing them.
+				try {
+					await this.executor.run(['checkout', 'HEAD', '--', message.path], cwd);
+					return true;
+				} catch {
+					return this.runGit(['clean', '-fd', '--', message.path], cwd);
+				}
+			}
 			case 'commit': {
 				const messageText = (message.message ?? '').trim();
 				if (messageText === '') {

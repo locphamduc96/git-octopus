@@ -70,6 +70,28 @@ export async function getCurrentBranch(
 	}
 }
 
+export interface AheadBehind {
+	ahead: number;
+	behind: number;
+}
+
+/** How far the current branch is ahead of / behind its upstream (zeroes when no upstream). */
+export async function getAheadBehind(
+	executor: GitExecutor,
+	cwd: string
+): Promise<AheadBehind> {
+	try {
+		const output = await executor.run(
+			['rev-list', '--left-right', '--count', '@{upstream}...HEAD'],
+			cwd
+		);
+		const [behind, ahead] = output.trim().split(/\s+/).map(Number);
+		return { ahead: ahead || 0, behind: behind || 0 };
+	} catch {
+		return { ahead: 0, behind: 0 };
+	}
+}
+
 /** Read the working tree status (staged & unstaged changes). */
 export async function getStatus(executor: GitExecutor, cwd: string): Promise<WorkingTreeStatus> {
 	return parseStatus(await executor.run(STATUS_ARGS, cwd));

@@ -2,6 +2,7 @@ import type { Commit, GraphFilters, HostToWebview, RepoInfo } from '@git-octopus
 import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import {
+	getAheadBehind,
 	getBranches,
 	getCommits,
 	getCurrentBranch,
@@ -35,13 +36,15 @@ export async function loadCommits(
 		};
 	}
 	try {
-		const [commits, working, headHash, listBranches, currentBranch] = await Promise.all([
-			getCommits(ctx.executor, ctx.cwd, limit, filters),
-			getStatus(ctx.executor, ctx.cwd),
-			getHeadHash(ctx.executor, ctx.cwd),
-			getBranches(ctx.executor, ctx.cwd),
-			getCurrentBranch(ctx.executor, ctx.cwd),
-		]);
+		const [commits, working, headHash, listBranches, currentBranch, aheadBehind] =
+			await Promise.all([
+				getCommits(ctx.executor, ctx.cwd, limit, filters),
+				getStatus(ctx.executor, ctx.cwd),
+				getHeadHash(ctx.executor, ctx.cwd),
+				getBranches(ctx.executor, ctx.cwd),
+				getCurrentBranch(ctx.executor, ctx.cwd),
+				getAheadBehind(ctx.executor, ctx.cwd),
+			]);
 		const dirty = working.staged.length > 0 || working.unstaged.length > 0;
 		const listCommits = dirty ? [makeUncommittedNode(headHash), ...commits] : commits;
 		return {
@@ -53,6 +56,8 @@ export async function loadCommits(
 			repoName: ctx.repoName,
 			listBranches,
 			currentBranch,
+			ahead: aheadBehind.ahead,
+			behind: aheadBehind.behind,
 		};
 	} catch (err) {
 		return {

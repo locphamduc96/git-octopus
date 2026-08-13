@@ -7,6 +7,7 @@ import { findRepos } from '../fs/repoScanner.js';
 import type { DiffService } from './DiffService.js';
 import type { CommitActionService } from './CommitActionService.js';
 import type { WorkingTreeService } from './WorkingTreeService.js';
+import type { RepoActionService } from './RepoActionService.js';
 
 const DEFAULT_LIMIT = 300;
 
@@ -23,7 +24,8 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 		private readonly executor: GitExecutor,
 		private readonly diff: DiffService,
 		private readonly actions: CommitActionService,
-		private readonly workingTree: WorkingTreeService
+		private readonly workingTree: WorkingTreeService,
+		private readonly repoActions: RepoActionService
 	) {}
 
 	public resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -79,6 +81,9 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 				return;
 			case 'workingTreeAction':
 				if (cwd && (await this.workingTree.run(message, cwd))) await this.refresh();
+				return;
+			case 'repoAction':
+				if (cwd && (await this.repoActions.run(message, cwd))) await this.refresh();
 				return;
 			default:
 				await this.send(message);

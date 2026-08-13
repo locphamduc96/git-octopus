@@ -14,6 +14,7 @@
 	import { layoutCommits } from '@git-octopus/graph-layout';
 	import { onHostMessage, postToHost } from './lib/bridge';
 	import ControlBar from './features/control-bar/ControlBar.svelte';
+	import FindWidget from './features/find/FindWidget.svelte';
 	import GraphView from './features/graph/GraphView.svelte';
 	import ChangesPanel, { type PanelTab } from './features/changes-panel/ChangesPanel.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
@@ -34,6 +35,11 @@
 	let currentBranch = $state<string | null>(null);
 	let branch = $state<string | null>(null);
 	let showRemoteBranches = $state(true);
+	let ahead = $state(0);
+	let behind = $state(0);
+
+	let findOpen = $state(false);
+	let findQuery = $state('');
 
 	let selectedHash = $state<string | null>(null);
 	let details = $state<CommitDetails | null>(null);
@@ -47,6 +53,32 @@
 
 	const stacked = $derived(shellWidth < STACK_BREAKPOINT);
 
+	/** Rows shown in the graph: filtered by the find query when one is active. */
+	const visibleRows = $derived.by(() => {
+		const query = findQuery.trim().toLowerCase();
+		if (!findOpen || query === '') return rows;
+		return rows.filter((row) => {
+			const commit = row.commit;
+			return (
+				commit.subject.toLowerCase().includes(query) ||
+				commit.author.name.toLowerCase().includes(query) ||
+				commit.hash.toLowerCase().startsWith(query)
+			);
+		});
+	});
+
+	function onKeydown(event: KeyboardEvent): void {
+		if ((event.ctrlKey || event.metaKey) && event.key === 'f') {
+			event.preventDefault();
+			findOpen = true;
+		}
+	}
+
+	function closeFind(): void {
+		findOpen = false;
+		findQuery = '';
+	}
+
 	onMount(() => {
 		const off = onHostMessage((message: HostToWebview) => {
 			if (message.type === 'commits') {
@@ -57,6 +89,8 @@
 				activeRepo = message.activeRepo;
 				listBranches = message.listBranches;
 				currentBranch = message.currentBranch;
+				ahead = message.ahead;
+				behind = message.behind;
 				status = 'ready';
 			} else if (message.type === 'commitDetails') {
 				details = message.details;
@@ -146,6 +180,8 @@
 	}
 </script>
 
+<svelte:window onkeydown={onKeydown} />
+
 <div class="app">
 	<header class="topbar">
 		<span class="title">🐙 {repoName ?? 'Git Octopus'}</span>
@@ -160,12 +196,24 @@
 		{listBranches}
 		{branch}
 		{showRemoteBranches}
+		{behind}
 		onselectRepo={selectRepo}
 		onselectBranch={selectBranch}
 		ontoggleRemote={toggleRemote}
 		onrefresh={load}
 		onterminal={() => postToHost({ type: 'openTerminal' })}
+		onfind={() => (findOpen = true)}
+		onfetch={() => postToHost({ type: 'repoAction', action: 'fetch' })}
 	/>
+
+	{#if findOpen}
+		<FindWidget
+			query={findQuery}
+			matchCount={visibleRows.length}
+			onquery={(next) => (findQuery = next)}
+			onclose={closeFind}
+		/>
+	{/if}
 
 	<div
 		class="shell"
@@ -179,11 +227,11 @@
 				<p class="hint">Loading…</p>
 			{:else if status === 'error'}
 				<p class="error">{errorMessage}</p>
-			{:else if rows.length === 0}
-				<p class="hint">No commits found.</p>
+			{:else if visibleRows.length === 0}
+				<p class="hint">{findQuery ? 'No matching commits.' : 'No commits found.'}</p>
 			{:else}
 				<GraphView
-					{rows}
+					rows={visibleRows}
 					{selectedHash}
 					{currentBranch}
 					onselect={select}
@@ -206,6 +254,8 @@
 				{details}
 				{detailsLoading}
 				branchName={currentBranch}
+				{ahead}
+				onpush={() => postToHost({ type: 'repoAction', action: 'push' })}
 				ontab={(next) => (tab = next)}
 				onworkingAction={workingAction}
 				onopenWorkingFile={openWorkingFile}

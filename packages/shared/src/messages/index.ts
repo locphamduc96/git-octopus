@@ -47,6 +47,11 @@ export type CommitActionId =
 	| 'checkout'
 	| 'createBranch'
 	| 'merge'
+	| 'rebase'
+	| 'cherryPick'
+	| 'revert'
+	| 'reset'
+	| 'addTag'
 	| 'deleteBranch'
 	| 'copyHash'
 	| 'copySubject';
@@ -60,7 +65,20 @@ export interface CommitActionMessage {
 	branches: string[];
 }
 
-export type WorkingTreeAction = 'stage' | 'unstage' | 'stageAll' | 'unstageAll' | 'commit';
+export type WorkingTreeAction =
+	| 'stage'
+	| 'unstage'
+	| 'stageAll'
+	| 'unstageAll'
+	| 'discard'
+	| 'commit';
+
+export type RepoActionId = 'fetch' | 'push';
+
+export interface RepoActionMessage {
+	type: 'repoAction';
+	action: RepoActionId;
+}
 
 export interface WorkingTreeActionMessage {
 	type: 'workingTreeAction';
@@ -87,6 +105,7 @@ export type WebviewToHost =
 	| OpenDiffMessage
 	| CommitActionMessage
 	| WorkingTreeActionMessage
+	| RepoActionMessage
 	| OpenWorkingDiffMessage
 	| OpenTerminalMessage;
 
@@ -100,6 +119,9 @@ export interface CommitsMessage {
 	/** Branch names available in the Branches dropdown (local first, then remote). */
 	listBranches: string[];
 	currentBranch: string | null;
+	/** Commits the current branch is ahead of / behind its upstream. */
+	ahead: number;
+	behind: number;
 }
 
 export interface CommitDetailsMessage {

@@ -15,16 +15,20 @@
 		details,
 		detailsLoading,
 		branchName,
+		ahead,
 		ontab,
 		onworkingAction,
 		onopenWorkingFile,
 		onopenDiff,
+		onpush,
 	}: {
 		tab: PanelTab;
 		working: WorkingTreeStatus | null;
 		details: CommitDetails | null;
 		detailsLoading: boolean;
 		branchName: string | null;
+		ahead: number;
+		onpush: () => void;
 		ontab: (tab: PanelTab) => void;
 		onworkingAction: (action: WorkingTreeAction, path?: string, message?: string) => void;
 		onopenWorkingFile: (path: string) => void;
@@ -53,7 +57,13 @@
 
 	<div class="body">
 		{#if tab === 'changes'}
-			<ChangesTab {working} onaction={onworkingAction} onopenFile={onopenWorkingFile} />
+			<ChangesTab
+				{working}
+				{ahead}
+				{onpush}
+				onaction={onworkingAction}
+				onopenFile={onopenWorkingFile}
+			/>
 		{:else}
 			<CommitTab {details} loading={detailsLoading} {onopenDiff} />
 		{/if}

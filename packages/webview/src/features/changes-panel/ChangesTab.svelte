@@ -4,12 +4,16 @@
 
 	let {
 		working,
+		ahead,
 		onaction,
 		onopenFile,
+		onpush,
 	}: {
 		working: WorkingTreeStatus | null;
+		ahead: number;
 		onaction: (action: WorkingTreeAction, path?: string, message?: string) => void;
 		onopenFile: (path: string) => void;
+		onpush: () => void;
 	} = $props();
 
 	let commitMessage = $state('');
@@ -18,7 +22,10 @@
 	const untracked = $derived(working ? working.unstaged.filter((f) => f.status === '?') : []);
 	const staged = $derived<FileChange[]>(working ? working.staged : []);
 
-	const stageActions = [{ id: 'stage', label: 'Stage', glyph: '+' }];
+	const stageActions = [
+		{ id: 'discard', label: 'Discard changes', glyph: '↺' },
+		{ id: 'stage', label: 'Stage', glyph: '+' },
+	];
 	const unstageActions = [{ id: 'unstage', label: 'Unstage', glyph: '−' }];
 
 	function commit(): void {
@@ -29,6 +36,9 @@
 
 <div class="tab">
 	<div class="toolbar">
+		<button class="push" onclick={onpush} disabled={ahead === 0} title="Push to remote">
+			↑ Push{ahead > 0 ? ` ${ahead}` : ''}
+		</button>
 		<button onclick={() => onaction('unstageAll')} title="Unstage all">−</button>
 		<button onclick={() => onaction('stageAll')} title="Stage all">+</button>
 		<button class="primary" onclick={commit} disabled={staged.length === 0}>Commit</button>
@@ -122,6 +132,14 @@
 	}
 	.toolbar button:hover:not(:disabled) {
 		background: var(--vscode-toolbar-hoverBackground);
+	}
+	.toolbar .push {
+		background: var(--vscode-button-secondaryBackground, transparent);
+		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
+	}
+	.toolbar .push:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 	.toolbar .primary {
 		margin-left: auto;

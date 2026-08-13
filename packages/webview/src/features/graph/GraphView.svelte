@@ -88,9 +88,15 @@
 		const items: { id: string; label: string; separatorBefore?: boolean }[] = [
 			{ id: 'checkout', label: 'Checkout Commit' },
 			{ id: 'createBranch', label: 'Create Branch…' },
-			{ id: 'merge', label: 'Merge into current branch…' },
+			{ id: 'addTag', label: 'Add Tag…' },
+			{ id: 'merge', label: 'Merge into current branch…', separatorBefore: true },
+			{ id: 'rebase', label: 'Rebase current branch on this Commit…' },
+			{ id: 'cherryPick', label: 'Cherry Pick…' },
+			{ id: 'revert', label: 'Revert…' },
+			{ id: 'reset', label: 'Reset current branch to this Commit…' },
 		];
-		if (hasLocalBranch) items.push({ id: 'deleteBranch', label: 'Delete Branch…' });
+		if (hasLocalBranch)
+			items.push({ id: 'deleteBranch', label: 'Delete Branch…', separatorBefore: true });
 		items.push({ id: 'copyHash', label: 'Copy Commit Hash', separatorBefore: true });
 		items.push({ id: 'copySubject', label: 'Copy Subject' });
 		return items;

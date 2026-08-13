@@ -4,18 +4,18 @@ import { GitProcessExecutor } from './adapters/process/gitProcessExecutor.js';
 import { DiffService } from './adapters/vscode/DiffService.js';
 import { CommitActionService } from './adapters/vscode/CommitActionService.js';
 import { WorkingTreeService } from './adapters/vscode/WorkingTreeService.js';
+import { RepoActionService } from './adapters/vscode/RepoActionService.js';
 
 export function activate(context: vscode.ExtensionContext): void {
 	const executor = new GitProcessExecutor();
 	const diff = new DiffService(executor);
-	const actions = new CommitActionService(executor);
-	const workingTree = new WorkingTreeService(executor);
 	const provider = new GitOctopusViewProvider(
 		context.extensionUri,
 		executor,
 		diff,
-		actions,
-		workingTree
+		new CommitActionService(executor),
+		new WorkingTreeService(executor),
+		new RepoActionService(executor)
 	);
 
 	context.subscriptions.push(
