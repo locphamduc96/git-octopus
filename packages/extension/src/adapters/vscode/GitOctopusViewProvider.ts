@@ -8,8 +8,11 @@ import type { DiffService } from './DiffService.js';
 import type { CommitActionService } from './CommitActionService.js';
 import type { WorkingTreeService } from './WorkingTreeService.js';
 import type { RepoActionService } from './RepoActionService.js';
+import { gravatarUrl } from '../process/gravatar.js';
 
 const DEFAULT_LIMIT = 300;
+const STATE_ACTIVE_REPO = 'gitOctopus.activeRepo';
+const STATE_FILTERS = 'gitOctopus.filters';
 
 /**
  * Owns the repository state and drives every attached webview — the Panel view and any
@@ -18,8 +21,8 @@ const DEFAULT_LIMIT = 300;
 export class GitOctopusController {
 	private listWebviews: vscode.Webview[] = [];
 	private repos: RepoInfo[] = [];
-	private activeRepo: string | null = null;
-	private filters: GraphFilters = { branch: null, showRemoteBranches: true };
+	private activeRepo: string | null;
+	private filters: GraphFilters;
 
 	public constructor(
 		private readonly extensionUri: vscode.Uri,
@@ -27,8 +30,20 @@ export class GitOctopusController {
 		private readonly diff: DiffService,
 		private readonly actions: CommitActionService,
 		private readonly workingTree: WorkingTreeService,
-		private readonly repoActions: RepoActionService
-	) {}
+		private readonly repoActions: RepoActionService,
+		private readonly workspaceState: vscode.Memento
+	) {
+		this.activeRepo = workspaceState.get<string | null>(STATE_ACTIVE_REPO, null);
+		this.filters = workspaceState.get<GraphFilters>(STATE_FILTERS, {
+			branch: null,
+			showRemoteBranches: true,
+		});
+	}
+
+	private persist(): void {
+		void this.workspaceState.update(STATE_ACTIVE_REPO, this.activeRepo);
+		void this.workspaceState.update(STATE_FILTERS, this.filters);
+	}
 
 	/** Notified whenever the active repository or branch changes (drives the status bar item). */
 	public onRepoState?: (state: { repoName: string | null; branch: string | null }) => void;
@@ -56,13 +71,17 @@ export class GitOctopusController {
 		switch (message.type) {
 			case 'ready':
 			case 'loadCommits':
-				if (message.type === 'loadCommits' && message.filters) this.filters = message.filters;
+				if (message.type === 'loadCommits' && message.filters) {
+					this.filters = message.filters;
+					this.persist();
+				}
 				await this.discoverRepos();
 				await this.send(message);
 				return;
 			case 'selectRepo':
 				this.activeRepo = message.path;
-				this.filters = { branch: null, showRemoteBranches: this.filters.showRemoteBranches };
+				this.filters = { ...this.filters, branch: null };
+				this.persist();
 				await this.refresh();
 				return;
 			case 'openTerminal':
@@ -110,6 +129,7 @@ export class GitOctopusController {
 		this.repos = await findRepos(listRoots);
 		if (!this.activeRepo || !this.repos.some((repo) => repo.path === this.activeRepo)) {
 			this.activeRepo = this.repos[0]?.path ?? null;
+			this.persist();
 		}
 	}
 
@@ -120,6 +140,7 @@ export class GitOctopusController {
 			repos: this.repos,
 			cwd: active?.path ?? null,
 			repoName: active?.name ?? null,
+			avatarUrl: gravatarUrl,
 		};
 	}
 

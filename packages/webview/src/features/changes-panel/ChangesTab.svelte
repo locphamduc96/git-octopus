@@ -8,12 +8,14 @@
 		onaction,
 		onopenFile,
 		onpush,
+		onpushForce,
 	}: {
 		working: WorkingTreeStatus | null;
 		ahead: number;
 		onaction: (action: WorkingTreeAction, path?: string, message?: string) => void;
 		onopenFile: (path: string) => void;
 		onpush: () => void;
+		onpushForce: () => void;
 	} = $props();
 
 	let commitMessage = $state('');
@@ -36,7 +38,16 @@
 
 <div class="tab">
 	<div class="toolbar">
-		<button class="push" onclick={onpush} disabled={ahead === 0} title="Push to remote">
+		<button
+			class="push"
+			onclick={onpush}
+			oncontextmenu={(event) => {
+				event.preventDefault();
+				onpushForce();
+			}}
+			disabled={ahead === 0}
+			title="Push to remote (right-click to force push)"
+		>
 			↑ Push{ahead > 0 ? ` ${ahead}` : ''}
 		</button>
 		<button

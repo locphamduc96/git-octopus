@@ -19,6 +19,8 @@ export interface RepoContext {
 	/** Absolute path of the repository currently shown, or null when none was found. */
 	cwd: string | null;
 	repoName: string | null;
+	/** Builds an avatar URL for an email; injected so `core` stays free of network concerns. */
+	avatarUrl?: (email: string) => string;
 }
 
 const DEFAULT_FILTERS: GraphFilters = { branch: null, showRemoteBranches: true };
@@ -56,6 +58,13 @@ export async function loadCommits(
 			]);
 
 		decorateStashes(commits, listStashes);
+		if (filters.fetchAvatars && ctx.avatarUrl) {
+			for (const commit of commits) {
+				if (commit.author.email !== '') {
+					commit.author.avatarUrl = ctx.avatarUrl(commit.author.email);
+				}
+			}
+		}
 		const dirty = working.staged.length > 0 || working.unstaged.length > 0;
 		const listCommits = dirty ? [makeUncommittedNode(headHash), ...commits] : commits;
 		return {

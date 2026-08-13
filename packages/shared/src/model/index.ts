@@ -6,6 +6,8 @@
 export interface Person {
 	name: string;
 	email: string;
+	/** Gravatar URL, only present when avatar fetching is enabled. */
+	avatarUrl?: string;
 }
 
 export type Ref =

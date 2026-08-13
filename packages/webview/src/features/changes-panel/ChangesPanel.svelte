@@ -32,7 +32,9 @@
 		onopenDiff,
 		onopenCompareDiff,
 		onpush,
+		onpushForce,
 	}: {
+		onpushForce: () => void;
 		comparison: ComparisonState;
 		onopenCompareDiff: (path: string) => void;
 		tab: PanelTab;
@@ -77,6 +79,7 @@
 				{working}
 				{ahead}
 				{onpush}
+				{onpushForce}
 				onaction={onworkingAction}
 				onopenFile={onopenWorkingFile}
 			/>

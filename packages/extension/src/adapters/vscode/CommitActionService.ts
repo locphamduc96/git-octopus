@@ -56,6 +56,30 @@ export class CommitActionService {
 				const local = remote.slice(remote.indexOf('/') + 1);
 				return this.runGit(['checkout', '-b', local, '--track', remote], cwd, `Checked out ${local}.`);
 			}
+			case 'fetchIntoLocal': {
+				const remote = await this.pickRemote(
+					message.remoteBranches,
+					'Fetch which remote branch into its local branch?'
+				);
+				if (!remote) return false;
+				const slash = remote.indexOf('/');
+				const remoteName = remote.slice(0, slash);
+				const branchName = remote.slice(slash + 1);
+				const force = await vscode.window.showQuickPick(
+					[
+						{ label: 'Fetch', description: 'Fast-forward only', value: false },
+						{ label: 'Force Fetch', description: 'Reset the local branch', value: true },
+					],
+					{ placeHolder: `Fetch ${remote} into ${branchName}` }
+				);
+				if (!force) return false;
+				const refspec = `${force.value ? '+' : ''}${branchName}:${branchName}`;
+				return this.runGit(
+					['fetch', remoteName, refspec],
+					cwd,
+					`Fetched ${remote} into ${branchName}.`
+				);
+			}
 			case 'deleteRemoteBranch': {
 				const remote = await this.pickRemote(message.remoteBranches, 'Delete which remote branch?');
 				if (!remote) return false;

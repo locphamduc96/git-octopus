@@ -6,6 +6,7 @@
 		commitLimit: number;
 		dateFormat: DateFormat;
 		graphStyle: GraphStyle;
+		fetchAvatars: boolean;
 	}
 
 	let {
@@ -71,6 +72,17 @@
 			<option value="angular">Angular</option>
 		</select>
 	</label>
+
+	<label class="check">
+		<input
+			type="checkbox"
+			checked={settings.fetchAvatars}
+			onchange={(event) =>
+				onchange({ ...settings, fetchAvatars: event.currentTarget.checked })}
+		/>
+		Show author avatars
+	</label>
+	<p class="note">Avatars are loaded from Gravatar using a hash of the author's email address.</p>
 </div>
 
 <style>
@@ -115,6 +127,17 @@
 		flex-direction: column;
 		gap: var(--gg-space-1);
 		font-size: 0.9em;
+		color: var(--gg-fg-muted);
+	}
+	.check {
+		flex-direction: row;
+		align-items: center;
+		color: var(--gg-fg);
+		cursor: pointer;
+	}
+	.note {
+		margin: 0;
+		font-size: 0.8em;
 		color: var(--gg-fg-muted);
 	}
 	select {

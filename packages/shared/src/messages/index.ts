@@ -10,11 +10,16 @@ export interface RepoInfo {
 	name: string;
 }
 
-/** Filters applied when loading the graph. */
+/** Filters and options applied when loading the graph. */
 export interface GraphFilters {
 	/** A specific branch to show, or null for "Show All". */
 	branch: string | null;
 	showRemoteBranches: boolean;
+	/**
+	 * Opt-in: derive Gravatar URLs from author emails. Enabling this means author email hashes
+	 * are sent to gravatar.com when the images load.
+	 */
+	fetchAvatars?: boolean;
 }
 
 export interface ReadyMessage {
@@ -68,6 +73,7 @@ export type CommitActionId =
 	| 'deleteBranch'
 	| 'checkoutRemote'
 	| 'deleteRemoteBranch'
+	| 'fetchIntoLocal'
 	| 'stashApply'
 	| 'stashPop'
 	| 'stashDrop'
@@ -97,7 +103,7 @@ export type WorkingTreeAction =
 	| 'stash'
 	| 'commit';
 
-export type RepoActionId = 'fetch' | 'push' | 'pull';
+export type RepoActionId = 'fetch' | 'push' | 'pushForce' | 'pull';
 
 export interface RepoActionMessage {
 	type: 'repoAction';

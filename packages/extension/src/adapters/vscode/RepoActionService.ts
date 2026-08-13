@@ -8,19 +8,31 @@ export class RepoActionService {
 
 	/** Returns true when the repository changed and the graph should refresh. */
 	public async run(message: RepoActionMessage, cwd: string): Promise<boolean> {
+		if (message.action === 'pushForce') {
+			const pick = await vscode.window.showWarningMessage(
+				'Force push (with lease)? This rewrites the remote branch.',
+				{ modal: true },
+				'Force Push'
+			);
+			if (pick !== 'Force Push') return false;
+		}
+
 		const mapArgs: Record<RepoActionMessage['action'], string[]> = {
 			fetch: ['fetch', '--all', '--prune'],
 			push: ['push'],
+			pushForce: ['push', '--force-with-lease'],
 			pull: ['pull'],
 		};
 		const mapTitle: Record<RepoActionMessage['action'], string> = {
 			fetch: 'Git Octopus: fetching…',
 			push: 'Git Octopus: pushing…',
+			pushForce: 'Git Octopus: force pushing…',
 			pull: 'Git Octopus: pulling…',
 		};
 		const mapDone: Record<RepoActionMessage['action'], string> = {
 			fetch: 'fetched from remotes.',
 			push: 'pushed to remote.',
+			pushForce: 'force pushed to remote.',
 			pull: 'pulled from remote.',
 		};
 

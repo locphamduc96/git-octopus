@@ -56,9 +56,13 @@
 	let tab = $state<PanelTab>('changes');
 
 	let settingsOpen = $state(false);
-	let settings = $state<ViewSettings>(
-		saved.settings ?? { commitLimit: 300, dateFormat: 'dateTime', graphStyle: 'rounded' }
-	);
+	let settings = $state<ViewSettings>({
+		commitLimit: 300,
+		dateFormat: 'dateTime',
+		graphStyle: 'rounded',
+		fetchAvatars: false,
+		...saved.settings,
+	});
 
 	let comparison = $state<ComparisonState>({
 		fromHash: null,
@@ -161,7 +165,7 @@
 		postToHost({
 			type: 'loadCommits',
 			limit: settings.commitLimit,
-			filters: { branch, showRemoteBranches },
+			filters: { branch, showRemoteBranches, fetchAvatars: settings.fetchAvatars },
 		});
 	}
 
@@ -290,7 +294,9 @@
 		<SettingsWidget
 			{settings}
 			onchange={(next) => {
-				const reload = next.commitLimit !== settings.commitLimit;
+				const reload =
+					next.commitLimit !== settings.commitLimit ||
+					next.fetchAvatars !== settings.fetchAvatars;
 				settings = next;
 				if (reload) load();
 			}}
@@ -356,6 +362,7 @@
 				{ahead}
 				{comparison}
 				onpush={() => postToHost({ type: 'repoAction', action: 'push' })}
+				onpushForce={() => postToHost({ type: 'repoAction', action: 'pushForce' })}
 				ontab={(next) => (tab = next)}
 				onworkingAction={workingAction}
 				onopenWorkingFile={openWorkingFile}

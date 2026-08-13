@@ -31,6 +31,7 @@ export interface PersistedState {
 		commitLimit: number;
 		dateFormat: 'dateTime' | 'dateOnly' | 'iso' | 'relative';
 		graphStyle: 'rounded' | 'angular';
+		fetchAvatars: boolean;
 	};
 }
 

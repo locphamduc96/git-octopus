@@ -190,6 +190,7 @@
 				label: 'Checkout Remote Branch…',
 				separatorBefore: !hasLocalBranch,
 			});
+			items.push({ id: 'fetchIntoLocal', label: 'Fetch into local branch…' });
 			items.push({ id: 'deleteRemoteBranch', label: 'Delete Remote Branch…' });
 		}
 		items.push({ id: 'copyHash', label: 'Copy Commit Hash', separatorBefore: true });
@@ -306,7 +307,12 @@
 						{v.row.commit.subject}
 					</span>
 					{#if columns.author}
-						<span class="muted">{v.row.commit.author.name}</span>
+						<span class="muted author">
+							{#if v.row.commit.author.avatarUrl}
+								<img class="avatar" src={v.row.commit.author.avatarUrl} alt="" />
+							{/if}
+							{v.row.commit.author.name}
+						</span>
 					{/if}
 					{#if columns.commit}
 						<span class="muted mono">
@@ -451,6 +457,17 @@
 	}
 	.mono {
 		font-family: var(--vscode-editor-font-family, monospace);
+	}
+	.author {
+		display: flex;
+		align-items: center;
+		gap: var(--gg-space-1);
+	}
+	.avatar {
+		flex: none;
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
 	}
 	.date {
 		text-align: right;

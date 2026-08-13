@@ -18,7 +18,8 @@ export function activate(context: vscode.ExtensionContext): void {
 		diff,
 		new CommitActionService(executor),
 		new WorkingTreeService(executor),
-		new RepoActionService(executor)
+		new RepoActionService(executor),
+		context.workspaceState
 	);
 
 	const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
