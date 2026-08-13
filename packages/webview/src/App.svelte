@@ -392,6 +392,11 @@
 				{comparison}
 				onpush={() => postToHost({ type: 'repoAction', action: 'push' })}
 				onpushForce={() => postToHost({ type: 'repoAction', action: 'pushForce' })}
+				oncopy={(text) => postToHost({ type: 'copyText', text, label: 'commit hash' })}
+				onselectCommit={(hash) => {
+					select(hash);
+					scrollTo(hash);
+				}}
 				onworkingAction={workingAction}
 				onopenWorkingFile={openWorkingFile}
 				onopenDiff={openDiff}

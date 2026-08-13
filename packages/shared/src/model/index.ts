@@ -51,10 +51,18 @@ export interface FileChange {
 	status: FileStatus;
 	path: string;
 	oldPath?: string;
+	/** Line counts, absent for binary files and for working-tree entries. */
+	additions?: number;
+	deletions?: number;
 }
 
 export interface CommitDetails {
 	hash: string;
+	parents: string[];
+	author: Person;
+	authoredAt: number;
+	committer: Person;
+	committedAt: number;
 	body: string;
 	files: FileChange[];
 }

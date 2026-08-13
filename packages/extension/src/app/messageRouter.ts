@@ -16,7 +16,7 @@ export function routeMessage(
 		case 'loadCommits':
 			return loadCommits(ctx, message.limit, message.filters ?? filters);
 		case 'loadCommitDetails':
-			return loadCommitDetails(ctx, message.hash);
+			return loadCommitDetails(ctx, message.hash, filters.fetchAvatars);
 		case 'loadComparison':
 			return loadComparison(ctx, message.fromHash, message.toHash);
 		default:

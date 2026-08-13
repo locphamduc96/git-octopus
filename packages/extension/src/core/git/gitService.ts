@@ -8,6 +8,7 @@ import type {
 import type { GitExecutor } from './GitExecutor.js';
 import { LOG_FORMAT, parseLog } from './logParser.js';
 import { STATUS_ARGS, parseStatus } from './statusParser.js';
+import { parseNumstat } from './numstatParser.js';
 
 export interface GraphFilterOptions {
 	branch: string | null;
@@ -134,17 +135,39 @@ export async function getHeadHash(executor: GitExecutor, cwd: string): Promise<s
 	}
 }
 
-/** Load the full message body and changed files for a single commit. */
+/** Metadata for a single commit; the body comes last so it may contain anything. */
+const DETAIL_FORMAT = '%H%x00%P%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%B';
+
+/** Load metadata, the full message and the changed files (with line counts) for one commit. */
 export async function getCommitDetails(
 	executor: GitExecutor,
 	cwd: string,
 	hash: string
 ): Promise<CommitDetails> {
-	const [body, nameStatus] = await Promise.all([
-		executor.run(['show', '-s', '--format=%B', hash], cwd),
+	const [meta, nameStatus, numstat] = await Promise.all([
+		executor.run(['show', '-s', `--format=${DETAIL_FORMAT}`, hash], cwd),
 		executor.run(['diff-tree', '--no-commit-id', '--name-status', '-r', '--root', hash], cwd),
+		executor.run(['diff-tree', '--no-commit-id', '--numstat', '-r', '--root', hash], cwd),
 	]);
-	return { hash, body: body.replace(/\n+$/, ''), files: parseNameStatus(nameStatus) };
+
+	const [fullHash, parents, authorName, authorEmail, authoredAt, committerName, committerEmail, committedAt, ...bodyParts] =
+		meta.split('\0');
+	const mapCounts = parseNumstat(numstat);
+	const files = parseNameStatus(nameStatus).map((file) => ({
+		...file,
+		...mapCounts.get(file.path),
+	}));
+
+	return {
+		hash: fullHash ?? hash,
+		parents: parents ? parents.split(' ').filter((parent) => parent !== '') : [],
+		author: { name: authorName ?? '', email: authorEmail ?? '' },
+		authoredAt: Number.parseInt(authoredAt ?? '0', 10) || 0,
+		committer: { name: committerName ?? '', email: committerEmail ?? '' },
+		committedAt: Number.parseInt(committedAt ?? '0', 10) || 0,
+		body: bodyParts.join('\0').replace(/\n+$/, ''),
+		files,
+	};
 }
 
 /** Files that differ between two commits. */

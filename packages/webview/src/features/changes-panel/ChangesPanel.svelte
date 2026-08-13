@@ -34,6 +34,8 @@
 		onopenCompareDiff,
 		onpush,
 		onpushForce,
+		oncopy,
+		onselectCommit,
 	}: {
 		mode: PanelMode;
 		working: WorkingTreeStatus | null;
@@ -49,6 +51,8 @@
 		onopenCompareDiff: (path: string) => void;
 		onpush: () => void;
 		onpushForce: () => void;
+		oncopy: (text: string) => void;
+		onselectCommit: (hash: string) => void;
 	} = $props();
 
 	const changeCount = $derived(working ? working.staged.length + working.unstaged.length : 0);
@@ -97,7 +101,13 @@
 				onopenFile={onopenWorkingFile}
 			/>
 		{:else if mode === 'commit'}
-			<CommitTab {details} loading={detailsLoading} {onopenDiff} />
+			<CommitTab
+				{details}
+				loading={detailsLoading}
+				{onopenDiff}
+				{oncopy}
+				{onselectCommit}
+			/>
 		{:else}
 			<CompareTab
 				fromHash={comparison.fromHash}

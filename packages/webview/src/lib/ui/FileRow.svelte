@@ -26,6 +26,12 @@
 		<span class="st st-{file.status}">{file.status}</span>
 		<span class="path">{file.path}</span>
 	</button>
+	{#if file.additions !== undefined || file.deletions !== undefined}
+		<span class="counts">
+			{#if file.additions}<span class="add">+{file.additions}</span>{/if}
+			{#if file.deletions}<span class="del">−{file.deletions}</span>{/if}
+		</span>
+	{/if}
 	<span class="actions">
 		{#each actions as action (action.id)}
 			<button
@@ -90,6 +96,19 @@
 		white-space: nowrap;
 		direction: rtl;
 		text-align: left;
+	}
+	.counts {
+		flex: none;
+		display: flex;
+		gap: var(--gg-space-1);
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-size: 0.8em;
+	}
+	.add {
+		color: var(--vscode-gitDecoration-addedResourceForeground, #4caf50);
+	}
+	.del {
+		color: var(--vscode-gitDecoration-deletedResourceForeground, #f44336);
 	}
 	.actions {
 		flex: none;

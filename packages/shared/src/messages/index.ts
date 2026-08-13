@@ -122,6 +122,13 @@ export interface OpenTerminalMessage {
 	type: 'openTerminal';
 }
 
+export interface CopyTextMessage {
+	type: 'copyText';
+	text: string;
+	/** Shown in the confirmation notice, e.g. "commit hash". */
+	label: string;
+}
+
 /** Messages sent from the webview to the extension host. */
 export type WebviewToHost =
 	| LoadCommitsMessage
@@ -134,7 +141,8 @@ export type WebviewToHost =
 	| WorkingTreeActionMessage
 	| RepoActionMessage
 	| OpenWorkingDiffMessage
-	| OpenTerminalMessage;
+	| OpenTerminalMessage
+	| CopyTextMessage;
 
 export interface CommitsMessage {
 	type: 'commits';

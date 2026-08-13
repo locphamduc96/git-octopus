@@ -86,6 +86,10 @@ export class GitOctopusController {
 			case 'openTerminal':
 				if (cwd) vscode.window.createTerminal({ name: 'Git Octopus', cwd }).show();
 				return;
+			case 'copyText':
+				await vscode.env.clipboard.writeText(message.text);
+				vscode.window.showInformationMessage(`Git Octopus: ${message.label} copied.`);
+				return;
 			case 'openDiff':
 				if (cwd) await this.diff.openDiff(message.hash, message.path, cwd);
 				return;
