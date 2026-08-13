@@ -12,11 +12,22 @@
 		date: boolean;
 	}
 
+	/** User-resizable column widths, in pixels. */
+	export interface ColumnWidths {
+		ref: number;
+		author: number;
+		commit: number;
+		date: number;
+	}
+
+	export type ColumnKey = keyof ColumnWidths;
+
 	let {
 		rows,
 		selectedHash,
 		currentBranch,
 		columns,
+		widths,
 		compareHash,
 		dateFormat,
 		graphStyle,
@@ -25,11 +36,13 @@
 		oncompare,
 		onaction,
 		ontoggleColumn,
+		onresizeColumn,
 	}: {
 		rows: GraphRow[];
 		selectedHash: string | null;
 		currentBranch: string | null;
 		columns: ColumnVisibility;
+		widths: ColumnWidths;
 		compareHash: string | null;
 		dateFormat: DateFormat;
 		graphStyle: GraphStyle;
@@ -39,6 +52,7 @@
 		oncompare: (hash: string) => void;
 		onaction: (action: CommitActionId, commit: Commit) => void;
 		ontoggleColumn: (column: keyof ColumnVisibility) => void;
+		onresizeColumn: (column: ColumnKey, width: number) => void;
 	} = $props();
 
 	const ROW_H = 24;
@@ -46,26 +60,32 @@
 	const PAD = 10;
 	const NODE_R = 4;
 	const OVERSCAN = 8;
-	const REF_W = 180;
-	const DATE_W = 150;
-
-	const AUTHOR_W = 140;
-	const HASH_W = 90;
+	const MIN_COL_W = 60;
 
 	let viewport = $state<HTMLDivElement | null>(null);
 	let scrollTop = $state(0);
 	let viewportH = $state(600);
 	let menu = $state<{ x: number; y: number; commit: Commit } | null>(null);
 	let headerMenu = $state<{ x: number; y: number } | null>(null);
+	let resizing = $state<{ key: ColumnKey; startX: number; startWidth: number } | null>(null);
+
+	const cols = $derived(graphWidth(rows));
+	const graphPx = $derived(cols * COL_W + PAD);
+	const totalH = $derived(rows.length * ROW_H);
+	const start = $derived(Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN));
+	const end = $derived(
+		Math.min(rows.length, Math.ceil((scrollTop + viewportH) / ROW_H) + OVERSCAN)
+	);
+	const visible = $derived(rows.slice(start, end).map((row, k) => ({ row, index: start + k })));
 
 	const gridTemplate = $derived(
 		[
-			`${REF_W}px`,
-			'var(--graph-w)',
+			`${widths.ref}px`,
+			`${graphPx}px`,
 			'1fr',
-			columns.author ? `${AUTHOR_W}px` : '',
-			columns.commit ? `${HASH_W}px` : '',
-			columns.date ? `${DATE_W}px` : '',
+			columns.author ? `${widths.author}px` : '',
+			columns.commit ? `${widths.commit}px` : '',
+			columns.date ? `${widths.date}px` : '',
 		]
 			.filter((part) => part !== '')
 			.join(' ')
@@ -76,15 +96,6 @@
 		{ id: 'commit', label: `${columns.commit ? '✓ ' : '   '}Commit` },
 		{ id: 'date', label: `${columns.date ? '✓ ' : '   '}Date` },
 	]);
-
-	const cols = $derived(graphWidth(rows));
-	const graphPx = $derived(cols * COL_W + PAD);
-	const totalH = $derived(rows.length * ROW_H);
-	const start = $derived(Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN));
-	const end = $derived(
-		Math.min(rows.length, Math.ceil((scrollTop + viewportH) / ROW_H) + OVERSCAN)
-	);
-	const visible = $derived(rows.slice(start, end).map((row, k) => ({ row, index: start + k })));
 
 	const cx = (col: number): number => PAD + col * COL_W;
 	const cy = (rowIndex: number): number => rowIndex * ROW_H + ROW_H / 2;
@@ -209,6 +220,19 @@
 		if (viewport) scrollTop = viewport.scrollTop;
 	}
 
+	function startResize(key: ColumnKey, event: MouseEvent): void {
+		event.preventDefault();
+		resizing = { key, startX: event.clientX, startWidth: widths[key] };
+	}
+
+	/** The Date column is the last one, so its handle sits on its left edge and inverts the delta. */
+	function onResizeMove(event: MouseEvent): void {
+		if (!resizing) return;
+		const delta = event.clientX - resizing.startX;
+		const signed = resizing.key === 'date' ? -delta : delta;
+		onresizeColumn(resizing.key, Math.max(MIN_COL_W, resizing.startWidth + signed));
+	}
+
 	$effect(() => {
 		const target = scrollTarget;
 		if (!target || !viewport) return;
@@ -218,23 +242,47 @@
 	});
 </script>
 
+<svelte:window onmousemove={onResizeMove} onmouseup={() => (resizing = null)} />
+
 <div class="graph-view">
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="headers"
-		style="--graph-w:{graphPx}px; grid-template-columns:{gridTemplate}"
+		style="grid-template-columns:{gridTemplate}"
 		oncontextmenu={(event) => {
 			event.preventDefault();
 			headerMenu = { x: event.clientX, y: event.clientY };
 		}}
 		title="Right-click to show or hide columns"
 	>
-		<span>Branch / Tag</span>
-		<span>Graph</span>
-		<span class="desc">Description</span>
-		{#if columns.author}<span>Author</span>{/if}
-		{#if columns.commit}<span>Commit</span>{/if}
-		{#if columns.date}<span class="date">Date</span>{/if}
+		<span class="hcell">
+			Branch / Tag
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<span class="grip" onmousedown={(event) => startResize('ref', event)}></span>
+		</span>
+		<span class="hcell">Graph</span>
+		<span class="hcell desc">Description</span>
+		{#if columns.author}
+			<span class="hcell">
+				Author
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<span class="grip" onmousedown={(event) => startResize('author', event)}></span>
+			</span>
+		{/if}
+		{#if columns.commit}
+			<span class="hcell">
+				Commit
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<span class="grip" onmousedown={(event) => startResize('commit', event)}></span>
+			</span>
+		{/if}
+		{#if columns.date}
+			<span class="hcell date">
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<span class="grip left" onmousedown={(event) => startResize('date', event)}></span>
+				Date
+			</span>
+		{/if}
 	</div>
 
 	<div class="scroll" bind:this={viewport} bind:clientHeight={viewportH} onscroll={onScroll}>
@@ -243,7 +291,7 @@
 				class="lines"
 				width={graphPx}
 				height={totalH}
-				style="left:{REF_W}px"
+				style="left:{widths.ref}px"
 				aria-hidden="true"
 			>
 				{#each visible as v (v.row.commit.hash)}
@@ -282,8 +330,7 @@
 					class="row"
 					class:selected={v.row.commit.hash === selectedHash}
 					class:compared={v.row.commit.hash === compareHash}
-					style="top:{v.index * ROW_H}px; height:{ROW_H}px;
-						--graph-w:{graphPx}px; grid-template-columns:{gridTemplate}"
+					style="top:{v.index * ROW_H}px; height:{ROW_H}px; grid-template-columns:{gridTemplate}"
 					role="button"
 					tabindex="0"
 					title={v.row.commit.hash}
@@ -365,16 +412,39 @@
 		display: grid;
 		gap: var(--gg-space-2);
 		flex: none;
-		padding: var(--gg-space-1) var(--gg-space-2) var(--gg-space-1) 0;
+		height: var(--gg-header-h);
+		box-sizing: border-box;
+		padding: 0 var(--gg-space-2) 0 0;
 		border-bottom: 1px solid var(--gg-border);
 		color: var(--gg-fg-muted);
-		font-size: 0.85em;
 	}
-	.headers .desc {
-		text-align: center;
+	.hcell {
+		position: relative;
+		display: flex;
+		align-items: center;
+		overflow: hidden;
+		white-space: nowrap;
 	}
-	.headers .date {
-		text-align: right;
+	.hcell.desc {
+		justify-content: center;
+	}
+	.hcell.date {
+		justify-content: flex-end;
+	}
+	.grip {
+		position: absolute;
+		right: calc(var(--gg-space-2) / -2 - 2px);
+		top: 0;
+		bottom: 0;
+		width: 5px;
+		cursor: col-resize;
+	}
+	.grip.left {
+		right: auto;
+		left: calc(var(--gg-space-2) / -2 - 2px);
+	}
+	.grip:hover {
+		background: var(--gg-accent);
 	}
 	.scroll {
 		flex: 1;

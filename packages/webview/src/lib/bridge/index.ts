@@ -25,6 +25,7 @@ export function onHostMessage(handler: (message: HostToWebview) => void): () => 
 /** View preferences that survive the webview being hidden or reloaded. */
 export interface PersistedState {
 	columns: { author: boolean; commit: boolean; date: boolean };
+	widths: { ref: number; author: number; commit: number; date: number };
 	panelRatio: number;
 	showRemoteBranches: boolean;
 	settings: {

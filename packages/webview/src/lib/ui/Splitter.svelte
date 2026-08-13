@@ -29,6 +29,7 @@
 	class:vertical
 	class:dragging
 	aria-label={vertical ? 'Resize panel height' : 'Resize panel width'}
+	title="Drag to resize the panel"
 	onmousedown={start}
 ></button>
 

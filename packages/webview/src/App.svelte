@@ -13,13 +13,17 @@
 	import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 	import { layoutCommits } from '@git-octopus/graph-layout';
 	import { onHostMessage, postToHost, readState, writeState } from './lib/bridge';
-	import type { ColumnVisibility } from './features/graph/GraphView.svelte';
+	import type {
+		ColumnKey,
+		ColumnVisibility,
+		ColumnWidths,
+	} from './features/graph/GraphView.svelte';
 	import ControlBar from './features/control-bar/ControlBar.svelte';
 	import FindWidget from './features/find/FindWidget.svelte';
 	import GraphView from './features/graph/GraphView.svelte';
 	import ChangesPanel, {
 		type ComparisonState,
-		type PanelTab,
+		type PanelMode,
 	} from './features/changes-panel/ChangesPanel.svelte';
 	import SettingsWidget, { type ViewSettings } from './features/settings/SettingsWidget.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
@@ -44,6 +48,13 @@
 	let columns = $state<ColumnVisibility>(
 		saved.columns ?? { author: false, commit: false, date: true }
 	);
+	let widths = $state<ColumnWidths>({
+		ref: 180,
+		author: 140,
+		commit: 90,
+		date: 150,
+		...saved.widths,
+	});
 	let ahead = $state(0);
 	let behind = $state(0);
 
@@ -53,7 +64,6 @@
 	let selectedHash = $state<string | null>(null);
 	let details = $state<CommitDetails | null>(null);
 	let detailsLoading = $state(false);
-	let tab = $state<PanelTab>('changes');
 
 	let settingsOpen = $state(false);
 	let settings = $state<ViewSettings>({
@@ -72,13 +82,22 @@
 	});
 	let scrollTarget = $state<{ hash: string; nonce: number } | null>(null);
 
+	/** The right panel follows the graph selection: no tab strip to keep in sync. */
+	const panelMode = $derived<PanelMode>(
+		comparison.fromHash && comparison.toHash
+			? 'compare'
+			: selectedHash && selectedHash !== UNCOMMITTED_HASH
+				? 'commit'
+				: 'changes'
+	);
+
 	let shell = $state<HTMLDivElement | null>(null);
 	let shellWidth = $state(1200);
 	let shellHeight = $state(600);
 	let panelRatio = $state(saved.panelRatio ?? 0.35);
 
 	$effect(() => {
-		writeState({ columns, panelRatio, showRemoteBranches, settings });
+		writeState({ columns, widths, panelRatio, showRemoteBranches, settings });
 	});
 
 	const stacked = $derived(shellWidth < STACK_BREAKPOINT);
@@ -173,7 +192,6 @@
 	function compareWith(hash: string): void {
 		if (!selectedHash || selectedHash === hash) return;
 		comparison = { fromHash: selectedHash, toHash: hash, files: [], loading: true };
-		tab = 'compare';
 		postToHost({ type: 'loadComparison', fromHash: selectedHash, toHash: hash });
 	}
 
@@ -213,14 +231,15 @@
 
 	function select(hash: string): void {
 		selectedHash = hash;
-		if (hash === UNCOMMITTED_HASH) {
-			tab = 'changes';
-			return;
-		}
-		tab = 'commit';
+		comparison = { fromHash: null, toHash: null, files: [], loading: false };
+		if (hash === UNCOMMITTED_HASH) return;
 		details = null;
 		detailsLoading = true;
 		postToHost({ type: 'loadCommitDetails', hash });
+	}
+
+	function resizeColumn(column: ColumnKey, width: number): void {
+		widths = { ...widths, [column]: width };
 	}
 
 	function openDiff(path: string): void {
@@ -328,6 +347,7 @@
 					{selectedHash}
 					{currentBranch}
 					{columns}
+					{widths}
 					{scrollTarget}
 					compareHash={comparison.toHash}
 					dateFormat={settings.dateFormat}
@@ -336,6 +356,7 @@
 					oncompare={compareWith}
 					onaction={runAction}
 					ontoggleColumn={toggleColumn}
+					onresizeColumn={resizeColumn}
 				/>
 			{/if}
 		</div>
@@ -349,7 +370,7 @@
 				: `width:${Math.round(shellWidth * panelRatio)}px`}
 		>
 			<ChangesPanel
-				{tab}
+				mode={panelMode}
 				{working}
 				{details}
 				{detailsLoading}
@@ -358,7 +379,6 @@
 				{comparison}
 				onpush={() => postToHost({ type: 'repoAction', action: 'push' })}
 				onpushForce={() => postToHost({ type: 'repoAction', action: 'pushForce' })}
-				ontab={(next) => (tab = next)}
 				onworkingAction={workingAction}
 				onopenWorkingFile={openWorkingFile}
 				onopenDiff={openDiff}

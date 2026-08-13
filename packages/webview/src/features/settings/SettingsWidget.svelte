@@ -34,7 +34,9 @@
 <div class="panel">
 	<header>
 		<span>Settings</span>
-		<button onclick={onclose}><Icon name="close" label="Close settings" /></button>
+		<button onclick={onclose} title="Close settings">
+			<Icon name="close" label="Close settings" />
+		</button>
 	</header>
 
 	<label>

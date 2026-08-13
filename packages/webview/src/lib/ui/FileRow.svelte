@@ -22,7 +22,7 @@
 </script>
 
 <li class="file-row">
-	<button class="open" onclick={() => onopen(file.path)} title={file.path}>
+	<button class="open" onclick={() => onopen(file.path)} title="{file.path} — click to open the diff">
 		<span class="st st-{file.status}">{file.status}</span>
 		<span class="path">{file.path}</span>
 	</button>

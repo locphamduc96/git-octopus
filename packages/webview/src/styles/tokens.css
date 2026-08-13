@@ -15,6 +15,9 @@
 	--gg-space-2: 8px;
 	--gg-space-3: 12px;
 	--gg-space-4: 16px;
+
+	/* Shared height for the column header and the panel headers, so both bars line up. */
+	--gg-header-h: 28px;
 }
 
 html,

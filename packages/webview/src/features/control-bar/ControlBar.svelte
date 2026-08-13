@@ -71,7 +71,7 @@
 		onchange={(next) => onselectBranch(next === SHOW_ALL ? null : next)}
 	/>
 
-	<label class="remote">
+	<label class="remote" title="Include commits that only exist on remote branches (e.g. origin/…)">
 		<input
 			type="checkbox"
 			checked={showRemoteBranches}
@@ -87,23 +87,35 @@
 	{/if}
 
 	<div class="actions">
-		<button onclick={onfind} title="Find commits (Ctrl/Cmd + F)">
+		<button
+			onclick={onfind}
+			title="Find commits — search by message, author or hash (Ctrl/Cmd + F)"
+		>
 			<Icon name="search" label="Find commits" />
 		</button>
-		<button onclick={onterminal} title="Open Terminal in repository">
+		<button onclick={onterminal} title="Open a terminal in this repository's folder">
 			<Icon name="terminal" label="Open terminal" />
 		</button>
-		<button onclick={onfetch} title="Fetch from remote(s)">
+		<button
+			onclick={onfetch}
+			title="Fetch — download commits from all remotes and prune deleted branches"
+		>
 			<Icon name="cloud-download" label="Fetch" />
 		</button>
-		<button onclick={onpull} title="Pull from remote" disabled={behind === 0}>
+		<button
+			onclick={onpull}
+			title={behind > 0
+				? `Pull — merge ${behind} commit${behind === 1 ? '' : 's'} from the remote into this branch`
+				: 'Pull — nothing to pull, this branch is up to date'}
+			disabled={behind === 0}
+		>
 			<Icon name="arrow-down" label="Pull" />
 			{#if behind > 0}<span class="badge">{behind}</span>{/if}
 		</button>
-		<button onclick={onsettings} title="Settings">
+		<button onclick={onsettings} title="Settings — commits to load, date format, graph style">
 			<Icon name="settings-gear" label="Settings" />
 		</button>
-		<button onclick={onrefresh} title="Refresh (Ctrl/Cmd + R)">
+		<button onclick={onrefresh} title="Refresh — reload the graph and working tree (Ctrl/Cmd + R)">
 			<Icon name="refresh" label="Refresh" />
 		</button>
 	</div>

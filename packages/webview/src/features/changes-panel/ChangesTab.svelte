@@ -26,10 +26,12 @@
 	const staged = $derived<FileChange[]>(working ? working.staged : []);
 
 	const stageActions = [
-		{ id: 'discard', label: 'Discard changes', icon: 'discard' },
-		{ id: 'stage', label: 'Stage', icon: 'add' },
+		{ id: 'discard', label: 'Discard changes to this file — cannot be undone', icon: 'discard' },
+		{ id: 'stage', label: 'Stage this file for the next commit', icon: 'add' },
 	];
-	const unstageActions = [{ id: 'unstage', label: 'Unstage', icon: 'remove' }];
+	const unstageActions = [
+		{ id: 'unstage', label: 'Unstage this file — keep the change, drop it from the commit', icon: 'remove' },
+	];
 
 	function commit(): void {
 		onaction('commit', undefined, commitMessage);
@@ -47,25 +49,42 @@
 				onpushForce();
 			}}
 			disabled={ahead === 0}
-			title="Push to remote (right-click to force push)"
+			title={ahead > 0
+				? `Push ${ahead} commit${ahead === 1 ? '' : 's'} to the remote — right-click to force push (with lease)`
+				: 'Push — nothing to push, the remote is up to date'}
 		>
 			<Icon name="arrow-up" />
 			Push{ahead > 0 ? ` ${ahead}` : ''}
 		</button>
 		<button
 			onclick={() => onaction('stash')}
-			title="Stash uncommitted changes"
+			title="Stash — save all uncommitted changes aside and clean the working tree"
 			disabled={changes.length + untracked.length + staged.length === 0}
 		>
 			<Icon name="archive" label="Stash uncommitted changes" />
 		</button>
-		<button onclick={() => onaction('unstageAll')} title="Unstage all">
+		<button
+			onclick={() => onaction('unstageAll')}
+			title="Unstage all — move every staged file back out of the next commit"
+		>
 			<Icon name="remove" label="Unstage all" />
 		</button>
-		<button onclick={() => onaction('stageAll')} title="Stage all">
+		<button
+			onclick={() => onaction('stageAll')}
+			title="Stage all — include every changed and untracked file in the next commit"
+		>
 			<Icon name="add" label="Stage all" />
 		</button>
-		<button class="primary" onclick={commit} disabled={staged.length === 0}>Commit</button>
+		<button
+			class="primary"
+			onclick={commit}
+			disabled={staged.length === 0}
+			title={staged.length === 0
+				? 'Commit — stage at least one file first'
+				: `Commit ${staged.length} staged file${staged.length === 1 ? '' : 's'} with the message above`}
+		>
+			Commit
+		</button>
 	</div>
 
 	<textarea
