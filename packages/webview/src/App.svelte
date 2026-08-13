@@ -12,7 +12,7 @@
 	} from '@git-octopus/shared';
 	import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 	import { layoutCommits } from '@git-octopus/graph-layout';
-	import { onHostMessage, postToHost, readState, writeState } from './lib/bridge';
+	import { onHostMessage, postToHost, readState, writeState, STATE_VERSION } from './lib/bridge';
 	import type {
 		ColumnKey,
 		ColumnVisibility,
@@ -41,12 +41,14 @@
 	let activeRepo = $state<string | null>(null);
 	let listBranches = $state<string[]>([]);
 	let currentBranch = $state<string | null>(null);
-	const saved = readState();
+	const stored = readState();
+	// Preferences saved before the current defaults are ignored, so changed defaults still land.
+	const saved = stored.version === STATE_VERSION ? stored : {};
 
 	let branch = $state<string | null>(null);
 	let showRemoteBranches = $state(saved.showRemoteBranches ?? true);
 	let columns = $state<ColumnVisibility>(
-		saved.columns ?? { author: false, commit: false, date: true }
+		saved.columns ?? { author: true, commit: false, date: true }
 	);
 	let widths = $state<ColumnWidths>({
 		ref: 180,
@@ -70,7 +72,7 @@
 		commitLimit: 300,
 		dateFormat: 'dateTime',
 		graphStyle: 'rounded',
-		fetchAvatars: false,
+		fetchAvatars: true,
 		...saved.settings,
 	});
 
@@ -97,7 +99,14 @@
 	let panelRatio = $state(saved.panelRatio ?? 0.35);
 
 	$effect(() => {
-		writeState({ columns, widths, panelRatio, showRemoteBranches, settings });
+		writeState({
+			version: STATE_VERSION,
+			columns,
+			widths,
+			panelRatio,
+			showRemoteBranches,
+			settings,
+		});
 	});
 
 	const stacked = $derived(shellWidth < STACK_BREAKPOINT);
@@ -175,7 +184,9 @@
 				detailsLoading = false;
 			}
 		});
-		postToHost({ type: 'ready' });
+		// Load with this view's own filters: `ready` alone would make the host fall back to the
+		// filters it persisted last session, losing settings such as avatar fetching.
+		load();
 		return off;
 	});
 

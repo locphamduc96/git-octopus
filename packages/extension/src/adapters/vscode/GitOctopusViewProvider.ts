@@ -69,9 +69,8 @@ export class GitOctopusController {
 		const cwd = this.activeRepo;
 
 		switch (message.type) {
-			case 'ready':
 			case 'loadCommits':
-				if (message.type === 'loadCommits' && message.filters) {
+				if (message.filters) {
 					this.filters = message.filters;
 					this.persist();
 				}

@@ -22,10 +22,6 @@ export interface GraphFilters {
 	fetchAvatars?: boolean;
 }
 
-export interface ReadyMessage {
-	type: 'ready';
-}
-
 export interface LoadCommitsMessage {
 	type: 'loadCommits';
 	limit: number;
@@ -128,7 +124,6 @@ export interface OpenTerminalMessage {
 
 /** Messages sent from the webview to the extension host. */
 export type WebviewToHost =
-	| ReadyMessage
 	| LoadCommitsMessage
 	| SelectRepoMessage
 	| LoadCommitDetailsMessage
