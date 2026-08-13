@@ -425,8 +425,10 @@
 
 			{#each visible as v (v.row.commit.hash)}
 				{@const listChips = buildChips(v.row.commit.refs)}
+				{@const isHead = v.row.commit.refs.some((ref) => ref.kind === 'head')}
 				<div
 					class="row"
+					class:head={isHead}
 					class:selected={v.row.commit.hash === selectedHash}
 					class:compared={v.row.commit.hash === compareHash}
 					style="top:{v.index * ROW_H}px; height:{ROW_H}px; grid-template-columns:{gridTemplate}"
@@ -626,9 +628,23 @@
 	.row:hover {
 		background: var(--vscode-list-hoverBackground);
 	}
+	/* The checked-out commit: where HEAD sits, so it stays legible without a click. */
+	.row.head {
+		background: var(--vscode-list-inactiveSelectionBackground);
+	}
+	.row.head .subject,
+	.row.head .muted {
+		color: var(--gg-fg);
+		font-weight: 600;
+	}
+	/* Selection wins over the HEAD tint when both apply. */
 	.row.selected {
 		background: var(--vscode-list-activeSelectionBackground);
 		color: var(--vscode-list-activeSelectionForeground);
+	}
+	.row.selected .subject,
+	.row.selected .muted {
+		color: inherit;
 	}
 	.row.compared {
 		outline: 1px dashed var(--gg-accent);
@@ -662,6 +678,11 @@
 	}
 	.ref.current {
 		font-weight: 600;
+		background: var(--vscode-list-activeSelectionBackground);
+		color: var(--vscode-list-activeSelectionForeground);
+	}
+	.ref.current :global(.codicon) {
+		opacity: 1;
 	}
 	.ref.more {
 		flex: none;
