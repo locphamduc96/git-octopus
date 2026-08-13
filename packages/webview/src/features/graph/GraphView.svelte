@@ -55,12 +55,15 @@
 		onresizeColumn: (column: ColumnKey, width: number) => void;
 	} = $props();
 
-	const ROW_H = 24;
-	const COL_W = 14;
-	const PAD = 10;
-	const NODE_R = 4;
+	const ROW_H = 28;
+	const COL_W = 20;
+	const PAD = 12;
+	const NODE_R = 5;
+	/** Radius used when a commit shows its author's avatar instead of a plain dot. */
+	const AVATAR_R = 9;
 	const OVERSCAN = 8;
 	const MIN_COL_W = 60;
+	const MAX_CHIPS = 3;
 
 	let viewport = $state<HTMLDivElement | null>(null);
 	let scrollTop = $state(0);
@@ -111,20 +114,59 @@
 		return `M${x1} ${y1} C${x1} ${ym} ${x2} ${ym} ${x2} ${y2}`;
 	}
 
-	function refLabel(ref: Ref): string {
-		if (ref.kind === 'tag') return ref.name;
-		if (ref.kind === 'stash') return ref.name;
-		if (ref.kind === 'head') return 'HEAD';
-		return ref.remote ? `${ref.remote}/${ref.name}` : ref.name;
+	interface RefChip {
+		kind: 'branch' | 'tag' | 'stash';
+		name: string;
+		checkedOut: boolean;
+		hasLocal: boolean;
+		listRemotes: string[];
+		title: string;
 	}
 
-	/** Codicon hinting at the ref kind: checked-out, local branch, remote branch, tag or stash. */
-	function refIcon(ref: Ref): string {
-		if (ref.kind === 'tag') return 'tag';
-		if (ref.kind === 'stash') return 'archive';
-		if (ref.kind === 'head') return 'check';
-		if (ref.remote) return 'cloud';
-		return ref.name === currentBranch ? 'check' : 'git-branch';
+	/**
+	 * Collapse a commit's refs into compact chips: a branch present both locally and on remotes
+	 * becomes one chip carrying both markers, and the standalone HEAD ref is folded into a tick on
+	 * the checked-out branch instead of taking a chip of its own.
+	 */
+	function buildChips(refs: Ref[]): RefChip[] {
+		const mapBranches = new Map<string, RefChip>();
+		const listOthers: RefChip[] = [];
+
+		for (const ref of refs) {
+			if (ref.kind === 'head') continue;
+			if (ref.kind === 'tag' || ref.kind === 'stash') {
+				listOthers.push({
+					kind: ref.kind,
+					name: ref.name,
+					checkedOut: false,
+					hasLocal: false,
+					listRemotes: [],
+					title: ref.kind === 'tag' ? `Tag ${ref.name}` : `Stash ${ref.name}`,
+				});
+				continue;
+			}
+			const chip = mapBranches.get(ref.name) ?? {
+				kind: 'branch' as const,
+				name: ref.name,
+				checkedOut: false,
+				hasLocal: false,
+				listRemotes: [],
+				title: '',
+			};
+			if (ref.remote) chip.listRemotes.push(ref.remote);
+			else chip.hasLocal = true;
+			mapBranches.set(ref.name, chip);
+		}
+
+		for (const chip of mapBranches.values()) {
+			chip.checkedOut = chip.hasLocal && chip.name === currentBranch;
+			const listParts: string[] = [];
+			if (chip.hasLocal) listParts.push(chip.checkedOut ? 'checked out' : 'local branch');
+			for (const remote of chip.listRemotes) listParts.push(`${remote}/${chip.name}`);
+			chip.title = `${chip.name} — ${listParts.join(', ')}`;
+		}
+
+		return [...mapBranches.values(), ...listOthers];
 	}
 
 	function fmtDate(epochSeconds: number): string {
@@ -305,11 +347,41 @@
 					{/each}
 				{/each}
 				{#each visible as v (v.row.commit.hash)}
-					{#if v.row.commit.isUncommitted}
+					{@const commit = v.row.commit}
+					{@const isMerge = commit.parents.length > 1}
+					{@const avatar = !commit.isUncommitted && !isMerge ? commit.author.avatarUrl : undefined}
+					{#if commit.isUncommitted}
 						<circle
 							cx={cx(v.row.nodeColumn)}
 							cy={cy(v.index)}
 							r={NODE_R}
+							fill="none"
+							stroke={graphColour(v.row.nodeColour)}
+							stroke-width="2"
+						/>
+					{:else if avatar}
+						<clipPath id="gg-clip-{commit.hash}">
+							<circle cx={cx(v.row.nodeColumn)} cy={cy(v.index)} r={AVATAR_R} />
+						</clipPath>
+						<circle
+							cx={cx(v.row.nodeColumn)}
+							cy={cy(v.index)}
+							r={AVATAR_R}
+							fill={graphColour(v.row.nodeColour)}
+						/>
+						<image
+							href={avatar}
+							x={cx(v.row.nodeColumn) - AVATAR_R}
+							y={cy(v.index) - AVATAR_R}
+							width={AVATAR_R * 2}
+							height={AVATAR_R * 2}
+							clip-path="url(#gg-clip-{commit.hash})"
+							preserveAspectRatio="xMidYMid slice"
+						/>
+						<circle
+							cx={cx(v.row.nodeColumn)}
+							cy={cy(v.index)}
+							r={AVATAR_R}
 							fill="none"
 							stroke={graphColour(v.row.nodeColour)}
 							stroke-width="2"
@@ -326,6 +398,7 @@
 			</svg>
 
 			{#each visible as v (v.row.commit.hash)}
+				{@const listChips = buildChips(v.row.commit.refs)}
 				<div
 					class="row"
 					class:selected={v.row.commit.hash === selectedHash}
@@ -344,11 +417,34 @@
 					oncontextmenu={(event) => openMenu(event, v.row.commit)}
 				>
 					<span class="refs">
-						{#each v.row.commit.refs as ref, r (r)}
-							<span class="ref {ref.kind}" title={refLabel(ref)}>
-								<Icon name={refIcon(ref)} />{refLabel(ref)}
+						{#each listChips.slice(0, MAX_CHIPS) as chip (chip.kind + chip.name)}
+							<span
+								class="ref {chip.kind}"
+								class:current={chip.checkedOut}
+								title={chip.title}
+								style={chip.kind === 'branch'
+									? `border-color:${graphColour(v.row.nodeColour)}`
+									: undefined}
+							>
+								{#if chip.checkedOut}<Icon name="check" />{/if}
+								{#if chip.kind === 'tag'}<Icon name="tag" />{/if}
+								{#if chip.kind === 'stash'}<Icon name="archive" />{/if}
+								<span class="ref-name">{chip.name}</span>
+								{#if chip.hasLocal && !chip.checkedOut}<Icon name="device-desktop" />{/if}
+								{#if chip.listRemotes.length > 0}<Icon name="cloud" />{/if}
 							</span>
 						{/each}
+						{#if listChips.length > MAX_CHIPS}
+							<span
+								class="ref more"
+								title={listChips
+									.slice(MAX_CHIPS)
+									.map((chip) => chip.name)
+									.join('\n')}
+							>
+								+{listChips.length - MAX_CHIPS}
+							</span>
+						{/if}
 					</span>
 					<span class="graph-cell"></span>
 					<span class="subject" class:uncommitted={v.row.commit.isUncommitted}>
@@ -490,29 +586,41 @@
 	}
 	.refs {
 		display: flex;
+		align-items: center;
 		gap: var(--gg-space-1);
 		overflow: hidden;
 		padding-left: var(--gg-space-1);
+		justify-content: flex-end;
 	}
 	.ref {
 		display: inline-flex;
 		align-items: center;
 		gap: 3px;
-		max-width: 100%;
+		min-width: 0;
+		flex: 0 1 auto;
+		font-size: 0.85em;
+		line-height: 1.6;
+		padding: 0 var(--gg-space-1);
+		border-radius: 4px;
+		border: 1px solid var(--gg-border);
+		background: var(--vscode-editorWidget-background, transparent);
+	}
+	.ref-name {
 		overflow: hidden;
 		text-overflow: ellipsis;
-		font-size: 0.78em;
-		padding: 0 var(--gg-space-1);
-		border-radius: 3px;
-		border: 1px solid var(--gg-border);
+		white-space: nowrap;
 	}
-	.ref.head {
-		border-color: var(--gg-accent);
-		color: var(--gg-accent);
+	.ref.current {
+		font-weight: 600;
+	}
+	.ref.more {
+		flex: none;
+		color: var(--gg-fg-muted);
 	}
 	.ref :global(.codicon) {
-		font-size: 12px;
-		opacity: 0.85;
+		flex: none;
+		font-size: 11px;
+		opacity: 0.8;
 	}
 	.subject {
 		overflow: hidden;
