@@ -1,10 +1,11 @@
 <script lang="ts">
 	import type { FileChange } from '@git-octopus/shared';
+	import Icon from './Icon.svelte';
 
 	interface Action {
 		id: string;
 		label: string;
-		glyph: string;
+		icon: string;
 	}
 
 	let {
@@ -31,8 +32,10 @@
 				class="act"
 				title={action.label}
 				aria-label={action.label}
-				onclick={() => onaction?.(action.id, file.path)}>{action.glyph}</button
+				onclick={() => onaction?.(action.id, file.path)}
 			>
+				<Icon name={action.icon} />
+			</button>
 		{/each}
 	</span>
 </li>
@@ -98,12 +101,13 @@
 		visibility: visible;
 	}
 	.act {
+		display: inline-flex;
+		align-items: center;
 		background: none;
 		border: none;
 		color: var(--gg-fg-muted);
 		cursor: pointer;
 		padding: 0 var(--gg-space-1);
-		font-size: 1em;
 		line-height: 1;
 	}
 	.act:hover {

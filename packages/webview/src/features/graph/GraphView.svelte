@@ -3,6 +3,7 @@
 	import { graphWidth } from '@git-octopus/graph-layout';
 	import { graphColour } from '../../lib/graphColours';
 	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
+	import Icon from '../../lib/ui/Icon.svelte';
 	import type { DateFormat, GraphStyle } from '../settings/SettingsWidget.svelte';
 
 	export interface ColumnVisibility {
@@ -106,13 +107,13 @@
 		return ref.remote ? `${ref.remote}/${ref.name}` : ref.name;
 	}
 
-	/** Glyph hinting at the ref kind: checked-out, local branch, remote branch or tag. */
-	function refGlyph(ref: Ref): string {
-		if (ref.kind === 'tag') return '🏷';
-		if (ref.kind === 'stash') return '📦';
-		if (ref.kind === 'head') return '✔';
-		if (ref.remote) return '☁';
-		return ref.name === currentBranch ? '✔' : '🖥';
+	/** Codicon hinting at the ref kind: checked-out, local branch, remote branch, tag or stash. */
+	function refIcon(ref: Ref): string {
+		if (ref.kind === 'tag') return 'tag';
+		if (ref.kind === 'stash') return 'archive';
+		if (ref.kind === 'head') return 'check';
+		if (ref.remote) return 'cloud';
+		return ref.name === currentBranch ? 'check' : 'git-branch';
 	}
 
 	function fmtDate(epochSeconds: number): string {
@@ -298,7 +299,7 @@
 					<span class="refs">
 						{#each v.row.commit.refs as ref, r (r)}
 							<span class="ref {ref.kind}" title={refLabel(ref)}>
-								<span class="glyph">{refGlyph(ref)}</span>{refLabel(ref)}
+								<Icon name={refIcon(ref)} />{refLabel(ref)}
 							</span>
 						{/each}
 					</span>
@@ -439,8 +440,9 @@
 		border-color: var(--gg-accent);
 		color: var(--gg-accent);
 	}
-	.glyph {
-		opacity: 0.8;
+	.ref :global(.codicon) {
+		font-size: 12px;
+		opacity: 0.85;
 	}
 	.subject {
 		overflow: hidden;

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { FileChange, WorkingTreeAction, WorkingTreeStatus } from '@git-octopus/shared';
 	import FileRow from '../../lib/ui/FileRow.svelte';
+	import Icon from '../../lib/ui/Icon.svelte';
 
 	let {
 		working,
@@ -25,10 +26,10 @@
 	const staged = $derived<FileChange[]>(working ? working.staged : []);
 
 	const stageActions = [
-		{ id: 'discard', label: 'Discard changes', glyph: '↺' },
-		{ id: 'stage', label: 'Stage', glyph: '+' },
+		{ id: 'discard', label: 'Discard changes', icon: 'discard' },
+		{ id: 'stage', label: 'Stage', icon: 'add' },
 	];
-	const unstageActions = [{ id: 'unstage', label: 'Unstage', glyph: '−' }];
+	const unstageActions = [{ id: 'unstage', label: 'Unstage', icon: 'remove' }];
 
 	function commit(): void {
 		onaction('commit', undefined, commitMessage);
@@ -48,15 +49,22 @@
 			disabled={ahead === 0}
 			title="Push to remote (right-click to force push)"
 		>
-			↑ Push{ahead > 0 ? ` ${ahead}` : ''}
+			<Icon name="arrow-up" />
+			Push{ahead > 0 ? ` ${ahead}` : ''}
 		</button>
 		<button
 			onclick={() => onaction('stash')}
 			title="Stash uncommitted changes"
-			disabled={changes.length + untracked.length + staged.length === 0}>📦</button
+			disabled={changes.length + untracked.length + staged.length === 0}
 		>
-		<button onclick={() => onaction('unstageAll')} title="Unstage all">−</button>
-		<button onclick={() => onaction('stageAll')} title="Stage all">+</button>
+			<Icon name="archive" label="Stash uncommitted changes" />
+		</button>
+		<button onclick={() => onaction('unstageAll')} title="Unstage all">
+			<Icon name="remove" label="Unstage all" />
+		</button>
+		<button onclick={() => onaction('stageAll')} title="Stage all">
+			<Icon name="add" label="Stage all" />
+		</button>
 		<button class="primary" onclick={commit} disabled={staged.length === 0}>Commit</button>
 	</div>
 
@@ -139,12 +147,15 @@
 		border-bottom: 1px solid var(--gg-border);
 	}
 	.toolbar button {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
 		background: transparent;
 		color: var(--gg-fg);
 		border: 1px solid var(--gg-border);
 		border-radius: 3px;
 		cursor: pointer;
-		padding: 0 var(--gg-space-2);
+		padding: 2px var(--gg-space-2);
 	}
 	.toolbar button:hover:not(:disabled) {
 		background: var(--vscode-toolbar-hoverBackground);

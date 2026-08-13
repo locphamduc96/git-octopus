@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Icon from '../../lib/ui/Icon.svelte';
+
 	let {
 		query,
 		matchCount,
@@ -24,7 +26,9 @@
 		}}
 	/>
 	<span class="count">{query === '' ? '' : `${matchCount} matches`}</span>
-	<button onclick={onclose} title="Close (Esc)" aria-label="Close find">✕</button>
+	<button onclick={onclose} title="Close (Esc)">
+		<Icon name="close" label="Close find" />
+	</button>
 </div>
 
 <style>
@@ -54,6 +58,8 @@
 	}
 	button {
 		flex: none;
+		display: inline-flex;
+		align-items: center;
 		background: none;
 		border: none;
 		color: var(--gg-fg-muted);

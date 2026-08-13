@@ -9,6 +9,8 @@
 		fetchAvatars: boolean;
 	}
 
+	import Icon from '../../lib/ui/Icon.svelte';
+
 	let {
 		settings,
 		onchange,
@@ -32,7 +34,7 @@
 <div class="panel">
 	<header>
 		<span>Settings</span>
-		<button onclick={onclose} aria-label="Close">✕</button>
+		<button onclick={onclose}><Icon name="close" label="Close settings" /></button>
 	</header>
 
 	<label>
@@ -117,6 +119,8 @@
 	}
 	header button {
 		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
 		background: none;
 		border: none;
 		color: var(--gg-fg-muted);

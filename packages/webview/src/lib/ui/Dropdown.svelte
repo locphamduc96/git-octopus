@@ -18,6 +18,8 @@
 		onchange: (value: string) => void;
 	} = $props();
 
+	import Icon from './Icon.svelte';
+
 	let open = $state(false);
 	let filter = $state('');
 
@@ -39,7 +41,7 @@
 	{#if label}<span class="label">{label}</span>{/if}
 	<button class="trigger" onclick={() => (open = !open)} title={current}>
 		<span class="value">{current}</span>
-		<span class="caret">▾</span>
+		<Icon name="chevron-down" />
 	</button>
 
 	{#if open}
@@ -95,9 +97,10 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.caret {
+	.trigger :global(.codicon) {
 		flex: none;
 		color: var(--gg-fg-muted);
+		font-size: 12px;
 	}
 	.backdrop {
 		position: fixed;

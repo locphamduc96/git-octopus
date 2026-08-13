@@ -22,6 +22,7 @@
 		type PanelTab,
 	} from './features/changes-panel/ChangesPanel.svelte';
 	import SettingsWidget, { type ViewSettings } from './features/settings/SettingsWidget.svelte';
+	import Icon from './lib/ui/Icon.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
 
 	type Status = 'loading' | 'ready' | 'error';
@@ -266,7 +267,10 @@
 
 <div class="app">
 	<header class="topbar">
-		<span class="title">🐙 {repoName ?? 'Git Octopus'}</span>
+		<span class="title">
+			<Icon name="source-control" />
+			{repoName ?? 'Git Octopus'}
+		</span>
 		{#if status === 'ready'}
 			<span class="count">{rows.length} commits</span>
 		{/if}
@@ -388,6 +392,9 @@
 		flex: none;
 	}
 	.title {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--gg-space-1);
 		font-weight: 600;
 	}
 	.count {
