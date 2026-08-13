@@ -30,14 +30,17 @@ export default tseslint.config(
 		},
 	},
 	{
-		// Browser-side webview code.
+		// Browser-side webview code. TypeScript + svelte-check already resolve DOM types,
+		// so `no-undef` (which doesn't know the DOM lib) only produces false positives here.
 		files: ['packages/webview/**/*.{ts,svelte}'],
 		languageOptions: {
 			globals: {
 				window: 'readonly',
 				document: 'readonly',
-				MessageEvent: 'readonly',
 			},
+		},
+		rules: {
+			'no-undef': 'off',
 		},
 	},
 	{

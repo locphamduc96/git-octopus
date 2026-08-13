@@ -3,6 +3,7 @@ import type { WebviewToHost } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import { routeMessage } from '../../app/messageRouter.js';
 import type { RepoContext } from '../../app/useCases/loadCommits.js';
+import type { DiffService } from './DiffService.js';
 
 export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'git-octopus.view';
@@ -11,7 +12,8 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 
 	public constructor(
 		private readonly extensionUri: vscode.Uri,
-		private readonly executor: GitExecutor
+		private readonly executor: GitExecutor,
+		private readonly diff: DiffService
 	) {}
 
 	public resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -25,6 +27,11 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 		webviewView.webview.html = this.buildHtml(webviewView.webview, mediaUri);
 
 		webviewView.webview.onDidReceiveMessage(async (message: WebviewToHost) => {
+			if (message.type === 'openDiff') {
+				const { cwd } = this.repoContext();
+				if (cwd) await this.diff.openDiff(message.hash, message.path, cwd);
+				return;
+			}
 			const reply = await routeMessage(message, this.repoContext());
 			if (reply) {
 				void webviewView.webview.postMessage(reply);

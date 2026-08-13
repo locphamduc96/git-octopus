@@ -36,3 +36,17 @@ export interface GraphRow {
 	nodeColour: number;
 	edges: GraphEdge[];
 }
+
+export type FileStatus = 'A' | 'M' | 'D' | 'R' | 'C' | 'T' | 'U' | 'X';
+
+export interface FileChange {
+	status: FileStatus;
+	path: string;
+	oldPath?: string;
+}
+
+export interface CommitDetails {
+	hash: string;
+	body: string;
+	files: FileChange[];
+}

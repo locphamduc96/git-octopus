@@ -1,8 +1,8 @@
 /**
  * Host ↔ webview message protocol.
- * Phase 1: load the commit graph. Grows with each phase of Feature 002.
+ * Phase 1: load the commit graph. Phase 2: commit details + open diffs.
  */
-import type { Commit } from '../model/index.js';
+import type { Commit, CommitDetails } from '../model/index.js';
 
 export interface ReadyMessage {
 	type: 'ready';
@@ -13,13 +13,33 @@ export interface LoadCommitsMessage {
 	limit: number;
 }
 
+export interface LoadCommitDetailsMessage {
+	type: 'loadCommitDetails';
+	hash: string;
+}
+
+export interface OpenDiffMessage {
+	type: 'openDiff';
+	hash: string;
+	path: string;
+}
+
 /** Messages sent from the webview to the extension host. */
-export type WebviewToHost = ReadyMessage | LoadCommitsMessage;
+export type WebviewToHost =
+	| ReadyMessage
+	| LoadCommitsMessage
+	| LoadCommitDetailsMessage
+	| OpenDiffMessage;
 
 export interface CommitsMessage {
 	type: 'commits';
 	repoName: string | null;
 	commits: Commit[];
+}
+
+export interface CommitDetailsMessage {
+	type: 'commitDetails';
+	details: CommitDetails;
 }
 
 export interface ErrorMessage {
@@ -28,4 +48,4 @@ export interface ErrorMessage {
 }
 
 /** Messages sent from the extension host to the webview. */
-export type HostToWebview = CommitsMessage | ErrorMessage;
+export type HostToWebview = CommitsMessage | CommitDetailsMessage | ErrorMessage;
