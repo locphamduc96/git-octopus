@@ -53,6 +53,8 @@ export type CommitActionId =
 	| 'reset'
 	| 'addTag'
 	| 'deleteBranch'
+	| 'checkoutRemote'
+	| 'deleteRemoteBranch'
 	| 'stashApply'
 	| 'stashPop'
 	| 'stashDrop'
@@ -67,6 +69,8 @@ export interface CommitActionMessage {
 	subject: string;
 	/** Local branch names pointing at this commit (for the delete-branch action). */
 	branches: string[];
+	/** Remote-tracking branch names at this commit, e.g. "origin/main". */
+	remoteBranches: string[];
 	/** Stash reference (e.g. "stash@{0}") when the commit is a stash. */
 	stashName?: string;
 }

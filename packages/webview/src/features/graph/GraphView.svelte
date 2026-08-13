@@ -4,18 +4,28 @@
 	import { graphColour } from '../../lib/graphColours';
 	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
 
+	export interface ColumnVisibility {
+		author: boolean;
+		commit: boolean;
+		date: boolean;
+	}
+
 	let {
 		rows,
 		selectedHash,
 		currentBranch,
+		columns,
 		onselect,
 		onaction,
+		ontoggleColumn,
 	}: {
 		rows: GraphRow[];
 		selectedHash: string | null;
 		currentBranch: string | null;
+		columns: ColumnVisibility;
 		onselect: (hash: string) => void;
 		onaction: (action: CommitActionId, commit: Commit) => void;
+		ontoggleColumn: (column: keyof ColumnVisibility) => void;
 	} = $props();
 
 	const ROW_H = 24;
@@ -26,10 +36,33 @@
 	const REF_W = 180;
 	const DATE_W = 150;
 
+	const AUTHOR_W = 140;
+	const HASH_W = 90;
+
 	let viewport = $state<HTMLDivElement | null>(null);
 	let scrollTop = $state(0);
 	let viewportH = $state(600);
 	let menu = $state<{ x: number; y: number; commit: Commit } | null>(null);
+	let headerMenu = $state<{ x: number; y: number } | null>(null);
+
+	const gridTemplate = $derived(
+		[
+			`${REF_W}px`,
+			'var(--graph-w)',
+			'1fr',
+			columns.author ? `${AUTHOR_W}px` : '',
+			columns.commit ? `${HASH_W}px` : '',
+			columns.date ? `${DATE_W}px` : '',
+		]
+			.filter((part) => part !== '')
+			.join(' ')
+	);
+
+	const headerMenuItems = $derived([
+		{ id: 'author', label: `${columns.author ? '✓ ' : '   '}Author` },
+		{ id: 'commit', label: `${columns.commit ? '✓ ' : '   '}Commit` },
+		{ id: 'date', label: `${columns.date ? '✓ ' : '   '}Date` },
+	]);
 
 	const cols = $derived(graphWidth(rows));
 	const graphPx = $derived(cols * COL_W + PAD);
@@ -108,8 +141,17 @@
 			{ id: 'revert', label: 'Revert…' },
 			{ id: 'reset', label: 'Reset current branch to this Commit…' },
 		];
+		const hasRemoteBranch = menu.commit.refs.some((r) => r.kind === 'branch' && r.remote);
 		if (hasLocalBranch)
 			items.push({ id: 'deleteBranch', label: 'Delete Branch…', separatorBefore: true });
+		if (hasRemoteBranch) {
+			items.push({
+				id: 'checkoutRemote',
+				label: 'Checkout Remote Branch…',
+				separatorBefore: !hasLocalBranch,
+			});
+			items.push({ id: 'deleteRemoteBranch', label: 'Delete Remote Branch…' });
+		}
 		items.push({ id: 'copyHash', label: 'Copy Commit Hash', separatorBefore: true });
 		items.push({ id: 'copySubject', label: 'Copy Subject' });
 		return items;
@@ -127,11 +169,22 @@
 </script>
 
 <div class="graph-view">
-	<div class="headers" style="--ref-w:{REF_W}px; --graph-w:{graphPx}px; --date-w:{DATE_W}px">
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="headers"
+		style="--graph-w:{graphPx}px; grid-template-columns:{gridTemplate}"
+		oncontextmenu={(event) => {
+			event.preventDefault();
+			headerMenu = { x: event.clientX, y: event.clientY };
+		}}
+		title="Right-click to show or hide columns"
+	>
 		<span>Branch / Tag</span>
 		<span>Graph</span>
 		<span class="desc">Description</span>
-		<span class="date">Date</span>
+		{#if columns.author}<span>Author</span>{/if}
+		{#if columns.commit}<span>Commit</span>{/if}
+		{#if columns.date}<span class="date">Date</span>{/if}
 	</div>
 
 	<div class="scroll" bind:this={viewport} bind:clientHeight={viewportH} onscroll={onScroll}>
@@ -179,7 +232,7 @@
 					class="row"
 					class:selected={v.row.commit.hash === selectedHash}
 					style="top:{v.index * ROW_H}px; height:{ROW_H}px;
-						--ref-w:{REF_W}px; --graph-w:{graphPx}px; --date-w:{DATE_W}px"
+						--graph-w:{graphPx}px; grid-template-columns:{gridTemplate}"
 					role="button"
 					tabindex="0"
 					title={v.row.commit.hash}
@@ -200,9 +253,19 @@
 					<span class="subject" class:uncommitted={v.row.commit.isUncommitted}>
 						{v.row.commit.subject}
 					</span>
-					<span class="date">
-						{#if v.row.commit.isUncommitted}—{:else}{fmtDate(v.row.commit.committedAt)}{/if}
-					</span>
+					{#if columns.author}
+						<span class="muted">{v.row.commit.author.name}</span>
+					{/if}
+					{#if columns.commit}
+						<span class="muted mono">
+							{v.row.commit.isUncommitted ? '*' : v.row.commit.hash.slice(0, 8)}
+						</span>
+					{/if}
+					{#if columns.date}
+						<span class="muted date">
+							{#if v.row.commit.isUncommitted}—{:else}{fmtDate(v.row.commit.committedAt)}{/if}
+						</span>
+					{/if}
 				</div>
 			{/each}
 		</div>
@@ -219,6 +282,19 @@
 	/>
 {/if}
 
+{#if headerMenu}
+	<ContextMenu
+		x={headerMenu.x}
+		y={headerMenu.y}
+		items={headerMenuItems}
+		onselect={(id) => {
+			headerMenu = null;
+			ontoggleColumn(id as keyof ColumnVisibility);
+		}}
+		onclose={() => (headerMenu = null)}
+	/>
+{/if}
+
 <style>
 	.graph-view {
 		display: flex;
@@ -228,7 +304,6 @@
 	}
 	.headers {
 		display: grid;
-		grid-template-columns: var(--ref-w) var(--graph-w) 1fr var(--date-w);
 		gap: var(--gg-space-2);
 		flex: none;
 		padding: var(--gg-space-1) var(--gg-space-2) var(--gg-space-1) 0;
@@ -262,7 +337,6 @@
 		left: 0;
 		right: 0;
 		display: grid;
-		grid-template-columns: var(--ref-w) var(--graph-w) 1fr var(--date-w);
 		align-items: center;
 		gap: var(--gg-space-2);
 		padding-right: var(--gg-space-2);
@@ -313,11 +387,16 @@
 	.subject.uncommitted {
 		font-weight: 600;
 	}
-	.date {
+	.muted {
 		color: var(--gg-fg-muted);
 		font-size: 0.85em;
-		text-align: right;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.mono {
+		font-family: var(--vscode-editor-font-family, monospace);
+	}
+	.date {
+		text-align: right;
 	}
 </style>

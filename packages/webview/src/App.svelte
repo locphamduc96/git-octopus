@@ -12,7 +12,8 @@
 	} from '@git-octopus/shared';
 	import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 	import { layoutCommits } from '@git-octopus/graph-layout';
-	import { onHostMessage, postToHost } from './lib/bridge';
+	import { onHostMessage, postToHost, readState, writeState } from './lib/bridge';
+	import type { ColumnVisibility } from './features/graph/GraphView.svelte';
 	import ControlBar from './features/control-bar/ControlBar.svelte';
 	import FindWidget from './features/find/FindWidget.svelte';
 	import GraphView from './features/graph/GraphView.svelte';
@@ -33,8 +34,13 @@
 	let activeRepo = $state<string | null>(null);
 	let listBranches = $state<string[]>([]);
 	let currentBranch = $state<string | null>(null);
+	const saved = readState();
+
 	let branch = $state<string | null>(null);
-	let showRemoteBranches = $state(true);
+	let showRemoteBranches = $state(saved.showRemoteBranches ?? true);
+	let columns = $state<ColumnVisibility>(
+		saved.columns ?? { author: false, commit: false, date: true }
+	);
 	let ahead = $state(0);
 	let behind = $state(0);
 
@@ -49,7 +55,11 @@
 	let shell = $state<HTMLDivElement | null>(null);
 	let shellWidth = $state(1200);
 	let shellHeight = $state(600);
-	let panelRatio = $state(0.35);
+	let panelRatio = $state(saved.panelRatio ?? 0.35);
+
+	$effect(() => {
+		writeState({ columns, panelRatio, showRemoteBranches });
+	});
 
 	const stacked = $derived(shellWidth < STACK_BREAKPOINT);
 
@@ -68,10 +78,18 @@
 	});
 
 	function onKeydown(event: KeyboardEvent): void {
-		if ((event.ctrlKey || event.metaKey) && event.key === 'f') {
+		if (!(event.ctrlKey || event.metaKey)) return;
+		if (event.key === 'f') {
 			event.preventDefault();
 			findOpen = true;
+		} else if (event.key === 'r') {
+			event.preventDefault();
+			load();
 		}
+	}
+
+	function toggleColumn(column: keyof ColumnVisibility): void {
+		columns = { ...columns, [column]: !columns[column] };
 	}
 
 	function closeFind(): void {
@@ -168,6 +186,9 @@
 			branches: commit.refs
 				.filter((ref) => ref.kind === 'branch' && !ref.remote)
 				.map((ref) => (ref.kind === 'branch' ? ref.name : '')),
+			remoteBranches: commit.refs
+				.filter((ref) => ref.kind === 'branch' && ref.remote)
+				.map((ref) => (ref.kind === 'branch' ? `${ref.remote}/${ref.name}` : '')),
 			stashName: stashRef?.kind === 'stash' ? stashRef.name : undefined,
 		});
 	}
@@ -237,8 +258,10 @@
 					rows={visibleRows}
 					{selectedHash}
 					{currentBranch}
+					{columns}
 					onselect={select}
 					onaction={runAction}
+					ontoggleColumn={toggleColumn}
 				/>
 			{/if}
 		</div>

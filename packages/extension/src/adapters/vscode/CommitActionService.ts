@@ -34,9 +34,42 @@ export class CommitActionService {
 				if (!name) return false;
 				return this.runGit(['tag', name, message.hash], cwd, `Created tag ${name}.`);
 			}
-			case 'merge':
-				if (!(await this.confirm(`Merge commit ${short} into the current branch?`))) return false;
-				return this.runGit(['merge', message.hash], cwd, `Merged ${short}.`);
+			case 'merge': {
+				const options = await vscode.window.showQuickPick(
+					[
+						{ label: 'No fast-forward', description: 'Always create a merge commit', picked: true },
+						{ label: 'Squash commits', description: 'Combine into a single change' },
+						{ label: 'No commit', description: 'Stage the merge without committing' },
+					],
+					{ canPickMany: true, placeHolder: `Merge ${short} — choose options` }
+				);
+				if (!options) return false;
+				const args = ['merge', message.hash];
+				if (options.some((option) => option.label === 'Squash commits')) args.push('--squash');
+				else if (options.some((option) => option.label === 'No fast-forward')) args.push('--no-ff');
+				if (options.some((option) => option.label === 'No commit')) args.push('--no-commit');
+				return this.runGit(args, cwd, `Merged ${short}.`);
+			}
+			case 'checkoutRemote': {
+				const remote = await this.pickRemote(message.remoteBranches, 'Checkout which remote branch?');
+				if (!remote) return false;
+				const local = remote.slice(remote.indexOf('/') + 1);
+				return this.runGit(['checkout', '-b', local, '--track', remote], cwd, `Checked out ${local}.`);
+			}
+			case 'deleteRemoteBranch': {
+				const remote = await this.pickRemote(message.remoteBranches, 'Delete which remote branch?');
+				if (!remote) return false;
+				const slash = remote.indexOf('/');
+				const remoteName = remote.slice(0, slash);
+				const branchName = remote.slice(slash + 1);
+				if (!(await this.confirm(`Delete ${remote} from the remote? This cannot be undone.`)))
+					return false;
+				return this.runGit(
+					['push', remoteName, '--delete', branchName],
+					cwd,
+					`Deleted ${remote}.`
+				);
+			}
 			case 'rebase':
 				if (!(await this.confirm(`Rebase the current branch onto ${short}?`))) return false;
 				return this.runGit(['rebase', message.hash], cwd, `Rebased onto ${short}.`);
@@ -106,6 +139,15 @@ export class CommitActionService {
 			default:
 				return false;
 		}
+	}
+
+	private async pickRemote(
+		listRemotes: string[],
+		placeHolder: string
+	): Promise<string | undefined> {
+		if (listRemotes.length === 0) return undefined;
+		if (listRemotes.length === 1) return listRemotes[0];
+		return vscode.window.showQuickPick(listRemotes, { placeHolder });
 	}
 
 	private async askName(prompt: string): Promise<string | undefined> {

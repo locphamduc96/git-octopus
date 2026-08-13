@@ -21,3 +21,18 @@ export function onHostMessage(handler: (message: HostToWebview) => void): () => 
 	window.addEventListener('message', listener);
 	return () => window.removeEventListener('message', listener);
 }
+
+/** View preferences that survive the webview being hidden or reloaded. */
+export interface PersistedState {
+	columns: { author: boolean; commit: boolean; date: boolean };
+	panelRatio: number;
+	showRemoteBranches: boolean;
+}
+
+export function readState(): Partial<PersistedState> {
+	return vscode.getState<Partial<PersistedState>>() ?? {};
+}
+
+export function writeState(state: PersistedState): void {
+	vscode.setState(state);
+}
