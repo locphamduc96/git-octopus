@@ -44,15 +44,16 @@ export function parseSubject(subject: string): ParsedSubject {
 	let type: string | null = null;
 	let scope: string | null = null;
 
+	// A subject that is still only `[TICKET]` counts: the dialog parses half-typed subjects too,
+	// and needs the reference recognised so a type lands after it rather than in front.
 	const bracket = rest.match(LEADING_BRACKET);
-	// A subject that is only a reference reads better kept as-is.
-	if (bracket && bracket[1].trim() !== '' && rest.slice(bracket[0].length) !== '') {
+	if (bracket && bracket[1].trim() !== '') {
 		ticket = bracket[1].trim();
 		rest = rest.slice(bracket[0].length);
 	}
 
 	const typed = rest.match(TYPE_PREFIX);
-	if (typed && setTypes.has(typed[1]) && rest.slice(typed[0].length) !== '') {
+	if (typed && setTypes.has(typed[1])) {
 		type = typed[1];
 		scope = typed[2] ?? null;
 		rest = rest.slice(typed[0].length);

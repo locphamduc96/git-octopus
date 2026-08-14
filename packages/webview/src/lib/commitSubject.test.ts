@@ -24,8 +24,17 @@ describe('parseSubject', () => {
 		expect(parseSubject('Update config for [ZG-1]').ticket).toBeNull();
 	});
 
-	it('keeps the subject intact when the label is all there is', () => {
-		expect(parseSubject('[ZG-2192]').text).toBe('[ZG-2192]');
+	it('recognises a reference even when nothing follows it yet', () => {
+		expect(parseSubject('[ZG-2192]')).toEqual({
+			ticket: 'ZG-2192',
+			type: null,
+			scope: null,
+			text: '',
+		});
+	});
+
+	it('recognises a type even when nothing follows it yet', () => {
+		expect(parseSubject('feat:')).toEqual({ ticket: null, type: 'feat', scope: null, text: '' });
 	});
 
 	it('accepts several references in one label', () => {
@@ -98,5 +107,31 @@ describe('formatSubject', () => {
 	it('round-trips whatever parseSubject produced', () => {
 		const subject = '[ZG-2447] feat(leaderboard): open the week selector';
 		expect(formatSubject(parseSubject(subject))).toBe(subject);
+	});
+
+	/** Mirrors picking a type in the commit dialog: parse what is typed, set the type, rebuild. */
+	function applyType(summary: string, type: string | null): string {
+		const parsed = parseSubject(summary);
+		return formatSubject({ ...parsed, type: parsed.type === type ? null : type });
+	}
+
+	it('puts the type after a ticket that was typed on its own', () => {
+		expect(applyType('[ZG-2445]', 'feat')).toBe('[ZG-2445] feat:');
+	});
+
+	it('puts the type after a ticket that already has a message', () => {
+		expect(applyType('[ZG-2445] add the thing', 'feat')).toBe('[ZG-2445] feat: add the thing');
+	});
+
+	it('swaps one type for another', () => {
+		expect(applyType('[ZG-1] feat: add', 'fix')).toBe('[ZG-1] fix: add');
+	});
+
+	it('removes the type when the same one is picked again', () => {
+		expect(applyType('[ZG-1] feat: add', 'feat')).toBe('[ZG-1] add');
+	});
+
+	it('adds a type to a bare message', () => {
+		expect(applyType('add the thing', 'chore')).toBe('chore: add the thing');
 	});
 });
