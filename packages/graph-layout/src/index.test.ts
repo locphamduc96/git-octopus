@@ -57,12 +57,15 @@ describe('layoutCommits', () => {
 
 		// M opens a lane in column 1 for its second parent B.
 		expect(listRows[0].listOutputLanes[1]?.hash).toBe('b');
-		// B sits in column 1 and hands over to C, which column 0 is already waiting for, so B's own
-		// column carries nothing out of that row.
+		// B goes on waiting for C in its own column rather than stepping across to column 0 here, so
+		// the branch runs beside the trunk all the way down to the commit they share.
 		const rowB = listRows[2];
 		expect(rowB.listInputLanes[1]?.hash).toBe('b');
-		expect(rowB.listOutputLanes[1]).toBeNull();
-		expect(rowB.listOutputLanes[0]?.hash).toBe('c');
+		expect(rowB.listOutputLanes[1]?.hash).toBe('c');
+		// The two lanes meet at C, whose node sits on the trunk; column 1 arrives into it.
+		const rowC = listRows[3];
+		expect(rowC.nodeColumn).toBe(0);
+		expect(rowC.listInputLanes[1]?.hash).toBe('c');
 	});
 
 	it('gives every commit exactly one row', () => {
@@ -146,9 +149,10 @@ describe('layoutCommits', () => {
 	});
 
 	it('lets a merged branch take a column an open branch has finished with', () => {
-		// The checked-out branch `b1` holds column 0 until it merges into master. `g1` merges in a
-		// row later, so it can have that column back — leaving it empty would waste it for the whole
-		// graph. The still-open `o1` further down keeps a column of its own regardless.
+		// Every branch here runs beside the trunk down to the commit it merges at, so a column only
+		// comes free once that meeting point is passed. `g1` opens after master's lane has met `b1`'s
+		// at m2, so it takes that column back rather than widening the graph. The still-open `o1`
+		// further down keeps a column of its own regardless.
 		const listRows = layoutCommits([
 			makeUncommitted(['b1']),
 			makeCommit('m1', ['m2', 'b1']),
@@ -162,7 +166,7 @@ describe('layoutCommits', () => {
 		const mapColumn = mapColumnsByHash(listRows);
 		expect(mapColumn.b1).toBe(0);
 		expect(mapColumn.m1).toBe(1);
-		expect(mapColumn.g1).toBe(0);
+		expect(mapColumn.g1).toBe(1);
 		expect(mapColumn.o1).toBe(2);
 		expect(graphWidth(listRows)).toBe(3);
 	});
@@ -181,22 +185,22 @@ describe('layoutCommits', () => {
 		expect(graphWidth(listRows)).toBe(2);
 	});
 
-	it('reports the column of a parent another lane is already waiting for', () => {
-		// `b` ends by handing over to `c`, which column 0 already expects. No lane opens for it, so
-		// without this the row says nothing links `b` to anything and its node is left hanging.
+	it('names the column each parent leaves in, lane or no lane', () => {
+		// A merge whose second parent another lane already awaits opens no lane of its own, so without
+		// this the row would record nothing linking the merge to it and the line would be missing.
 		const listRows = layoutCommits([
-			makeCommit('m', ['a', 'b']),
-			makeCommit('a', ['c']),
-			makeCommit('b', ['c']),
-			makeCommit('c', []),
+			makeCommit('m1', ['t1', 'x']),
+			makeCommit('t1', ['t2', 'x']),
+			makeCommit('x', ['t2']),
+			makeCommit('t2', []),
 		]);
 		const mapRow = Object.fromEntries(listRows.map((row) => [row.commit.hash, row]));
-		expect(mapRow.b.nodeColumn).toBe(1);
-		expect(mapRow.b.listParentColumns).toEqual([0]);
-		// A merge names both: its own column carries the first parent, the second opens a lane.
-		expect(mapRow.m.listParentColumns).toEqual([0, 1]);
+		// m1 opens column 1 for x; t1 merges the same x, which is already waiting there.
+		expect(mapRow.m1.listParentColumns).toEqual([0, 1]);
+		expect(mapRow.t1.listParentColumns).toEqual([0, 1]);
+		expect(mapRow.t1.listOutputLanes[1]?.hash).toBe('x');
 		// A root commit has nowhere to go.
-		expect(mapRow.c.listParentColumns).toEqual([]);
+		expect(mapRow.t2.listParentColumns).toEqual([]);
 	});
 
 	it('hands every row the lanes the row above it let out', () => {

@@ -76,10 +76,12 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 
 		const listParentColumns: number[] = [];
 		commit.parents.forEach((parent, idx) => {
-			// A parent already expected somewhere is where this commit's line goes; it does not open a
-			// lane of its own, but the line to it still has to be drawn.
 			const existing = nextLanes.indexOf(parent);
-			if (existing !== -1) {
+			// A branch whose first parent is already awaited elsewhere keeps waiting for it in its own
+			// column rather than jumping across here. Both lanes then run side by side down to that
+			// commit and meet at its node, which is what a branch merging back looks like — stepping
+			// across at the branch's last commit instead draws the join in the wrong place entirely.
+			if (existing !== -1 && idx > 0) {
 				listParentColumns.push(existing);
 				return;
 			}
