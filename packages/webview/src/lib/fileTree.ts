@@ -1,5 +1,8 @@
 import type { FileChange } from '@git-octopus/shared';
 
+/** How a set of changed files is laid out: full paths in a flat list, or grouped into folders. */
+export type FileViewMode = 'list' | 'tree';
+
 export type FileTreeNode =
 	| { kind: 'folder'; name: string; path: string; children: FileTreeNode[] }
 	| { kind: 'file'; name: string; file: FileChange };

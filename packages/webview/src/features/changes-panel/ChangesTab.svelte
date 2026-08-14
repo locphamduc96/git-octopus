@@ -1,14 +1,17 @@
 <script lang="ts">
 	import type { FileChange, WorkingTreeAction, WorkingTreeStatus } from '@git-octopus/shared';
-	import FileRow from '../../lib/ui/FileRow.svelte';
+	import FileRow, { type FileRowAction } from '../../lib/ui/FileRow.svelte';
+	import FileTree from '../../lib/ui/FileTree.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
 	import ConfirmDialog from '../../lib/ui/ConfirmDialog.svelte';
 	import CommitDialog from './CommitDialog.svelte';
+	import { buildFileTree, type FileViewMode } from '../../lib/fileTree';
 	import { tooltip } from '../../lib/ui/tooltip';
 
 	let {
 		working,
 		ahead,
+		fileView,
 		onaction,
 		onopenFile,
 		onpush,
@@ -16,6 +19,7 @@
 	}: {
 		working: WorkingTreeStatus | null;
 		ahead: number;
+		fileView: FileViewMode;
 		onaction: (action: WorkingTreeAction, path?: string, message?: string) => void;
 		onopenFile: (path: string) => void;
 		onpush: () => void;
@@ -99,61 +103,38 @@
 	</div>
 
 	<div class="sections">
-		<section>
-			<h3>Changes <span class="count">{changes.length}</span></h3>
-			{#if changes.length === 0}
-				<p class="empty">No files</p>
-			{:else}
-				<ul>
-					{#each changes as file (file.path)}
-						<FileRow
-							{file}
-							actions={stageActions}
-							onopen={onopenFile}
-							onaction={(id, path) => onaction(id as WorkingTreeAction, path)}
-						/>
-					{/each}
-				</ul>
-			{/if}
-		</section>
-
-		<section>
-			<h3>Untracked <span class="count">{untracked.length}</span></h3>
-			{#if untracked.length === 0}
-				<p class="empty">No files</p>
-			{:else}
-				<ul>
-					{#each untracked as file (file.path)}
-						<FileRow
-							{file}
-							actions={stageActions}
-							onopen={onopenFile}
-							onaction={(id, path) => onaction(id as WorkingTreeAction, path)}
-						/>
-					{/each}
-				</ul>
-			{/if}
-		</section>
-
-		<section>
-			<h3>Staged Changes <span class="count">{staged.length}</span></h3>
-			{#if staged.length === 0}
-				<p class="empty">No files</p>
-			{:else}
-				<ul>
-					{#each staged as file (file.path)}
-						<FileRow
-							{file}
-							actions={unstageActions}
-							onopen={onopenFile}
-							onaction={(id, path) => onaction(id as WorkingTreeAction, path)}
-						/>
-					{/each}
-				</ul>
-			{/if}
-		</section>
+		{@render section('Changes', changes, stageActions)}
+		{@render section('Untracked', untracked, stageActions)}
+		{@render section('Staged Changes', staged, unstageActions)}
 	</div>
 </div>
+
+{#snippet section(title: string, listFiles: FileChange[], actions: FileRowAction[])}
+	<section>
+		<h3>{title} <span class="count">{listFiles.length}</span></h3>
+		{#if listFiles.length === 0}
+			<p class="empty">No files</p>
+		{:else if fileView === 'tree'}
+			<FileTree
+				nodes={buildFileTree(listFiles)}
+				{actions}
+				onopen={onopenFile}
+				onaction={(id, path) => onaction(id as WorkingTreeAction, path)}
+			/>
+		{:else}
+			<ul>
+				{#each listFiles as file (file.path)}
+					<FileRow
+						{file}
+						{actions}
+						onopen={onopenFile}
+						onaction={(id, path) => onaction(id as WorkingTreeAction, path)}
+					/>
+				{/each}
+			</ul>
+		{/if}
+	</section>
+{/snippet}
 
 {#if dialog === 'commit'}
 	<CommitDialog

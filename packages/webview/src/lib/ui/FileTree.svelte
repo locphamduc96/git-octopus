@@ -1,15 +1,19 @@
 <script lang="ts">
 	import { SvelteSet } from 'svelte/reactivity';
 	import type { FileTreeNode } from '../fileTree';
-	import FileRow from './FileRow.svelte';
+	import FileRow, { type FileRowAction } from './FileRow.svelte';
 	import Icon from './Icon.svelte';
 
 	let {
 		nodes,
+		actions = [],
 		onopen,
+		onaction,
 	}: {
 		nodes: FileTreeNode[];
+		actions?: FileRowAction[];
 		onopen: (path: string) => void;
+		onaction?: (id: string, path: string) => void;
 	} = $props();
 
 	/** Folders start open, so a diff is readable at a glance; this holds the ones folded away. */
@@ -44,7 +48,14 @@
 				{@render branch(node.children, depth + 1)}
 			{/if}
 		{:else}
-			<FileRow file={node.file} label={node.name} indent={depth * 12 + 8 + LABEL_INSET} {onopen} />
+			<FileRow
+				file={node.file}
+				label={node.name}
+				indent={depth * 12 + 8 + LABEL_INSET}
+				{actions}
+				{onopen}
+				{onaction}
+			/>
 		{/if}
 	{/each}
 {/snippet}

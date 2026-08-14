@@ -2,8 +2,7 @@
 	import type { FileChange } from '@git-octopus/shared';
 	import FileRow from '../../lib/ui/FileRow.svelte';
 	import FileTree from '../../lib/ui/FileTree.svelte';
-	import { buildFileTree } from '../../lib/fileTree';
-	import type { FileViewMode } from './CommitTab.svelte';
+	import { buildFileTree, type FileViewMode } from '../../lib/fileTree';
 
 	let {
 		fromHash,

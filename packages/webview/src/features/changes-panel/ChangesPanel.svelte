@@ -6,9 +6,10 @@
 		WorkingTreeStatus,
 	} from '@git-octopus/shared';
 	import ChangesTab from './ChangesTab.svelte';
-	import CommitTab, { type FileViewMode } from './CommitTab.svelte';
+	import CommitTab from './CommitTab.svelte';
 	import CompareTab from './CompareTab.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
+	import type { FileViewMode } from '../../lib/fileTree';
 	import { tooltip } from '../../lib/ui/tooltip';
 
 	/** What the panel shows, derived from the graph selection rather than a tab strip. */
@@ -101,27 +102,28 @@
 			</span>
 		{/if}
 
-		{#if mode !== 'changes'}
-			<span class="tools">
-				<button
-					class:active={fileView === 'list'}
-					onclick={() => onfileView('list')}
-					use:tooltip={'File list — show every changed file with its full path'}
-				>
-					<Icon name="list-flat" label="File list" />
-				</button>
-				<button
-					class:active={fileView === 'tree'}
-					onclick={() => onfileView('tree')}
-					use:tooltip={'File tree — group changed files into folders'}
-				>
-					<Icon name="list-tree" label="File tree" />
-				</button>
+		<span class="tools">
+			<button
+				class:active={fileView === 'list'}
+				onclick={() => onfileView('list')}
+				use:tooltip={'File list — show every changed file with its full path'}
+			>
+				<Icon name="list-flat" label="File list" />
+			</button>
+			<button
+				class:active={fileView === 'tree'}
+				onclick={() => onfileView('tree')}
+				use:tooltip={'File tree — group changed files into folders'}
+			>
+				<Icon name="list-tree" label="File tree" />
+			</button>
+			<!-- The working tree is where the panel returns to, so it has nothing to close. -->
+			{#if mode !== 'changes'}
 				<button onclick={onclose} use:tooltip={'Close — go back to the working tree'}>
 					<Icon name="close" label="Close" />
 				</button>
-			</span>
-		{/if}
+			{/if}
+		</span>
 	</header>
 
 	<div class="body">
@@ -129,6 +131,7 @@
 			<ChangesTab
 				{working}
 				{ahead}
+				{fileView}
 				{onpush}
 				{onpushForce}
 				onaction={onworkingAction}
@@ -187,8 +190,8 @@
 	.branch {
 		border: 1px solid var(--gg-fg-muted);
 		color: var(--gg-fg);
-		border-radius: 3px;
-		padding: 0 6px;
+		border-radius: var(--gg-chip-radius);
+		padding: var(--gg-chip-padding);
 		font-weight: 600;
 	}
 	.sync {

@@ -26,7 +26,7 @@
 		type PanelMode,
 	} from './features/changes-panel/ChangesPanel.svelte';
 	import SettingsWidget, { type ViewSettings } from './features/settings/SettingsWidget.svelte';
-	import type { FileViewMode } from './features/changes-panel/CommitTab.svelte';
+	import type { FileViewMode } from './lib/fileTree';
 	import Splitter from './lib/ui/Splitter.svelte';
 	import ConfirmDialog from './lib/ui/ConfirmDialog.svelte';
 

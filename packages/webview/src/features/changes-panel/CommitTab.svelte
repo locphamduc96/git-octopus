@@ -3,9 +3,7 @@
 	import FileRow from '../../lib/ui/FileRow.svelte';
 	import FileTree from '../../lib/ui/FileTree.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
-	import { buildFileTree } from '../../lib/fileTree';
-
-	export type FileViewMode = 'list' | 'tree';
+	import { buildFileTree, type FileViewMode } from '../../lib/fileTree';
 
 	let {
 		details,

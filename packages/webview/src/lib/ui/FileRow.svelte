@@ -3,7 +3,7 @@
 	import Icon from './Icon.svelte';
 	import { tooltip } from './tooltip';
 
-	interface Action {
+	export interface FileRowAction {
 		id: string;
 		label: string;
 		icon: string;
@@ -22,10 +22,16 @@
 		label?: string;
 		/** Left inset in pixels, used to show tree depth. */
 		indent?: number;
-		actions?: Action[];
+		actions?: FileRowAction[];
 		onopen: (path: string) => void;
 		onaction?: (id: string, path: string) => void;
 	} = $props();
+
+	// Split so the folders can be cut short while the file name stays whole — a row of paths ending
+	// in "…" tells you nothing, and tree view already shows the name on its own.
+	const cut = $derived(label !== undefined ? -1 : file.path.lastIndexOf('/'));
+	const dir = $derived(cut === -1 ? '' : file.path.slice(0, cut + 1));
+	const name = $derived(label ?? file.path.slice(cut + 1));
 </script>
 
 <li class="file-row">
@@ -35,7 +41,9 @@
 		onclick={() => onopen(file.path)}
 		use:tooltip={`${file.path} — click to open the diff`}
 	>
-		<span class="path">{label ?? file.path}</span>
+		<span class="path"
+			>{#if dir}<span class="dir">{dir}</span>{/if}<span class="name">{name}</span></span
+		>
 	</button>
 	{#if file.additions !== undefined || file.deletions !== undefined}
 		<span class="counts">
@@ -105,11 +113,18 @@
 		color: var(--vscode-gitDecoration-conflictingResourceForeground, #e4676b);
 	}
 	.path {
+		display: flex;
+		min-width: 0;
+		overflow: hidden;
+		white-space: nowrap;
+	}
+	.dir {
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		white-space: nowrap;
-		direction: rtl;
-		text-align: left;
+	}
+	.name {
+		flex: none;
 	}
 	.counts {
 		flex: none;
