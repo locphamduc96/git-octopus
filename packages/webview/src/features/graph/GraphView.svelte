@@ -156,17 +156,25 @@
 			return `M${x1} ${yTop + fromR} L${x1} ${ym} L${x2} ${ym} L${x2} ${yBottom - toR}`;
 		}
 
-		if (fromR > 0) {
-			// Out of the node sideways, one turn, then straight down the lane it is joining.
-			const startX = x1 + dir * fromR;
-			const r = Math.max(0, Math.min(Math.abs(x2 - startX), yBottom - toR - yTop));
-			return `M${startX} ${yTop} Q${x2} ${yTop} ${x2} ${yTop + r} L${x2} ${yBottom - toR}`;
+		// The turn goes as late as it can: straight down the column it starts in, then one bend into
+		// the side of the node it lands on. That is what makes the curve bulge downwards, and it
+		// keeps the run above it parallel to every other lane.
+		if (toR > 0) {
+			const endX = x2 - dir * toR;
+			const r = Math.max(0, Math.min(Math.abs(endX - x1), yBottom - yTop - fromR));
+			return `M${x1} ${yTop + fromR} L${x1} ${yBottom - r} Q${x1} ${yBottom} ${endX} ${yBottom}`;
 		}
-		// Straight down this lane, then one turn into the node it is converging on — arriving from
-		// the side, so the gap it stops short by is horizontal.
-		const endX = x2 - dir * toR;
-		const r = Math.max(0, Math.min(Math.abs(endX - x1), yBottom - yTop));
-		return `M${x1} ${yTop} L${x1} ${yBottom - r} Q${x1} ${yBottom} ${endX} ${yBottom}`;
+		if (fromR > 0) {
+			// Nothing to land on: the lane carries on below this row, so the turn has to happen at
+			// the top instead, leaving the line vertical where the lane picks it up.
+			const startX = x1 + dir * fromR;
+			const r = Math.max(0, Math.min(Math.abs(x2 - startX), yBottom - yTop));
+			return `M${startX} ${yTop} Q${x2} ${yTop} ${x2} ${yTop + r} L${x2} ${yBottom}`;
+		}
+		// A lane changing column with a node at neither end: only a curve that is vertical at both
+		// ends joins without a kink, so this one keeps the old S.
+		const ym = (yTop + yBottom) / 2;
+		return `M${x1} ${yTop} C${x1} ${ym} ${x2} ${ym} ${x2} ${yBottom}`;
 	}
 
 	/**
