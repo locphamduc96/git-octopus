@@ -1,4 +1,4 @@
-import type { Commit, GraphEdge, GraphRow } from '@git-octopus/shared';
+import type { Commit, GraphLane, GraphRow } from '@git-octopus/shared';
 
 /** Colour indices cycle within this range; the view resolves them to real colours. */
 export const GRAPH_COLOUR_COUNT = 10;
@@ -16,8 +16,10 @@ function isOpenBranchTip(commit: Commit): boolean {
 /**
  * Pure graph layout engine.
  *
- * Assigns each commit a column and computes the connecting edges to the next row, using a
- * non-compacting "lanes" model. See `03-specs/graph-layout-engine.md` for the full spec.
+ * Assigns each commit a column and reports the lanes crossing each row's top and bottom edge, using
+ * a non-compacting "lanes" model — a lane keeps its column until it ends, so a row's output lanes
+ * are the next row's input lanes and the view can draw each row on its own.
+ * See `03-specs/graph-layout-engine.md` for the full spec.
  *
  * @param listCommits commits in display order (newest first), first parent at `parents[0]`.
  */
@@ -72,13 +74,10 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 		for (const i of listTerminating) nextLanes[i] = null;
 		if (isTip) nextLanes[nodeColumn] = null;
 
-		const listParentColumns: { column: number; colour: number }[] = [];
 		commit.parents.forEach((parent, idx) => {
-			const existing = nextLanes.indexOf(parent);
-			if (existing !== -1) {
-				listParentColumns.push({ column: existing, colour: nextColours[existing] });
-				return;
-			}
+			// A parent already expected somewhere is where this commit's line goes; it does not open a
+			// lane of its own.
+			if (nextLanes.includes(parent)) return;
 			let column: number;
 			let colour: number;
 			if (idx === 0) {
@@ -98,28 +97,17 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 			}
 			nextLanes[column] = parent;
 			nextColours[column] = colour;
-			listParentColumns.push({ column, colour });
 		});
 
-		// 4. Edges from this row down to the next.
-		const listEdges: GraphEdge[] = [];
-		for (let i = 0; i < lanes.length; i++) {
-			if (lanes[i] === null || i === nodeColumn || listTerminating.includes(i)) continue;
-			listEdges.push({ fromColumn: i, toColumn: i, colour: laneColours[i] });
-		}
-		for (const i of listTerminating) {
-			if (i === nodeColumn) continue;
-			listEdges.push({ fromColumn: i, toColumn: nodeColumn, colour: laneColours[i] });
-		}
-		for (const parentColumn of listParentColumns) {
-			listEdges.push({
-				fromColumn: nodeColumn,
-				toColumn: parentColumn.column,
-				colour: parentColumn.colour,
-			});
-		}
-
-		listRows.push({ commit, nodeColumn, nodeColour, edges: listEdges });
+		// 4. The row's own band: what crosses its top edge, and what crosses its bottom edge. The view
+		// needs nothing else — no row ever has to ask what the row below it looks like.
+		listRows.push({
+			commit,
+			nodeColumn,
+			nodeColour,
+			listInputLanes: toLanes(lanes, laneColours),
+			listOutputLanes: toLanes(nextLanes, nextColours),
+		});
 
 		if (nextLanes.length > usedColumns) usedColumns = nextLanes.length;
 
@@ -137,15 +125,22 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 	return listRows;
 }
 
+function toLanes(listHashes: (string | null)[], listColours: number[]): (GraphLane | null)[] {
+	return listHashes.map((hash, i) => (hash === null ? null : { hash, colour: listColours[i] }));
+}
+
 /** Number of columns the graph occupies — useful for sizing the view. */
 export function graphWidth(listRows: GraphRow[]): number {
-	let max = 0;
+	let width = 0;
 	for (const row of listRows) {
-		if (row.nodeColumn > max) max = row.nodeColumn;
-		for (const edge of row.edges) {
-			if (edge.fromColumn > max) max = edge.fromColumn;
-			if (edge.toColumn > max) max = edge.toColumn;
-		}
+		width = Math.max(width, row.nodeColumn + 1, lastUsed(row.listInputLanes), lastUsed(row.listOutputLanes));
 	}
-	return max + 1;
+	return width;
+}
+
+function lastUsed(listLanes: (GraphLane | null)[]): number {
+	for (let i = listLanes.length - 1; i >= 0; i--) {
+		if (listLanes[i] !== null) return i + 1;
+	}
+	return 0;
 }

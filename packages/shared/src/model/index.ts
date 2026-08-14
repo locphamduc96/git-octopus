@@ -30,19 +30,26 @@ export interface Commit {
 /** Sentinel hash used for the synthetic uncommitted-changes node. */
 export const UNCOMMITTED_HASH = '*uncommitted*';
 
-/** A single connecting line from a graph row down to the next row. */
-export interface GraphEdge {
-	fromColumn: number;
-	toColumn: number;
+/** A lane crossing a row: the commit it is waiting for, and the colour it is drawn in. */
+export interface GraphLane {
+	hash: string;
 	colour: number;
 }
 
-/** One rendered row of the graph — output of the pure graph-layout engine. */
+/**
+ * One rendered row of the graph — output of the pure graph-layout engine.
+ *
+ * A row describes only its own band, by the lanes crossing its top and bottom edges, so it can be
+ * drawn without looking at any other row. Both lists are indexed by column and hold `null` where a
+ * column is empty; a lane keeps its column for its whole life, so `listOutputLanes` of one row is
+ * `listInputLanes` of the next.
+ */
 export interface GraphRow {
 	commit: Commit;
 	nodeColumn: number;
 	nodeColour: number;
-	edges: GraphEdge[];
+	listInputLanes: (GraphLane | null)[];
+	listOutputLanes: (GraphLane | null)[];
 }
 
 export type FileStatus = 'A' | 'M' | 'D' | 'R' | 'C' | 'T' | 'U' | 'X' | '?';

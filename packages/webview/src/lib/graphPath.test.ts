@@ -1,66 +1,74 @@
 import { describe, expect, it } from 'vitest';
-import { edgePath, type EdgeGeometry } from './graphPath';
+import {
+	branchOut,
+	intoNode,
+	laneX,
+	mergeIn,
+	outOfNode,
+	passThrough,
+	type LaneMetrics,
+} from './graphPath';
 
-const BASE: EdgeGeometry = {
-	x1: 32,
-	x2: 32,
-	yTop: 17,
-	yBottom: 51,
-	fromRadius: 0,
-	toRadius: 0,
+const M: LaneMetrics = {
+	columnWidth: 20,
+	rowHeight: 34,
+	padding: 12,
+	curve: 8,
 	style: 'rounded',
 };
 
-/** Every y a path mentions, in order. */
+/** Every y coordinate a path mentions, in order. */
 function ys(path: string): number[] {
-	return [...path.matchAll(/-?\d+(?:\.\d+)?\s+(-?\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]));
+	return [...path.matchAll(/-?[\d.]+\s+(-?[\d.]+)/g)].map((m) => Number(m[1]));
 }
 
-describe('edgePath', () => {
-	it('runs straight down a lane that keeps its column', () => {
-		expect(edgePath(BASE)).toBe('M32 17 L32 51');
+describe('lane paths', () => {
+	it('runs a pass-through lane edge to edge', () => {
+		// Reaching both edges is what makes one row line up with the next.
+		expect(passThrough(1, M)).toBe('M32 0 L32 34');
 	});
 
-	it('stops short of a node at either end, so nothing is drawn inside one', () => {
-		expect(edgePath({ ...BASE, fromRadius: 5, toRadius: 9 })).toBe('M32 22 L32 42');
+	it('splits the node\'s own lane at the node', () => {
+		expect(intoNode(0, M)).toBe('M12 0 L12 17');
+		expect(outOfNode(0, M)).toBe('M12 17 L12 34');
 	});
 
-	it('turns at the bottom and arrives in the side of the node it lands on', () => {
-		const path = edgePath({ ...BASE, x2: 12, fromRadius: 5, toRadius: 5 });
-		// Vertical in the starting column first — the bulge is underneath, not above.
-		expect(path.startsWith('M32 22 L32 ')).toBe(true);
-		// One quarter bend, ending on the node's right-hand edge rather than its centre.
-		expect(path.endsWith('Q32 51 17 51')).toBe(true);
+	it('bends a merging lane in the upper half and a branching lane in the lower half', () => {
+		// The two are mirror images, so a branch reads the same whichever way it runs.
+		expect(ys(mergeIn(1, 0, M)).every((y) => y <= 17)).toBe(true);
+		expect(ys(branchOut(0, 1, M)).every((y) => y >= 17)).toBe(true);
 	});
 
-	it('leaves the node at its edge, never from its centre', () => {
-		const path = edgePath({ ...BASE, x2: 12, fromRadius: 5, toRadius: 5 });
-		expect(path.startsWith('M32 22')).toBe(true);
+	it('runs a merging lane down its own column before turning', () => {
+		// Turning early would bulge the curve upwards and pull the lane off its column.
+		expect(mergeIn(1, 0, M).startsWith('M32 0 L32 9')).toBe(true);
 	});
 
-	it('keeps both ends vertical when the lane carries on below', () => {
-		// Nothing to land on, so a quarter bend would leave the lane below hanging off a corner.
-		const path = edgePath({ ...BASE, x2: 12, fromRadius: 5 });
-		expect(path).toBe('M32 22 C32 36.5 12 36.5 12 51');
+	it('turns a branching lane only once it has reached the column it is joining', () => {
+		expect(branchOut(0, 1, M).endsWith('Q32 17 32 25 L32 34')).toBe(true);
 	});
 
-	it('weights that curve to the bottom, so it still bulges downwards', () => {
-		const path = edgePath({ ...BASE, x2: 12, fromRadius: 5 });
-		const listY = ys(path);
-		const middle = (BASE.yTop + BASE.yBottom) / 2;
-		// Both control points sit below the halfway line: the line stays in its own column for the
-		// first stretch and only swings across near the bottom.
-		expect(listY[1]).toBeGreaterThan(middle);
-		expect(listY[2]).toBeGreaterThan(middle);
+	it('bends left and right alike', () => {
+		expect(branchOut(2, 1, M)).toBe('M52 17 L40 17 Q32 17 32 25 L32 34');
+		expect(mergeIn(1, 2, M)).toBe('M32 0 L32 9 Q32 17 40 17 L52 17');
 	});
 
-	it('never turns further than the segment is long', () => {
-		// A jump of several columns in one row would otherwise curve past the row below it.
-		const path = edgePath({ ...BASE, x2: 132, fromRadius: 5, toRadius: 5 });
-		expect(ys(path).every((y) => y >= 17 && y <= 51)).toBe(true);
+	it('never bends further than the gap it is crossing', () => {
+		// Lanes closer together than the corner radius: the bend shrinks to the gap and the straight
+		// run between the node and the corner collapses to nothing, rather than the curve overshooting
+		// the column it is aiming at.
+		const tight: LaneMetrics = { ...M, columnWidth: 6, curve: 8 };
+		expect(branchOut(0, 1, tight)).toBe('M12 17 L12 17 Q18 17 18 23 L18 34');
 	});
 
 	it('keeps the angular style square', () => {
-		expect(edgePath({ ...BASE, x2: 12, style: 'angular' })).toBe('M32 17 L32 34 L12 34 L12 51');
+		const angular: LaneMetrics = { ...M, style: 'angular' };
+		expect(mergeIn(1, 0, angular)).toBe('M32 0 L32 17 L12 17');
+		expect(branchOut(0, 1, angular)).toBe('M12 17 L32 17 L32 34');
+	});
+
+	it('places lanes on a fixed pitch', () => {
+		expect(laneX(0, M)).toBe(12);
+		expect(laneX(2, M)).toBe(52);
 	});
 });

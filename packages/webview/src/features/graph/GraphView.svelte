@@ -1,8 +1,16 @@
 <script lang="ts">
-	import type { Commit, CommitActionId, GraphEdge, GraphRow, Ref } from '@git-octopus/shared';
+	import type { Commit, CommitActionId, GraphRow, Ref } from '@git-octopus/shared';
 	import { graphWidth } from '@git-octopus/graph-layout';
 	import { graphColour } from '../../lib/graphColours';
-	import { edgePath } from '../../lib/graphPath';
+	import {
+		branchOut,
+		intoNode,
+		laneX,
+		mergeIn,
+		outOfNode,
+		passThrough,
+		type LaneMetrics,
+	} from '../../lib/graphPath';
 	import { parseSubject, typeColour } from '../../lib/commitSubject';
 	import { tooltip } from '../../lib/ui/tooltip';
 	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
@@ -70,8 +78,8 @@
 	const AVATAR_R = 9;
 	/** Lane lines are drawn hairline-thin: a graph this dense turns to mush at any real weight. */
 	const EDGE_W = 1.5;
-	/** Half the codicon box the stash glyph is drawn in. */
-	const STASH_R = 8;
+	/** How far a lane's corner is rounded off when it changes column. */
+	const CURVE = 8;
 	/** Codicon glyph for `archive`, drawn inside the stash node. */
 	const STASH_GLYPH = '';
 	const OVERSCAN = 8;
@@ -123,42 +131,59 @@
 		{ id: 'date', label: `${columns.date ? '✓ ' : '   '}Date` },
 	]);
 
-	const cx = (col: number): number => PAD + col * COL_W;
-	const cy = (rowIndex: number): number => rowIndex * ROW_H + ROW_H / 2;
+	const metrics = $derived<LaneMetrics>({
+		columnWidth: COL_W,
+		rowHeight: ROW_H,
+		padding: PAD,
+		curve: CURVE,
+		style: graphStyle,
+	});
 
-	/**
-	 * A line from row `i` down to the next row.
-	 *
-	 * A lane that changes column bends **once**, and the bend belongs to whichever end sits at a
-	 * node. Forcing both ends vertical — as a line between two nodes would want — costs two
-	 * reversals of curvature, and a screen full of those reads as weaving rather than as branches.
-	 * So the straight run belongs to the lane, and the single quarter turn belongs to the node,
-	 * which the line therefore enters or leaves sideways.
-	 *
-	 * `fromNode` says this row's node is the upper end.
-	 */
-	function laneSegment(edge: GraphEdge, i: number): string {
-		return edgePath({
-			x1: cx(edge.fromColumn),
-			x2: cx(edge.toColumn),
-			yTop: cy(i),
-			yBottom: cy(i + 1),
-			fromRadius: nodeRadius(rows[i], edge.fromColumn),
-			toRadius: nodeRadius(rows[i + 1], edge.toColumn),
-			style: graphStyle,
-		});
+	interface LaneSegment {
+		d: string;
+		colour: number;
+		/** Leaves this row's node, so a stash can draw its line dashed. */
+		fromNode: boolean;
 	}
 
 	/**
-	 * How far a row's node reaches from its centre, so lines can stop at its edge. Zero when the
-	 * lane simply runs past that row, which must not be shortened.
+	 * Every line to draw in one row's band, from its lanes alone.
+	 *
+	 * A lane keeps its column for its whole life, so a column changes hands only at a node: either a
+	 * lane arrives here and is consumed, or one starts here for a parent. That leaves four shapes and
+	 * no cross-row questions.
 	 */
-	function nodeRadius(row: GraphRow | undefined, column: number): number {
-		if (!row || row.nodeColumn !== column) return 0;
-		const commit = row.commit;
-		if (commit.refs.some((ref) => ref.kind === 'stash')) return STASH_R;
-		if (commit.isUncommitted || commit.parents.length > 1) return NODE_R;
-		return commit.author.avatarUrl ? AVATAR_R : NODE_R;
+	function laneSegments(row: GraphRow): LaneSegment[] {
+		const listSegments: LaneSegment[] = [];
+		const node = row.nodeColumn;
+		const hash = row.commit.hash;
+		const width = Math.max(row.listInputLanes.length, row.listOutputLanes.length);
+
+		for (let column = 0; column < width; column++) {
+			const input = row.listInputLanes[column] ?? null;
+			const output = row.listOutputLanes[column] ?? null;
+
+			if (input && input.hash !== hash) {
+				// Not this commit's lane, so it crosses the whole band untouched.
+				listSegments.push({ d: passThrough(column, metrics), colour: input.colour, fromNode: false });
+				continue;
+			}
+			if (input) {
+				listSegments.push(
+					column === node
+						? { d: intoNode(column, metrics), colour: input.colour, fromNode: false }
+						: { d: mergeIn(column, node, metrics), colour: input.colour, fromNode: false }
+				);
+			}
+			if (output) {
+				listSegments.push(
+					column === node
+						? { d: outOfNode(column, metrics), colour: output.colour, fromNode: true }
+						: { d: branchOut(node, column, metrics), colour: output.colour, fromNode: true }
+				);
+			}
+		}
+		return listSegments;
 	}
 
 	interface RefChip {
@@ -425,96 +450,94 @@
 				aria-hidden="true"
 			>
 				{#each visible as v (v.row.commit.hash)}
-					{@const fromStash = v.row.commit.refs.some((ref) => ref.kind === 'stash')}
-					{#each v.row.edges as edge, e (e)}
-						<path
-							d={laneSegment(edge, v.index)}
-							stroke={graphColour(edge.colour)}
-							stroke-width={EDGE_W}
-							stroke-dasharray={fromStash && edge.fromColumn === v.row.nodeColumn
-								? '3 3'
-								: undefined}
-							fill="none"
-						/>
-					{/each}
-				{/each}
-				{#each visible as v (v.row.commit.hash)}
 					{@const commit = v.row.commit}
-					{@const isMerge = commit.parents.length > 1}
 					{@const isStash = commit.refs.some((ref) => ref.kind === 'stash')}
+					{@const isMerge = commit.parents.length > 1}
 					{@const avatar =
 						!commit.isUncommitted && !isMerge && !isStash ? commit.author.avatarUrl : undefined}
-					{#if isStash}
-						<text
-							x={cx(v.row.nodeColumn)}
-							y={cy(v.index)}
-							fill={graphColour(v.row.nodeColour)}
-							font-family="codicon"
-							font-size="16"
-							text-anchor="middle"
-							dominant-baseline="central">{STASH_GLYPH}</text
-						>
-					{:else if commit.isUncommitted}
+					{@const nodeX = laneX(v.row.nodeColumn, metrics)}
+					{@const colour = graphColour(v.row.nodeColour)}
+					<!-- One band per row, drawn in its own coordinates: every lane runs edge to edge, so the
+					     bands stack seamlessly and no row has to know what the row below it looks like. -->
+					<g transform="translate(0,{v.index * ROW_H})">
+						{#each laneSegments(v.row) as segment, s (s)}
+							<path
+								d={segment.d}
+								stroke={graphColour(segment.colour)}
+								stroke-width={EDGE_W}
+								stroke-linecap="round"
+								stroke-dasharray={isStash && segment.fromNode ? '3 3' : undefined}
+								fill="none"
+							/>
+						{/each}
+
+						<!-- The node is painted over the lanes in the page's own background, which hides
+						     whatever runs behind it. Trimming the lanes instead would mean each of them having
+						     to know the size and kind of the node at its far end. -->
 						<circle
-							cx={cx(v.row.nodeColumn)}
-							cy={cy(v.index)}
-							r={NODE_R}
-							fill="none"
-							stroke={graphColour(v.row.nodeColour)}
-							stroke-width={EDGE_W}
+							cx={nodeX}
+							cy={ROW_H / 2}
+							r={(avatar ? AVATAR_R : NODE_R) + 2}
+							fill="var(--gg-bg)"
 						/>
-					{:else if isMerge}
-						<!-- A ring with a dot in it: a merge has no single author worth showing, and the
-						     shape reads as "two lines met here" at a glance. -->
-						<circle
-							cx={cx(v.row.nodeColumn)}
-							cy={cy(v.index)}
-							r={NODE_R}
-							fill="none"
-							stroke={graphColour(v.row.nodeColour)}
-							stroke-width={EDGE_W}
-						/>
-						<circle
-							cx={cx(v.row.nodeColumn)}
-							cy={cy(v.index)}
-							r={NODE_R - 3}
-							fill={graphColour(v.row.nodeColour)}
-						/>
-					{:else if avatar}
-						<clipPath id="gg-clip-{commit.hash}">
-							<circle cx={cx(v.row.nodeColumn)} cy={cy(v.index)} r={AVATAR_R} />
-						</clipPath>
-						<circle
-							cx={cx(v.row.nodeColumn)}
-							cy={cy(v.index)}
-							r={AVATAR_R}
-							fill={graphColour(v.row.nodeColour)}
-						/>
-						<image
-							href={avatar}
-							x={cx(v.row.nodeColumn) - AVATAR_R}
-							y={cy(v.index) - AVATAR_R}
-							width={AVATAR_R * 2}
-							height={AVATAR_R * 2}
-							clip-path="url(#gg-clip-{commit.hash})"
-							preserveAspectRatio="xMidYMid slice"
-						/>
-						<circle
-							cx={cx(v.row.nodeColumn)}
-							cy={cy(v.index)}
-							r={AVATAR_R}
-							fill="none"
-							stroke={graphColour(v.row.nodeColour)}
-							stroke-width="2"
-						/>
-					{:else}
-						<circle
-							cx={cx(v.row.nodeColumn)}
-							cy={cy(v.index)}
-							r={NODE_R}
-							fill={graphColour(v.row.nodeColour)}
-						/>
-					{/if}
+
+						{#if isStash}
+							<text
+								x={nodeX}
+								y={ROW_H / 2}
+								fill={colour}
+								font-family="codicon"
+								font-size="16"
+								text-anchor="middle"
+								dominant-baseline="central">{STASH_GLYPH}</text
+							>
+						{:else if commit.isUncommitted}
+							<circle
+								cx={nodeX}
+								cy={ROW_H / 2}
+								r={NODE_R}
+								fill="none"
+								stroke={colour}
+								stroke-width="2"
+							/>
+						{:else if isMerge}
+							<!-- A ring with a dot in it: a merge has no single author worth showing, and the
+							     shape reads as "two lines met here" at a glance. -->
+							<circle
+								cx={nodeX}
+								cy={ROW_H / 2}
+								r={NODE_R - 1}
+								fill="none"
+								stroke={colour}
+								stroke-width="2"
+							/>
+							<circle cx={nodeX} cy={ROW_H / 2} r="1.5" fill={colour} />
+						{:else if avatar}
+							<clipPath id="gg-clip-{commit.hash}">
+								<circle cx={nodeX} cy={ROW_H / 2} r={AVATAR_R} />
+							</clipPath>
+							<circle cx={nodeX} cy={ROW_H / 2} r={AVATAR_R} fill={colour} />
+							<image
+								href={avatar}
+								x={nodeX - AVATAR_R}
+								y={ROW_H / 2 - AVATAR_R}
+								width={AVATAR_R * 2}
+								height={AVATAR_R * 2}
+								clip-path="url(#gg-clip-{commit.hash})"
+								preserveAspectRatio="xMidYMid slice"
+							/>
+							<circle
+								cx={nodeX}
+								cy={ROW_H / 2}
+								r={AVATAR_R}
+								fill="none"
+								stroke={colour}
+								stroke-width="2"
+							/>
+						{:else}
+							<circle cx={nodeX} cy={ROW_H / 2} r={NODE_R} fill={colour} />
+						{/if}
+					</g>
 				{/each}
 			</svg>
 

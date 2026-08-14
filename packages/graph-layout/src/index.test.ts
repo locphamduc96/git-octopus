@@ -39,8 +39,8 @@ describe('layoutCommits', () => {
 		]);
 		expect(listRows.map((r) => r.nodeColumn)).toEqual([0, 0, 0]);
 		expect(graphWidth(listRows)).toBe(1);
-		// last commit (no parents) has no outgoing edges
-		expect(listRows[2].edges).toHaveLength(0);
+		// the last commit has no parents, so nothing leaves its row
+		expect(listRows[2].listOutputLanes.every((lane) => lane === null)).toBe(true);
 	});
 
 	it('branches a merge onto a second column and merges back', () => {
@@ -55,11 +55,14 @@ describe('layoutCommits', () => {
 		expect(mapColumn).toEqual({ m: 0, a: 0, b: 1, c: 0 });
 		expect(graphWidth(listRows)).toBe(2);
 
-		// M spawns a lane towards column 1 (its second parent B).
-		expect(listRows[0].edges.some((e) => e.toColumn === 1)).toBe(true);
-		// B (column 1) merges back into column 0 at C.
+		// M opens a lane in column 1 for its second parent B.
+		expect(listRows[0].listOutputLanes[1]?.hash).toBe('b');
+		// B sits in column 1 and hands over to C, which column 0 is already waiting for, so B's own
+		// column carries nothing out of that row.
 		const rowB = listRows[2];
-		expect(rowB.edges.some((e) => e.fromColumn === 1 && e.toColumn === 0)).toBe(true);
+		expect(rowB.listInputLanes[1]?.hash).toBe('b');
+		expect(rowB.listOutputLanes[1]).toBeNull();
+		expect(rowB.listOutputLanes[0]?.hash).toBe('c');
 	});
 
 	it('gives every commit exactly one row', () => {
@@ -178,14 +181,36 @@ describe('layoutCommits', () => {
 		expect(graphWidth(listRows)).toBe(2);
 	});
 
+	it('hands every row the lanes the row above it let out', () => {
+		// The view draws each row on its own, from its top edge to its bottom edge. That only lines up
+		// if what leaves one row is exactly what enters the next, column for column and colour for
+		// colour — so this invariant is what keeps the drawing seamless, not the drawing code.
+		const listRows = layoutCommits([
+			makeUncommitted(['m1']),
+			makeBranchTip('m1', ['m2', 'f1'], 'master'),
+			makeCommit('f1', ['m2']),
+			makeCommit('m2', ['m3', 'g1']),
+			makeBranchTip('g1', ['m3'], 'feature/open'),
+			makeCommit('m3', []),
+		]);
+		for (let i = 0; i < listRows.length - 1; i++) {
+			const listOut = listRows[i].listOutputLanes;
+			const listIn = listRows[i + 1].listInputLanes;
+			const width = Math.max(listOut.length, listIn.length);
+			for (let column = 0; column < width; column++) {
+				expect([i, column, listIn[column] ?? null]).toEqual([i, column, listOut[column] ?? null]);
+			}
+		}
+	});
+
 	it('assigns distinct colours to diverging branches', () => {
 		const listRows = layoutCommits([
 			makeCommit('m', ['a', 'b']),
 			makeCommit('a', []),
 			makeCommit('b', []),
 		]);
-		const mBranchEdge = listRows[0].edges.find((e) => e.toColumn === 1);
-		expect(mBranchEdge).toBeDefined();
-		expect(mBranchEdge?.colour).not.toBe(listRows[0].nodeColour);
+		const branchLane = listRows[0].listOutputLanes[1];
+		expect(branchLane).toBeDefined();
+		expect(branchLane?.colour).not.toBe(listRows[0].nodeColour);
 	});
 });
