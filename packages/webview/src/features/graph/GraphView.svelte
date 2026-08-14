@@ -121,9 +121,16 @@
 	const cx = (col: number): number => PAD + col * COL_W;
 	const cy = (rowIndex: number): number => rowIndex * ROW_H + ROW_H / 2;
 
-	function edgePath(fromColumn: number, toColumn: number, i: number): string {
+	/**
+	 * A line from row `i` down to the next row.
+	 *
+	 * `fromNode` starts it at the node's rim instead of its centre. Under a filled node the
+	 * difference is invisible, but the uncommitted-changes node is drawn hollow, and a line running
+	 * out of its centre shows straight through the ring.
+	 */
+	function edgePath(fromColumn: number, toColumn: number, i: number, fromNode: boolean): string {
 		const x1 = cx(fromColumn);
-		const y1 = cy(i);
+		const y1 = cy(i) + (fromNode ? NODE_R : 0);
 		const x2 = cx(toColumn);
 		const y2 = cy(i + 1);
 		if (x1 === x2) return `M${x1} ${y1} L${x2} ${y2}`;
@@ -399,7 +406,12 @@
 					{@const fromStash = v.row.commit.refs.some((ref) => ref.kind === 'stash')}
 					{#each v.row.edges as edge, e (e)}
 						<path
-							d={edgePath(edge.fromColumn, edge.toColumn, v.index)}
+							d={edgePath(
+								edge.fromColumn,
+								edge.toColumn,
+								v.index,
+								edge.fromColumn === v.row.nodeColumn
+							)}
 							stroke={graphColour(edge.colour)}
 							stroke-width="2"
 							stroke-dasharray={fromStash && edge.fromColumn === v.row.nodeColumn
