@@ -30,7 +30,9 @@ export function lookupFolderIcon(
 	expanded: boolean
 ): FileIcon | null {
 	if (!theme) return null;
-	const key = name.toLowerCase();
+	// A row can stand for several folders at once ("native/engine/android/app"), and a theme keys its
+	// icons on single names — so the deepest one, which is what the row is really showing, decides.
+	const key = (name.split('/').pop() ?? name).toLowerCase();
 
 	const listCandidates = expanded
 		? [theme.mapFolderNamesExpanded[key], theme.folderExpanded, theme.mapFolderNames[key], theme.folder]

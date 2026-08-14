@@ -46,6 +46,11 @@ describe('lookupFolderIcon', () => {
 		expect(lookupFolderIcon(THEME, 'other', false)).toEqual(THEME.mapIcons.folder);
 	});
 
+	it('matches the deepest folder of a compacted row', () => {
+		// The tree merges single-child folders into one row, but a theme keys icons on single names.
+		expect(lookupFolderIcon(THEME, 'packages/webview/src', false)).toEqual(THEME.mapIcons.src);
+	});
+
 	it('falls back to the closed icon when a theme styles no open folder', () => {
 		const theme = { ...THEME, folderExpanded: null };
 		expect(lookupFolderIcon(theme, 'other', true)).toEqual(THEME.mapIcons.folder);
