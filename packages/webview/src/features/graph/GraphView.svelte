@@ -2,6 +2,8 @@
 	import type { Commit, CommitActionId, GraphRow, Ref } from '@git-octopus/shared';
 	import { graphWidth } from '@git-octopus/graph-layout';
 	import { graphColour } from '../../lib/graphColours';
+	import { parseSubject } from '../../lib/commitSubject';
+	import { tooltip } from '../../lib/ui/tooltip';
 	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
 	import type { DateFormat, GraphStyle } from '../settings/SettingsWidget.svelte';
@@ -34,6 +36,7 @@
 		scrollTarget,
 		onselect,
 		oncompare,
+		oncheckoutBranch,
 		onaction,
 		ontoggleColumn,
 		onresizeColumn,
@@ -50,6 +53,8 @@
 		scrollTarget: { hash: string; nonce: number } | null;
 		onselect: (hash: string) => void;
 		oncompare: (hash: string) => void;
+		/** Check out a branch chip: a local name when there is one, otherwise a remote-tracking one. */
+		oncheckoutBranch: (local: string | null, remote: string | null) => void;
 		onaction: (action: CommitActionId, commit: Commit) => void;
 		ontoggleColumn: (column: keyof ColumnVisibility) => void;
 		onresizeColumn: (column: ColumnKey, width: number) => void;
@@ -299,6 +304,15 @@
 
 <svelte:window onmousemove={onResizeMove} onmouseup={() => (resizing = null)} />
 
+{#snippet chipBody(chip: RefChip)}
+	{#if chip.checkedOut}<Icon name="check" />{/if}
+	{#if chip.kind === 'tag'}<Icon name="tag" />{/if}
+	{#if chip.kind === 'stash'}<Icon name="archive" />{/if}
+	<span class="ref-name">{chip.name}</span>
+	{#if chip.hasLocal}<Icon name="device-desktop" />{/if}
+	{#if chip.listRemotes.length > 0}<Icon name="cloud" />{/if}
+{/snippet}
+
 <div class="graph-view">
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
@@ -460,6 +474,7 @@
 
 			{#each visible as v (v.row.commit.hash)}
 				{@const listChips = buildChips(v.row.commit.refs)}
+				{@const parsed = parseSubject(v.row.commit.subject)}
 				<div
 					class="row"
 					class:selected={v.row.commit.hash === selectedHash}
@@ -480,21 +495,43 @@
 				>
 					<span class="refs">
 						{#each listChips.slice(0, MAX_CHIPS) as chip (chip.kind + chip.name)}
-							<span
-								class="ref {chip.kind}"
-								class:current={chip.checkedOut}
-								title={chip.title}
-								style={chip.kind === 'branch'
+							{@const border =
+								chip.kind === 'branch'
 									? `border-color:${graphColour(v.row.nodeColour)}`
 									: undefined}
-							>
-								{#if chip.checkedOut}<Icon name="check" />{/if}
-								{#if chip.kind === 'tag'}<Icon name="tag" />{/if}
-								{#if chip.kind === 'stash'}<Icon name="archive" />{/if}
-								<span class="ref-name">{chip.name}</span>
-								{#if chip.hasLocal}<Icon name="device-desktop" />{/if}
-								{#if chip.listRemotes.length > 0}<Icon name="cloud" />{/if}
-							</span>
+							{#if chip.kind === 'branch' && !chip.checkedOut}
+								<button
+									class="ref branch checkoutable"
+									use:tooltip={`${chip.title} — double-click to check out`}
+									ondblclick={(event) => {
+										event.stopPropagation();
+										oncheckoutBranch(
+											chip.hasLocal ? chip.name : null,
+											chip.listRemotes.length > 0 ? `${chip.listRemotes[0]}/${chip.name}` : null
+										);
+									}}
+									onkeydown={(event) => {
+										if (event.key !== 'Enter') return;
+										event.stopPropagation();
+										oncheckoutBranch(
+											chip.hasLocal ? chip.name : null,
+											chip.listRemotes.length > 0 ? `${chip.listRemotes[0]}/${chip.name}` : null
+										);
+									}}
+									style={border}
+								>
+									{@render chipBody(chip)}
+								</button>
+							{:else}
+								<span
+									class="ref {chip.kind}"
+									class:current={chip.checkedOut}
+									use:tooltip={chip.title}
+									style={border}
+								>
+									{@render chipBody(chip)}
+								</span>
+							{/if}
 						{/each}
 						{#if listChips.length > MAX_CHIPS}
 							<span
@@ -510,7 +547,7 @@
 					</span>
 					<span class="graph-cell"></span>
 					<span class="subject" class:uncommitted={v.row.commit.isUncommitted}>
-						{v.row.commit.subject}
+						{#if parsed.ticket}<span class="ticket">{parsed.ticket}</span>{/if}{parsed.text}
 					</span>
 					{#if columns.author}
 						<span class="muted author">
@@ -698,6 +735,15 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	.ref.checkoutable {
+		cursor: pointer;
+		font: inherit;
+		font-size: 0.85em;
+		color: inherit;
+	}
+	.ref.checkoutable:hover {
+		background: var(--vscode-list-hoverBackground);
+	}
 	.ref.current {
 		font-weight: 600;
 		background: var(--vscode-list-activeSelectionBackground);
@@ -721,6 +767,17 @@
 	}
 	.subject.uncommitted {
 		font-weight: 600;
+	}
+	.ticket {
+		display: inline-block;
+		margin-right: var(--gg-space-1);
+		padding: 0 5px;
+		border-radius: 3px;
+		background: var(--vscode-badge-background);
+		color: var(--vscode-badge-foreground);
+		font-size: 0.8em;
+		font-weight: 600;
+		vertical-align: 1px;
 	}
 	.muted {
 		color: var(--gg-fg-muted);

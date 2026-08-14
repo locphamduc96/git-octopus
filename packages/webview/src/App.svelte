@@ -28,6 +28,7 @@
 	import SettingsWidget, { type ViewSettings } from './features/settings/SettingsWidget.svelte';
 	import type { FileViewMode } from './features/changes-panel/CommitTab.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
+	import ConfirmDialog from './lib/ui/ConfirmDialog.svelte';
 
 	type Status = 'loading' | 'ready' | 'error';
 	const STACK_BREAKPOINT = 768;
@@ -262,6 +263,33 @@
 		comparison = { fromHash: null, toHash: null, files: [], loading: false };
 	}
 
+	let pendingCheckout = $state<{ local: string | null; remote: string | null } | null>(null);
+
+	const changeCount = $derived(
+		working ? working.staged.length + working.unstaged.length : 0
+	);
+
+	function checkoutBranch(local: string | null, remote: string | null): void {
+		// Uncommitted work follows you across a checkout, or blocks it — worth a heads-up first.
+		if (changeCount > 0) {
+			pendingCheckout = { local, remote };
+			return;
+		}
+		runCheckout(local, remote);
+	}
+
+	function runCheckout(local: string | null, remote: string | null): void {
+		pendingCheckout = null;
+		postToHost({
+			type: 'commitAction',
+			action: 'checkoutBranch',
+			hash: '',
+			subject: '',
+			branches: local ? [local] : [],
+			remoteBranches: remote ? [remote] : [],
+		});
+	}
+
 	function resizeColumn(column: ColumnKey, width: number): void {
 		widths = { ...widths, [column]: width };
 	}
@@ -308,6 +336,19 @@
 <svelte:window onkeydown={onKeydown} />
 
 <div class="app">
+	{#if pendingCheckout}
+		<ConfirmDialog
+			title="Check out branch"
+			message="You have {changeCount} uncommitted change{changeCount === 1
+				? ''
+				: 's'}. They will be carried over to {pendingCheckout.local ??
+				pendingCheckout.remote}, and the checkout will fail if any of them conflict. Continue?"
+			confirmLabel="Check out"
+			onconfirm={() => runCheckout(pendingCheckout!.local, pendingCheckout!.remote)}
+			oncancel={() => (pendingCheckout = null)}
+		/>
+	{/if}
+
 	{#if settingsOpen}
 		<SettingsWidget
 			{settings}
@@ -378,6 +419,7 @@
 					graphStyle={settings.graphStyle}
 					onselect={select}
 					oncompare={compareWith}
+					oncheckoutBranch={checkoutBranch}
 					onaction={runAction}
 					ontoggleColumn={toggleColumn}
 					onresizeColumn={resizeColumn}

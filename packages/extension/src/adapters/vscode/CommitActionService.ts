@@ -50,6 +50,19 @@ export class CommitActionService {
 				if (options.some((option) => option.label === 'No commit')) args.push('--no-commit');
 				return this.runGit(args, cwd, `Merged ${short}.`);
 			}
+			case 'checkoutBranch': {
+				const local = message.branches[0];
+				if (local) return this.runGit(['checkout', local], cwd, `Checked out ${local}.`);
+				// Remote-only branch: create a local branch that tracks it.
+				const remote = message.remoteBranches[0];
+				if (!remote) return false;
+				const name = remote.slice(remote.indexOf('/') + 1);
+				return this.runGit(
+					['checkout', '-b', name, '--track', remote],
+					cwd,
+					`Checked out ${name}.`
+				);
+			}
 			case 'checkoutRemote': {
 				const remote = await this.pickRemote(message.remoteBranches, 'Checkout which remote branch?');
 				if (!remote) return false;

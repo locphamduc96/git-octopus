@@ -67,6 +67,7 @@ export type CommitActionId =
 	| 'reset'
 	| 'addTag'
 	| 'deleteBranch'
+	| 'checkoutBranch'
 	| 'checkoutRemote'
 	| 'deleteRemoteBranch'
 	| 'fetchIntoLocal'
