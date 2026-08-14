@@ -19,8 +19,12 @@
 	/** Folders start open, so a diff is readable at a glance; this holds the ones folded away. */
 	const setCollapsed = new SvelteSet<string>();
 
-	/** Width of a folder's chevron and icon plus their gaps, so file names line up with folder names. */
-	const LABEL_INSET = 40;
+	/**
+	 * What a folder spends before its name: chevron + gap + icon + gap. A file row is inset by this
+	 * much so its name starts exactly where a folder name at the same depth would. The two icons are
+	 * pinned to 16px in the stylesheet below, since codicon glyphs are not all the same width.
+	 */
+	const LABEL_INSET = 16 + 4 + 16 + 4;
 
 	function toggle(path: string): void {
 		if (setCollapsed.has(path)) setCollapsed.delete(path);
@@ -92,6 +96,10 @@
 	}
 	.folder :global(.codicon) {
 		flex: none;
+		/* A codicon is 16px tall but its glyphs are not all 16px wide — a folder is ~6px narrower
+		   than a chevron. Pinning the box keeps LABEL_INSET honest, and keeps folder names from
+		   shifting as rows expand and collapse. */
+		width: 16px;
 		opacity: 0.8;
 	}
 	.name {
