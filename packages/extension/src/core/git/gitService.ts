@@ -35,6 +35,8 @@ export async function getCommits(
 	const output = await executor.run(
 		[
 			'log',
+			// Full ref paths so a local `feature/x` is never mistaken for a remote branch.
+			'--decorate=full',
 			`--pretty=format:${LOG_FORMAT}`,
 			...refArgs(filters),
 			...listExtraRevs,

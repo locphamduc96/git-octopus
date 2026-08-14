@@ -30,13 +30,12 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 		let nodeColumn = lanes.indexOf(hash);
 		const isTip = nodeColumn === -1;
 		if (isTip) {
-			nodeColumn = lanes.indexOf(null);
-			if (nodeColumn === -1) {
-				nodeColumn = lanes.length;
-				lanes.push(null);
-				laneColours.push(0);
-			}
-			laneColours[nodeColumn] = allocColour();
+			// Branches take a lane of their own rather than dropping into a gap left by an unrelated
+			// branch, which would read as one continuous line. Gaps at the right edge are trimmed
+			// below, so the graph still stays narrow when branches close in order.
+			nodeColumn = lanes.length;
+			lanes.push(null);
+			laneColours.push(allocColour());
 		}
 		const nodeColour = laneColours[nodeColumn];
 
@@ -65,12 +64,10 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 				column = nodeColumn;
 				colour = nodeColour;
 			} else {
-				column = nextLanes.indexOf(null);
-				if (column === -1) {
-					column = nextLanes.length;
-					nextLanes.push(null);
-					nextColours.push(0);
-				}
+				// A merge's extra parents also start their own lane.
+				column = nextLanes.length;
+				nextLanes.push(null);
+				nextColours.push(0);
 				colour = allocColour();
 			}
 			nextLanes[column] = parent;
@@ -97,6 +94,13 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 		}
 
 		listRows.push({ commit, nodeColumn, nodeColour, edges: listEdges });
+
+		// Reclaim lanes at the right edge only, so the graph does not grow with every branch while
+		// still never reusing a gap that sits between two live lanes.
+		while (nextLanes.length > 0 && nextLanes[nextLanes.length - 1] === null) {
+			nextLanes.pop();
+			nextColours.pop();
+		}
 
 		lanes = nextLanes;
 		laneColours = nextColours;

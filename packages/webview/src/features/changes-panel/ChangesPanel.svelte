@@ -183,11 +183,13 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
+	/* Outlined like the chips on the graph, so the same idea looks the same everywhere. */
 	.branch {
-		background: var(--vscode-badge-background);
-		color: var(--vscode-badge-foreground);
+		border: 1px solid var(--gg-fg-muted);
+		color: var(--gg-fg);
 		border-radius: 3px;
-		padding: 0 var(--gg-space-1);
+		padding: 0 6px;
+		font-weight: 600;
 	}
 	.sync {
 		color: var(--gg-accent);

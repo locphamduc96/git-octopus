@@ -50,6 +50,35 @@ describe('layoutCommits', () => {
 		expect(layoutCommits(listCommits)).toHaveLength(2);
 	});
 
+	it('gives a new branch its own lane instead of a gap left by an unrelated one', () => {
+		// `a` ends at `x` while `b` is still open, leaving column 0 free. `c` must not drop into it,
+		// which would draw two unrelated branches as one continuous line.
+		const listRows = layoutCommits([
+			makeCommit('a', ['x']),
+			makeCommit('b', ['y']),
+			makeCommit('x', []),
+			makeCommit('c', ['z']),
+			makeCommit('y', []),
+			makeCommit('z', []),
+		]);
+		const mapColumn = Object.fromEntries(listRows.map((r) => [r.commit.hash, r.nodeColumn]));
+		expect(mapColumn.a).toBe(0);
+		expect(mapColumn.b).toBe(1);
+		expect(mapColumn.c).not.toBe(mapColumn.a);
+		expect(mapColumn.c).not.toBe(mapColumn.b);
+	});
+
+	it('reuses a lane once it is free at the right edge, keeping the graph narrow', () => {
+		// Each branch closes before the next opens, so the same column can serve all of them.
+		const listRows = layoutCommits([
+			makeCommit('a', []),
+			makeCommit('b', []),
+			makeCommit('c', []),
+		]);
+		expect(listRows.map((r) => r.nodeColumn)).toEqual([0, 0, 0]);
+		expect(graphWidth(listRows)).toBe(1);
+	});
+
 	it('assigns distinct colours to diverging branches', () => {
 		const listRows = layoutCommits([
 			makeCommit('m', ['a', 'b']),

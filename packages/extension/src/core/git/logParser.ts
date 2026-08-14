@@ -25,38 +25,56 @@ export function parseLog(output: string): Commit[] {
 	return listCommits;
 }
 
-/** Parse a `%D` decoration string (e.g. "HEAD -> main, tag: v1, origin/main") into refs. */
+/**
+ * Parse a `%D` decoration produced with `--decorate=full`, e.g.
+ * `HEAD -> refs/heads/main, tag: refs/tags/v1, refs/remotes/origin/main`.
+ *
+ * Full paths are essential: the short form prints a local `feature/x` and a remote `origin/x`
+ * the same way, so a local branch whose name contains a slash would be misread as a remote one.
+ */
 export function parseRefs(decoration: string): Ref[] {
 	const listRefs: Ref[] = [];
 	for (const raw of decoration.split(',')) {
 		const token = raw.trim();
 		if (token === '') continue;
-		// Refs outside heads/remotes/tags are printed in full ("refs/stash", "refs/notes/commits").
-		// They are git's own bookkeeping, not branches, so they never become chips.
-		if (token.startsWith('refs/')) continue;
+
 		if (token.startsWith('tag: ')) {
-			listRefs.push({ kind: 'tag', name: token.slice(5) });
-		} else if (token.startsWith('HEAD -> ')) {
+			listRefs.push({ kind: 'tag', name: stripPrefix(token.slice(5), 'refs/tags/') });
+			continue;
+		}
+		if (token === 'HEAD') {
+			listRefs.push({ kind: 'head' });
+			continue;
+		}
+		if (token.startsWith('HEAD -> ')) {
 			listRefs.push({ kind: 'head' });
 			pushBranch(listRefs, token.slice('HEAD -> '.length));
-		} else if (token === 'HEAD') {
-			listRefs.push({ kind: 'head' });
-		} else {
-			pushBranch(listRefs, token);
+			continue;
 		}
+		pushBranch(listRefs, token);
 	}
 	return listRefs;
 }
 
-function pushBranch(listRefs: Ref[], name: string): void {
-	const slash = name.indexOf('/');
-	if (slash === -1) {
-		listRefs.push({ kind: 'branch', name });
+function pushBranch(listRefs: Ref[], ref: string): void {
+	if (ref.startsWith('refs/heads/')) {
+		listRefs.push({ kind: 'branch', name: ref.slice('refs/heads/'.length) });
 		return;
 	}
-	const branch = name.slice(slash + 1);
-	// `<remote>/HEAD` is a symbolic ref for the remote's default branch, so it always duplicates
-	// another label on the same commit — showing it adds noise and reads like the local HEAD.
-	if (branch === 'HEAD') return;
-	listRefs.push({ kind: 'branch', name: branch, remote: name.slice(0, slash) });
+	if (ref.startsWith('refs/remotes/')) {
+		const rest = ref.slice('refs/remotes/'.length);
+		const slash = rest.indexOf('/');
+		if (slash === -1) return;
+		const name = rest.slice(slash + 1);
+		// `<remote>/HEAD` is a symbolic ref for the remote's default branch, so it always duplicates
+		// another label on the same commit — showing it adds noise and reads like the local HEAD.
+		if (name === 'HEAD') return;
+		listRefs.push({ kind: 'branch', name, remote: rest.slice(0, slash) });
+		return;
+	}
+	// Anything else under refs/ is git's own bookkeeping (stash, notes, bisect): not a branch.
+}
+
+function stripPrefix(value: string, prefix: string): string {
+	return value.startsWith(prefix) ? value.slice(prefix.length) : value;
 }

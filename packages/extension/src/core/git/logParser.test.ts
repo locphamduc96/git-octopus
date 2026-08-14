@@ -38,38 +38,59 @@ describe('parseLog', () => {
 
 describe('parseRefs', () => {
 	it('splits the checked-out branch into a head marker and the branch itself', () => {
-		expect(parseRefs('HEAD -> main')).toEqual([
+		expect(parseRefs('HEAD -> refs/heads/main')).toEqual([
 			{ kind: 'head' },
 			{ kind: 'branch', name: 'main' },
 		]);
 	});
 
 	it('keeps the remote separate from the branch name', () => {
-		expect(parseRefs('origin/main')).toEqual([
+		expect(parseRefs('refs/remotes/origin/main')).toEqual([
 			{ kind: 'branch', name: 'main', remote: 'origin' },
 		]);
 	});
 
 	it('reads tags', () => {
-		expect(parseRefs('tag: v1.2.0')).toEqual([{ kind: 'tag', name: 'v1.2.0' }]);
+		expect(parseRefs('tag: refs/tags/v1.2.0')).toEqual([{ kind: 'tag', name: 'v1.2.0' }]);
 	});
 
-	it('drops <remote>/HEAD, which only mirrors the remote default branch', () => {
-		expect(parseRefs('HEAD -> main, origin/main, origin/HEAD')).toEqual([
-			{ kind: 'head' },
-			{ kind: 'branch', name: 'main' },
-			{ kind: 'branch', name: 'main', remote: 'origin' },
+	it('treats a local branch containing a slash as local, not remote', () => {
+		expect(parseRefs('refs/heads/feature/ZG-2375_friend')).toEqual([
+			{ kind: 'branch', name: 'feature/ZG-2375_friend' },
 		]);
 	});
 
-	it('ignores git-internal refs printed in full, such as refs/stash', () => {
+	it('keeps the whole path after the remote name', () => {
+		expect(parseRefs('refs/remotes/origin/feature/ZG-2375_friend')).toEqual([
+			{ kind: 'branch', name: 'feature/ZG-2375_friend', remote: 'origin' },
+		]);
+	});
+
+	it('drops <remote>/HEAD, which only mirrors the remote default branch', () => {
+		expect(parseRefs('refs/remotes/origin/HEAD')).toEqual([]);
+	});
+
+	it('ignores git-internal refs such as refs/stash', () => {
 		expect(parseRefs('refs/stash')).toEqual([]);
 		expect(parseRefs('refs/notes/commits')).toEqual([]);
 	});
 
-	it('keeps a real branch that merely ends in HEAD', () => {
-		expect(parseRefs('origin/feature/HEADless')).toEqual([
-			{ kind: 'branch', name: 'feature/HEADless', remote: 'origin' },
+	it('reads a full decoration line', () => {
+		expect(
+			parseRefs(
+				'HEAD -> refs/heads/feature/ZG-2375_friend, tag: refs/tags/v1.0, ' +
+					'refs/remotes/origin/feature/ZG-2375_friend, refs/remotes/origin/HEAD, refs/heads/main'
+			)
+		).toEqual([
+			{ kind: 'head' },
+			{ kind: 'branch', name: 'feature/ZG-2375_friend' },
+			{ kind: 'tag', name: 'v1.0' },
+			{ kind: 'branch', name: 'feature/ZG-2375_friend', remote: 'origin' },
+			{ kind: 'branch', name: 'main' },
 		]);
+	});
+
+	it('marks a detached HEAD', () => {
+		expect(parseRefs('HEAD')).toEqual([{ kind: 'head' }]);
 	});
 });
