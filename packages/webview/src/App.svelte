@@ -70,6 +70,7 @@
 	let detailsLoading = $state(false);
 
 	let fileView = $state<FileViewMode>(saved.fileView ?? 'tree');
+	let metaOpen = $state(saved.metaOpen ?? false);
 	let settingsOpen = $state(false);
 	let settings = $state<ViewSettings>({
 		commitLimit: 300,
@@ -109,6 +110,7 @@
 			panelRatio,
 			showRemoteBranches,
 			fileView,
+			metaOpen,
 			settings,
 		});
 	});
@@ -403,6 +405,8 @@
 				onpush={() => postToHost({ type: 'repoAction', action: 'push' })}
 				onpushForce={() => postToHost({ type: 'repoAction', action: 'pushForce' })}
 				{fileView}
+				{metaOpen}
+				onmetaOpen={(open) => (metaOpen = open)}
 				onfileView={(next) => (fileView = next)}
 				onclose={closeDetails}
 				oncopy={(text) => postToHost({ type: 'copyText', text, label: 'commit hash' })}

@@ -36,6 +36,7 @@ export interface PersistedState {
 	panelRatio: number;
 	showRemoteBranches: boolean;
 	fileView: 'list' | 'tree';
+	metaOpen: boolean;
 	settings: {
 		commitLimit: number;
 		dateFormat: 'dateTime' | 'dateOnly' | 'iso' | 'relative';

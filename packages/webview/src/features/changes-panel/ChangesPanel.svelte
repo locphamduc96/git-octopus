@@ -40,10 +40,14 @@
 		fileView,
 		onfileView,
 		onclose,
+		metaOpen,
+		onmetaOpen,
 	}: {
 		fileView: FileViewMode;
 		onfileView: (mode: FileViewMode) => void;
 		onclose: () => void;
+		metaOpen: boolean;
+		onmetaOpen: (open: boolean) => void;
 		mode: PanelMode;
 		working: WorkingTreeStatus | null;
 		details: CommitDetails | null;
@@ -134,6 +138,8 @@
 				{details}
 				loading={detailsLoading}
 				{fileView}
+				{metaOpen}
+				{onmetaOpen}
 				{onopenDiff}
 				{oncopy}
 				{onselectCommit}

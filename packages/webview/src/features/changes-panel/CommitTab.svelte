@@ -11,6 +11,8 @@
 		details,
 		loading,
 		fileView,
+		metaOpen,
+		onmetaOpen,
 		onopenDiff,
 		oncopy,
 		onselectCommit,
@@ -18,6 +20,9 @@
 		details: CommitDetails | null;
 		loading: boolean;
 		fileView: FileViewMode;
+		/** Whether the hash/parent/author block is expanded; the byline covers the basics already. */
+		metaOpen: boolean;
+		onmetaOpen: (open: boolean) => void;
 		onopenDiff: (path: string) => void;
 		oncopy: (text: string) => void;
 		onselectCommit: (hash: string) => void;
@@ -60,16 +65,25 @@
 	{:else if !details}
 		<p class="hint">Select a commit to see its details.</p>
 	{:else}
-		<header class="subject-bar">
-			<span class="subject" title={subject}>{subject}</span>
-			<span class="byline">
-				<span class="mono">{details.hash.slice(0, 8)}</span>
-				· {details.author.name}
-				· {fmtWhen(details.authoredAt)}
+		<button
+			class="subject-bar"
+			onclick={() => onmetaOpen(!metaOpen)}
+			title={metaOpen ? 'Hide commit details' : 'Show hash, parents and author'}
+			aria-expanded={metaOpen}
+		>
+			<Icon name={metaOpen ? 'chevron-down' : 'chevron-right'} />
+			<span class="lines">
+				<span class="subject" title={subject}>{subject}</span>
+				<span class="byline">
+					<span class="mono">{details.hash.slice(0, 8)}</span>
+					· {details.author.name}
+					· {fmtWhen(details.authoredAt)}
+				</span>
 			</span>
-		</header>
+		</button>
 
-		<dl class="meta">
+		{#if metaOpen}
+			<dl class="meta">
 			<dt>Commit</dt>
 			<dd>
 				<button class="link mono" onclick={() => oncopy(details.hash)} title="Copy the full hash">
@@ -111,7 +125,8 @@
 					<span class="when">{fmtWhen(details.committedAt)}</span>
 				</dd>
 			{/if}
-		</dl>
+			</dl>
+		{/if}
 
 		{#if restOfBody}
 			<pre class="body">{restOfBody}</pre>
@@ -143,10 +158,32 @@
 	}
 	.subject-bar {
 		display: flex;
+		align-items: flex-start;
+		gap: var(--gg-space-1);
+		width: 100%;
+		padding: var(--gg-space-2);
+		border: none;
+		border-bottom: 1px solid var(--gg-border);
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.subject-bar:hover {
+		background: var(--vscode-list-hoverBackground);
+	}
+	.subject-bar :global(.codicon) {
+		flex: none;
+		margin-top: 2px;
+		color: var(--gg-fg-muted);
+	}
+	.lines {
+		display: flex;
 		flex-direction: column;
 		gap: 2px;
-		padding: var(--gg-space-2);
-		border-bottom: 1px solid var(--gg-border);
+		min-width: 0;
+		flex: 1;
 	}
 	.subject {
 		font-weight: 600;
