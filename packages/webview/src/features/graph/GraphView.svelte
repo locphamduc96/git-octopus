@@ -67,6 +67,8 @@
 	const NODE_R = 5;
 	/** Radius used when a commit shows its author's avatar instead of a plain dot. */
 	const AVATAR_R = 9;
+	/** Lane lines are drawn hairline-thin: a graph this dense turns to mush at any real weight. */
+	const EDGE_W = 1.5;
 	/** Codicon glyph for `archive`, drawn inside the stash node. */
 	const STASH_GLYPH = '';
 	const OVERSCAN = 8;
@@ -136,7 +138,19 @@
 		if (x1 === x2) return `M${x1} ${y1} L${x2} ${y2}`;
 		const ym = (y1 + y2) / 2;
 		if (graphStyle === 'angular') return `M${x1} ${y1} L${x1} ${ym} L${x2} ${ym} L${x2} ${y2}`;
-		return `M${x1} ${y1} C${x1} ${ym} ${x2} ${ym} ${x2} ${y2}`;
+		// Two rounded corners around a straight middle, rather than one bezier stretched over the
+		// whole row: the lane stays vertical where it can, and only bends where it actually changes
+		// column, which is what keeps a wall of merges readable.
+		const dir = Math.sign(x2 - x1);
+		const r = Math.min(Math.abs(x2 - x1) / 2, (y2 - y1) / 2);
+		return [
+			`M${x1} ${y1}`,
+			`L${x1} ${ym - r}`,
+			`Q${x1} ${ym} ${x1 + dir * r} ${ym}`,
+			`L${x2 - dir * r} ${ym}`,
+			`Q${x2} ${ym} ${x2} ${ym + r}`,
+			`L${x2} ${y2}`,
+		].join(' ');
 	}
 
 	interface RefChip {
@@ -413,7 +427,7 @@
 								edge.fromColumn === v.row.nodeColumn
 							)}
 							stroke={graphColour(edge.colour)}
-							stroke-width="2"
+							stroke-width={EDGE_W}
 							stroke-dasharray={fromStash && edge.fromColumn === v.row.nodeColumn
 								? '3 3'
 								: undefined}
@@ -444,7 +458,24 @@
 							r={NODE_R}
 							fill="none"
 							stroke={graphColour(v.row.nodeColour)}
-							stroke-width="2"
+							stroke-width={EDGE_W}
+						/>
+					{:else if isMerge}
+						<!-- A ring with a dot in it: a merge has no single author worth showing, and the
+						     shape reads as "two lines met here" at a glance. -->
+						<circle
+							cx={cx(v.row.nodeColumn)}
+							cy={cy(v.index)}
+							r={NODE_R}
+							fill="none"
+							stroke={graphColour(v.row.nodeColour)}
+							stroke-width={EDGE_W}
+						/>
+						<circle
+							cx={cx(v.row.nodeColumn)}
+							cy={cy(v.index)}
+							r={NODE_R - 3}
+							fill={graphColour(v.row.nodeColour)}
 						/>
 					{:else if avatar}
 						<clipPath id="gg-clip-{commit.hash}">

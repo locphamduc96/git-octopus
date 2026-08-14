@@ -59,15 +59,8 @@
 			>{#if dir}<span class="dir">{dir}</span>{/if}<span class="name">{name}</span></span
 		>
 	</button>
-	{#if file.additions !== undefined || file.deletions !== undefined}
-		<span class="counts">
-			{#if file.additions}<span class="add">+{file.additions}</span>{/if}
-			{#if file.deletions}<span class="del">−{file.deletions}</span>{/if}
-		</span>
-	{/if}
-	<!-- Kept out of the name column: in tree view a leading letter pushes every file name off the
-	     indent its folder sets, so the status sits in a column of its own on the right. -->
-	<span class="st st-{file.status}">{file.status}</span>
+	<!-- Ahead of the counts and the status, so appearing on hover costs the name its width and
+	     nothing else: everything to the right of here keeps the column it was in. -->
 	<span class="actions">
 		{#each actions as action (action.id)}
 			<button
@@ -80,6 +73,15 @@
 			</button>
 		{/each}
 	</span>
+	{#if file.additions !== undefined || file.deletions !== undefined}
+		<span class="counts">
+			{#if file.additions}<span class="add">+{file.additions}</span>{/if}
+			{#if file.deletions}<span class="del">−{file.deletions}</span>{/if}
+		</span>
+	{/if}
+	<!-- Kept out of the name column: in tree view a leading letter pushes every file name off the
+	     indent its folder sets, so the status sits in a column of its own on the right. -->
+	<span class="st st-{file.status}">{file.status}</span>
 </li>
 
 <style>
