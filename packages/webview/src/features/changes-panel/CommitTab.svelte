@@ -20,7 +20,10 @@
 		details: CommitDetails | null;
 		loading: boolean;
 		fileView: FileViewMode;
-		/** Whether the hash/parent/author block is expanded; the byline covers the basics already. */
+		/**
+		 * Whether the full message and the hash/parent/author block are expanded. The subject and
+		 * byline stay visible either way, so collapsing leaves the file list more room.
+		 */
 		metaOpen: boolean;
 		onmetaOpen: (open: boolean) => void;
 		onopenDiff: (path: string) => void;
@@ -68,7 +71,9 @@
 		<button
 			class="subject-bar"
 			onclick={() => onmetaOpen(!metaOpen)}
-			title={metaOpen ? 'Hide commit details' : 'Show hash, parents and author'}
+			title={metaOpen
+				? 'Hide the full message, hash, parents and author'
+				: 'Show the full message, hash, parents and author'}
 			aria-expanded={metaOpen}
 		>
 			<Icon name={metaOpen ? 'chevron-down' : 'chevron-right'} />
@@ -126,10 +131,10 @@
 				</dd>
 			{/if}
 			</dl>
-		{/if}
 
-		{#if restOfBody}
-			<pre class="body">{restOfBody}</pre>
+			{#if restOfBody}
+				<pre class="body">{restOfBody}</pre>
+			{/if}
 		{/if}
 
 		<h3>
