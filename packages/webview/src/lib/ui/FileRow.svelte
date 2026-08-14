@@ -133,13 +133,22 @@
 		overflow: hidden;
 		white-space: nowrap;
 	}
+	/*
+	 * When the hover buttons appear the row loses width, and the folders give it up first: the huge
+	 * shrink factor means the deficit lands almost entirely on `.dir` until it has nothing left, and
+	 * only then does the file name start eliding. Both end in "…" rather than being cut off.
+	 */
 	.dir {
+		flex: 0 1000 auto;
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 	.name {
-		flex: none;
+		flex: 0 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.counts {
 		flex: none;
