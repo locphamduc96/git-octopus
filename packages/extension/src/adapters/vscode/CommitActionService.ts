@@ -3,6 +3,17 @@ import type { CommitActionMessage } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 
 /**
+ * What to name a commit when merging or rebasing onto it.
+ *
+ * Git writes the merge message from whatever it was given, so passing the raw hash produces
+ * `Merge commit '<40 chars>'`. Naming the branch instead yields the familiar
+ * `Merge branch 'feature/x'`.
+ */
+function mergeableRef(message: CommitActionMessage): string {
+	return message.branches[0] ?? message.remoteBranches[0] ?? message.hash;
+}
+
+/**
  * Runs commit context-menu actions. Lives in the adapter layer because each action needs VS Code
  * UI (prompts, clipboard, notifications) and mutates the repository.
  */
@@ -44,7 +55,7 @@ export class CommitActionService {
 					{ canPickMany: true, placeHolder: `Merge ${short} — choose options` }
 				);
 				if (!options) return false;
-				const args = ['merge', message.hash];
+				const args = ['merge', mergeableRef(message)];
 				if (options.some((option) => option.label === 'Squash commits')) args.push('--squash');
 				else if (options.some((option) => option.label === 'No fast-forward')) args.push('--no-ff');
 				if (options.some((option) => option.label === 'No commit')) args.push('--no-commit');
@@ -107,9 +118,11 @@ export class CommitActionService {
 					`Deleted ${remote}.`
 				);
 			}
-			case 'rebase':
-				if (!(await this.confirm(`Rebase the current branch onto ${short}?`))) return false;
-				return this.runGit(['rebase', message.hash], cwd, `Rebased onto ${short}.`);
+			case 'rebase': {
+				const onto = mergeableRef(message);
+				if (!(await this.confirm(`Rebase the current branch onto ${onto}?`))) return false;
+				return this.runGit(['rebase', onto], cwd, `Rebased onto ${onto}.`);
+			}
 			case 'cherryPick':
 				if (!(await this.confirm(`Cherry pick commit ${short} onto the current branch?`)))
 					return false;
