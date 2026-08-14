@@ -69,6 +69,8 @@
 	const AVATAR_R = 9;
 	/** Lane lines are drawn hairline-thin: a graph this dense turns to mush at any real weight. */
 	const EDGE_W = 1.5;
+	/** Half the codicon box the stash glyph is drawn in. */
+	const STASH_R = 8;
 	/** Codicon glyph for `archive`, drawn inside the stash node. */
 	const STASH_GLYPH = '';
 	const OVERSCAN = 8;
@@ -134,31 +136,49 @@
 	 *
 	 * `fromNode` says this row's node is the upper end.
 	 */
-	function edgePath(fromColumn: number, toColumn: number, i: number, fromNode: boolean): string {
+	function edgePath(
+		fromColumn: number,
+		toColumn: number,
+		i: number,
+		fromR: number,
+		toR: number
+	): string {
 		const x1 = cx(fromColumn);
 		const x2 = cx(toColumn);
 		const yTop = cy(i);
 		const yBottom = cy(i + 1);
 
-		// Straight down: still start at the node's rim, since the hollow nodes would otherwise show
-		// the line running out of their centre.
-		if (x1 === x2) return `M${x1} ${yTop + (fromNode ? NODE_R : 0)} L${x2} ${yBottom}`;
+		if (x1 === x2) return `M${x1} ${yTop + fromR} L${x2} ${yBottom - toR}`;
 
 		const dir = Math.sign(x2 - x1);
 		if (graphStyle === 'angular') {
 			const ym = (yTop + yBottom) / 2;
-			return `M${x1} ${yTop} L${x1} ${ym} L${x2} ${ym} L${x2} ${yBottom}`;
+			return `M${x1} ${yTop + fromR} L${x1} ${ym} L${x2} ${ym} L${x2} ${yBottom - toR}`;
 		}
 
-		if (fromNode) {
+		if (fromR > 0) {
 			// Out of the node sideways, one turn, then straight down the lane it is joining.
-			const startX = x1 + dir * NODE_R;
-			const r = Math.min(Math.abs(x2 - startX), yBottom - yTop);
-			return `M${startX} ${yTop} Q${x2} ${yTop} ${x2} ${yTop + r} L${x2} ${yBottom}`;
+			const startX = x1 + dir * fromR;
+			const r = Math.max(0, Math.min(Math.abs(x2 - startX), yBottom - toR - yTop));
+			return `M${startX} ${yTop} Q${x2} ${yTop} ${x2} ${yTop + r} L${x2} ${yBottom - toR}`;
 		}
-		// Straight down this lane, then one turn into the column it is converging on.
-		const r = Math.min(Math.abs(x2 - x1), yBottom - yTop);
-		return `M${x1} ${yTop} L${x1} ${yBottom - r} Q${x1} ${yBottom} ${x2} ${yBottom}`;
+		// Straight down this lane, then one turn into the node it is converging on — arriving from
+		// the side, so the gap it stops short by is horizontal.
+		const endX = x2 - dir * toR;
+		const r = Math.max(0, Math.min(Math.abs(endX - x1), yBottom - yTop));
+		return `M${x1} ${yTop} L${x1} ${yBottom - r} Q${x1} ${yBottom} ${endX} ${yBottom}`;
+	}
+
+	/**
+	 * How far a row's node reaches from its centre, so lines can stop at its edge. Zero when the
+	 * lane simply runs past that row, which must not be shortened.
+	 */
+	function nodeRadius(row: GraphRow | undefined, column: number): number {
+		if (!row || row.nodeColumn !== column) return 0;
+		const commit = row.commit;
+		if (commit.refs.some((ref) => ref.kind === 'stash')) return STASH_R;
+		if (commit.isUncommitted || commit.parents.length > 1) return NODE_R;
+		return commit.author.avatarUrl ? AVATAR_R : NODE_R;
 	}
 
 	interface RefChip {
@@ -432,7 +452,8 @@
 								edge.fromColumn,
 								edge.toColumn,
 								v.index,
-								edge.fromColumn === v.row.nodeColumn
+								nodeRadius(v.row, edge.fromColumn),
+								nodeRadius(rows[v.index + 1], edge.toColumn)
 							)}
 							stroke={graphColour(edge.colour)}
 							stroke-width={EDGE_W}
