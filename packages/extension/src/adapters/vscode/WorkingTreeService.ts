@@ -33,6 +33,9 @@ export class WorkingTreeService {
 					return this.runGit(['clean', '-fd', '--', message.path], cwd);
 				}
 			}
+			case 'undoCommit':
+				// Soft reset: the commit's changes come back staged, ready to be redone.
+				return this.runGit(['reset', '--soft', 'HEAD~1'], cwd);
 			case 'stash': {
 				const name = await vscode.window.showInputBox({
 					prompt: 'Optional message for the stash',

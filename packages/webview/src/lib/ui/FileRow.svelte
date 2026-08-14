@@ -11,7 +11,7 @@
 	let {
 		file,
 		label,
-		indent = 0,
+		indent = 8,
 		actions = [],
 		onopen,
 		onaction,

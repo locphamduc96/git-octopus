@@ -2,6 +2,8 @@
 	import type { FileChange, WorkingTreeAction, WorkingTreeStatus } from '@git-octopus/shared';
 	import FileRow from '../../lib/ui/FileRow.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
+	import ConfirmDialog from '../../lib/ui/ConfirmDialog.svelte';
+	import CommitDialog from './CommitDialog.svelte';
 
 	let {
 		working,
@@ -19,7 +21,9 @@
 		onpushForce: () => void;
 	} = $props();
 
-	let commitMessage = $state('');
+	type Dialog = 'commit' | 'push' | 'forcePush' | 'undo';
+
+	let dialog = $state<Dialog | null>(null);
 
 	const changes = $derived(working ? working.unstaged.filter((f) => f.status !== '?') : []);
 	const untracked = $derived(working ? working.unstaged.filter((f) => f.status === '?') : []);
@@ -33,9 +37,9 @@
 		{ id: 'unstage', label: 'Unstage this file — keep the change, drop it from the commit', icon: 'remove' },
 	];
 
-	function commit(): void {
-		onaction('commit', undefined, commitMessage);
-		commitMessage = '';
+	function commit(message: string): void {
+		dialog = null;
+		onaction('commit', undefined, message);
 	}
 </script>
 
@@ -43,10 +47,10 @@
 	<div class="toolbar">
 		<button
 			class="push"
-			onclick={onpush}
+			onclick={() => (dialog = 'push')}
 			oncontextmenu={(event) => {
 				event.preventDefault();
-				onpushForce();
+				dialog = 'forcePush';
 			}}
 			disabled={ahead === 0}
 			title={ahead > 0
@@ -55,6 +59,12 @@
 		>
 			<Icon name="arrow-up" />
 			Push{ahead > 0 ? ` ${ahead}` : ''}
+		</button>
+		<button
+			onclick={() => (dialog = 'undo')}
+			title="Undo last commit — put its changes back as staged, keeping your work"
+		>
+			<Icon name="discard" label="Undo last commit" />
 		</button>
 		<button
 			onclick={() => onaction('stash')}
@@ -77,22 +87,15 @@
 		</button>
 		<button
 			class="primary"
-			onclick={commit}
+			onclick={() => (dialog = 'commit')}
 			disabled={staged.length === 0}
 			title={staged.length === 0
 				? 'Commit — stage at least one file first'
-				: `Commit ${staged.length} staged file${staged.length === 1 ? '' : 's'} with the message above`}
+				: `Commit ${staged.length} staged file${staged.length === 1 ? '' : 's'}`}
 		>
 			Commit
 		</button>
 	</div>
-
-	<textarea
-		class="message"
-		bind:value={commitMessage}
-		placeholder="Commit message"
-		rows="2"
-	></textarea>
 
 	<div class="sections">
 		<section>
@@ -151,6 +154,47 @@
 	</div>
 </div>
 
+{#if dialog === 'commit'}
+	<CommitDialog
+		stagedCount={staged.length}
+		oncommit={commit}
+		oncancel={() => (dialog = null)}
+	/>
+{:else if dialog === 'push'}
+	<ConfirmDialog
+		title="Push to remote"
+		message="Push {ahead} commit{ahead === 1 ? '' : 's'} to the remote?"
+		onconfirm={() => {
+			dialog = null;
+			onpush();
+		}}
+		oncancel={() => (dialog = null)}
+	/>
+{:else if dialog === 'forcePush'}
+	<ConfirmDialog
+		title="Force push"
+		message="Force push (with lease) rewrites the remote branch. Anyone who already pulled it will have to reconcile their history. Continue?"
+		confirmLabel="Force push"
+		danger
+		onconfirm={() => {
+			dialog = null;
+			onpushForce();
+		}}
+		oncancel={() => (dialog = null)}
+	/>
+{:else if dialog === 'undo'}
+	<ConfirmDialog
+		title="Undo last commit"
+		message="The last commit will be removed and its changes put back as staged, so nothing is lost. Avoid this if the commit is already pushed."
+		confirmLabel="Undo commit"
+		onconfirm={() => {
+			dialog = null;
+			onaction('undoCommit');
+		}}
+		oncancel={() => (dialog = null)}
+	/>
+{/if}
+
 <style>
 	.tab {
 		display: flex;
@@ -203,16 +247,6 @@
 	.toolbar .primary:disabled {
 		opacity: 0.5;
 		cursor: default;
-	}
-	.message {
-		margin: var(--gg-space-2);
-		background: var(--vscode-input-background);
-		color: var(--vscode-input-foreground);
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 3px;
-		padding: var(--gg-space-1) var(--gg-space-2);
-		font: inherit;
-		resize: vertical;
 	}
 	.sections {
 		flex: 1;

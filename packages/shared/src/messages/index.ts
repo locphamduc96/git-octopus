@@ -97,7 +97,8 @@ export type WorkingTreeAction =
 	| 'unstageAll'
 	| 'discard'
 	| 'stash'
-	| 'commit';
+	| 'commit'
+	| 'undoCommit';
 
 export type RepoActionId = 'fetch' | 'push' | 'pushForce' | 'pull';
 
