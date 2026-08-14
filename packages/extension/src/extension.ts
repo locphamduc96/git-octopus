@@ -53,8 +53,13 @@ export function activate(context: vscode.ExtensionContext): void {
 				vscode.ViewColumn.Active,
 				{ enableScripts: true, retainContextWhenHidden: true }
 			);
-			controller.attach(panel.webview, panel.onDidDispose);
-		})
+			void controller.attach(panel.webview, panel.onDidDispose);
+		}),
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			if (event.affectsConfiguration('workbench.iconTheme')) void controller.refreshIconTheme();
+		}),
+		// A theme can ship a second set of icons for light backgrounds.
+		vscode.window.onDidChangeActiveColorTheme(() => void controller.refreshIconTheme())
 	);
 }
 

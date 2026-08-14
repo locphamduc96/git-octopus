@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { FileChange } from '@git-octopus/shared';
+	import FileIcon from './FileIcon.svelte';
 	import Icon from './Icon.svelte';
 	import { tooltip } from './tooltip';
 
@@ -41,6 +42,7 @@
 		onclick={() => onopen(file.path)}
 		use:tooltip={`${file.path} — click to open the diff`}
 	>
+		<FileIcon path={file.path} fallback="file" />
 		<span class="path"
 			>{#if dir}<span class="dir">{dir}</span>{/if}<span class="name">{name}</span></span
 		>
@@ -82,7 +84,8 @@
 		flex: 1;
 		display: flex;
 		align-items: center;
-		gap: var(--gg-space-2);
+		/* Same gap a folder row puts after its icon, so names line up down the tree. */
+		gap: var(--gg-space-1);
 		min-width: 0;
 		background: none;
 		border: none;

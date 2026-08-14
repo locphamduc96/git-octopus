@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { GraphFilters, RepoInfo, WebviewToHost } from '@git-octopus/shared';
+import type { GraphFilters, HostToWebview, RepoInfo, WebviewToHost } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import { routeMessage } from '../../app/messageRouter.js';
 import type { RepoContext } from '../../app/useCases/loadCommits.js';
@@ -9,6 +9,7 @@ import type { CommitActionService } from './CommitActionService.js';
 import type { WorkingTreeService } from './WorkingTreeService.js';
 import type { RepoActionService } from './RepoActionService.js';
 import { gravatarUrl } from '../process/gravatar.js';
+import { buildForWebview, locateIconTheme, type LocatedIconTheme } from './iconThemeReader.js';
 
 const DEFAULT_LIMIT = 300;
 const STATE_ACTIVE_REPO = 'gitOctopus.activeRepo';
@@ -23,6 +24,8 @@ export class GitOctopusController {
 	private repos: RepoInfo[] = [];
 	private activeRepo: string | null;
 	private filters: GraphFilters;
+	/** The user's file-icon theme, read once and shared by every webview. */
+	private iconTheme: LocatedIconTheme | null = null;
 
 	public constructor(
 		private readonly extensionUri: vscode.Uri,
@@ -49,23 +52,52 @@ export class GitOctopusController {
 	public onRepoState?: (state: { repoName: string | null; branch: string | null }) => void;
 
 	/** Wire a webview: set its options, render the HTML and start handling its messages. */
-	public attach(webview: vscode.Webview, onDispose: vscode.Event<void>): void {
+	public async attach(webview: vscode.Webview, onDispose: vscode.Event<void>): Promise<void> {
 		const mediaUri = vscode.Uri.joinPath(this.extensionUri, 'media', 'webview');
-		webview.options = { enableScripts: true, localResourceRoots: [mediaUri] };
+		// The icon theme lives in whichever extension contributes it, so the webview needs reading
+		// rights on that folder as well as on our own media.
+		this.iconTheme ??= await locateIconTheme();
+		webview.options = {
+			enableScripts: true,
+			localResourceRoots: [mediaUri, ...(this.iconTheme ? [this.iconTheme.root] : [])],
+		};
 		webview.html = this.buildHtml(webview, mediaUri);
 
 		this.listWebviews.push(webview);
-		webview.onDidReceiveMessage((message: WebviewToHost) => this.handleMessage(message));
+		webview.onDidReceiveMessage((message: WebviewToHost) => this.handleMessage(message, webview));
 		onDispose(() => {
 			this.listWebviews = this.listWebviews.filter((item) => item !== webview);
 		});
+	}
+
+	/**
+	 * Re-read the icon theme and push it out. Called when the user switches icon theme, and when the
+	 * colour theme changes, since a theme can carry a separate set of icons for light backgrounds.
+	 */
+	public async refreshIconTheme(): Promise<void> {
+		this.iconTheme = await locateIconTheme();
+		const mediaUri = vscode.Uri.joinPath(this.extensionUri, 'media', 'webview');
+		for (const webview of this.listWebviews) {
+			webview.options = {
+				enableScripts: true,
+				localResourceRoots: [mediaUri, ...(this.iconTheme ? [this.iconTheme.root] : [])],
+			};
+			this.sendIconTheme(webview);
+		}
+	}
+
+	private sendIconTheme(webview: vscode.Webview): void {
+		void webview.postMessage({
+			type: 'fileIcons',
+			theme: this.iconTheme ? buildForWebview(this.iconTheme, webview) : null,
+		} satisfies HostToWebview);
 	}
 
 	public async refresh(): Promise<void> {
 		await this.send({ type: 'loadCommits', limit: DEFAULT_LIMIT, filters: this.filters });
 	}
 
-	private async handleMessage(message: WebviewToHost): Promise<void> {
+	private async handleMessage(message: WebviewToHost, webview: vscode.Webview): Promise<void> {
 		const cwd = this.activeRepo;
 
 		switch (message.type) {
@@ -74,6 +106,9 @@ export class GitOctopusController {
 					this.filters = message.filters;
 					this.persist();
 				}
+				// This is also the webview telling us it is listening, so the icons ride along: a
+				// message posted before then would be dropped.
+				this.sendIconTheme(webview);
 				await this.discoverRepos();
 				await this.send(message);
 				return;
@@ -182,8 +217,8 @@ export class GitOctopusViewProvider implements vscode.WebviewViewProvider {
 
 	public constructor(private readonly controller: GitOctopusController) {}
 
-	public resolveWebviewView(webviewView: vscode.WebviewView): void {
-		this.controller.attach(webviewView.webview, webviewView.onDidDispose);
+	public async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
+		await this.controller.attach(webviewView.webview, webviewView.onDidDispose);
 	}
 }
 

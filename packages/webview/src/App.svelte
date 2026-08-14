@@ -27,8 +27,24 @@
 	} from './features/changes-panel/ChangesPanel.svelte';
 	import SettingsWidget, { type ViewSettings } from './features/settings/SettingsWidget.svelte';
 	import type { FileViewMode } from './lib/fileTree';
+	import { fontFaceCss } from './lib/fileIcon';
+	import { fileIconTheme, setFileIconTheme } from './lib/stores/fileIcons.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
 	import ConfirmDialog from './lib/ui/ConfirmDialog.svelte';
+
+	/**
+	 * A glyph-based icon theme (Seti, the VS Code default) ships its icons inside a font, which has
+	 * to be declared before any character renders. Written as a real stylesheet node rather than
+	 * markup, so nothing from the theme file is ever parsed as HTML.
+	 */
+	$effect(() => {
+		const css = fontFaceCss(fileIconTheme());
+		if (!css) return;
+		const element = document.createElement('style');
+		element.textContent = css;
+		document.head.append(element);
+		return () => element.remove();
+	});
 
 	type Status = 'loading' | 'ready' | 'error';
 	const STACK_BREAKPOINT = 768;
@@ -183,6 +199,8 @@
 					files: message.files,
 					loading: false,
 				};
+			} else if (message.type === 'fileIcons') {
+				setFileIconTheme(message.theme);
 			} else if (message.type === 'error') {
 				errorMessage = message.message;
 				repos = message.repos;

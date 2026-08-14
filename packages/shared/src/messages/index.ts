@@ -173,6 +173,46 @@ export interface ComparisonMessage {
 	files: FileChange[];
 }
 
+/**
+ * One icon from the user's file-icon theme. Themes ship icons one of two ways: as image files, or
+ * as glyphs in a bundled font (the built-in Seti theme does the latter).
+ */
+export type FileIcon =
+	| { kind: 'image'; src: string }
+	| { kind: 'glyph'; char: string; fontId: string; colour?: string };
+
+export interface FileIconFont {
+	id: string;
+	listSrc: { url: string; format?: string }[];
+	weight?: string;
+	style?: string;
+	/** CSS size, normally a percentage of the surrounding text, e.g. "150%". */
+	size?: string;
+}
+
+/**
+ * The user's active file-icon theme, flattened for lookup. Names and extensions are lowercase, and
+ * every lookup value is a key into `mapIcons`.
+ */
+export interface FileIconTheme {
+	mapIcons: Record<string, FileIcon>;
+	listFonts: FileIconFont[];
+	/** Fallback icon ids, used when no name or extension matches. */
+	file: string | null;
+	folder: string | null;
+	folderExpanded: string | null;
+	mapFileNames: Record<string, string>;
+	mapFileExtensions: Record<string, string>;
+	mapFolderNames: Record<string, string>;
+	mapFolderNamesExpanded: Record<string, string>;
+}
+
+export interface FileIconsMessage {
+	type: 'fileIcons';
+	/** null when no icon theme is active or it could not be read; the view falls back to codicons. */
+	theme: FileIconTheme | null;
+}
+
 export interface ErrorMessage {
 	type: 'error';
 	message: string;
@@ -185,4 +225,5 @@ export type HostToWebview =
 	| CommitsMessage
 	| CommitDetailsMessage
 	| ComparisonMessage
+	| FileIconsMessage
 	| ErrorMessage;

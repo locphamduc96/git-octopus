@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { SvelteSet } from 'svelte/reactivity';
 	import type { FileTreeNode } from '../fileTree';
+	import FileIcon from './FileIcon.svelte';
 	import FileRow, { type FileRowAction } from './FileRow.svelte';
 	import Icon from './Icon.svelte';
 
@@ -20,11 +21,11 @@
 	const setCollapsed = new SvelteSet<string>();
 
 	/**
-	 * What a folder spends before its name: chevron + gap + icon + gap. A file row is inset by this
-	 * much so its name starts exactly where a folder name at the same depth would. The two icons are
-	 * pinned to 16px in the stylesheet below, since codicon glyphs are not all the same width.
+	 * A file row has no chevron, so it starts one chevron plus its gap further in — its own icon then
+	 * lands in the folder-icon column and its name lines up with the folder names around it. Icon
+	 * boxes are pinned to 16px below, since codicon glyphs are not all the same width.
 	 */
-	const LABEL_INSET = 16 + 4 + 16 + 4;
+	const CHEVRON_INSET = 16 + 4;
 
 	function toggle(path: string): void {
 		if (setCollapsed.has(path)) setCollapsed.delete(path);
@@ -44,7 +45,12 @@
 					title={node.path}
 				>
 					<Icon name={collapsed ? 'chevron-right' : 'chevron-down'} />
-					<Icon name={collapsed ? 'folder' : 'folder-opened'} />
+					<FileIcon
+						path={node.name}
+						folder
+						expanded={!collapsed}
+						fallback={collapsed ? 'folder' : 'folder-opened'}
+					/>
 					<span class="name">{node.name}</span>
 				</button>
 			</li>
@@ -55,7 +61,7 @@
 			<FileRow
 				file={node.file}
 				label={node.name}
-				indent={depth * 12 + 8 + LABEL_INSET}
+				indent={depth * 12 + 8 + CHEVRON_INSET}
 				{actions}
 				{onopen}
 				{onaction}
