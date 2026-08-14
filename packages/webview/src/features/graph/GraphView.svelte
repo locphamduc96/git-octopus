@@ -1,7 +1,8 @@
 <script lang="ts">
-	import type { Commit, CommitActionId, GraphRow, Ref } from '@git-octopus/shared';
+	import type { Commit, CommitActionId, GraphEdge, GraphRow, Ref } from '@git-octopus/shared';
 	import { graphWidth } from '@git-octopus/graph-layout';
 	import { graphColour } from '../../lib/graphColours';
+	import { edgePath } from '../../lib/graphPath';
 	import { parseSubject, typeColour } from '../../lib/commitSubject';
 	import { tooltip } from '../../lib/ui/tooltip';
 	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
@@ -136,45 +137,16 @@
 	 *
 	 * `fromNode` says this row's node is the upper end.
 	 */
-	function edgePath(
-		fromColumn: number,
-		toColumn: number,
-		i: number,
-		fromR: number,
-		toR: number
-	): string {
-		const x1 = cx(fromColumn);
-		const x2 = cx(toColumn);
-		const yTop = cy(i);
-		const yBottom = cy(i + 1);
-
-		if (x1 === x2) return `M${x1} ${yTop + fromR} L${x2} ${yBottom - toR}`;
-
-		const dir = Math.sign(x2 - x1);
-		if (graphStyle === 'angular') {
-			const ym = (yTop + yBottom) / 2;
-			return `M${x1} ${yTop + fromR} L${x1} ${ym} L${x2} ${ym} L${x2} ${yBottom - toR}`;
-		}
-
-		// The turn goes as late as it can: straight down the column it starts in, then one bend into
-		// the side of the node it lands on. That is what makes the curve bulge downwards, and it
-		// keeps the run above it parallel to every other lane.
-		if (toR > 0) {
-			const endX = x2 - dir * toR;
-			const r = Math.max(0, Math.min(Math.abs(endX - x1), yBottom - yTop - fromR));
-			return `M${x1} ${yTop + fromR} L${x1} ${yBottom - r} Q${x1} ${yBottom} ${endX} ${yBottom}`;
-		}
-		if (fromR > 0) {
-			// Nothing to land on: the lane carries on below this row, so the turn has to happen at
-			// the top instead, leaving the line vertical where the lane picks it up.
-			const startX = x1 + dir * fromR;
-			const r = Math.max(0, Math.min(Math.abs(x2 - startX), yBottom - yTop));
-			return `M${startX} ${yTop} Q${x2} ${yTop} ${x2} ${yTop + r} L${x2} ${yBottom}`;
-		}
-		// A lane changing column with a node at neither end: only a curve that is vertical at both
-		// ends joins without a kink, so this one keeps the old S.
-		const ym = (yTop + yBottom) / 2;
-		return `M${x1} ${yTop} C${x1} ${ym} ${x2} ${ym} ${x2} ${yBottom}`;
+	function laneSegment(edge: GraphEdge, i: number): string {
+		return edgePath({
+			x1: cx(edge.fromColumn),
+			x2: cx(edge.toColumn),
+			yTop: cy(i),
+			yBottom: cy(i + 1),
+			fromRadius: nodeRadius(rows[i], edge.fromColumn),
+			toRadius: nodeRadius(rows[i + 1], edge.toColumn),
+			style: graphStyle,
+		});
 	}
 
 	/**
@@ -456,13 +428,7 @@
 					{@const fromStash = v.row.commit.refs.some((ref) => ref.kind === 'stash')}
 					{#each v.row.edges as edge, e (e)}
 						<path
-							d={edgePath(
-								edge.fromColumn,
-								edge.toColumn,
-								v.index,
-								nodeRadius(v.row, edge.fromColumn),
-								nodeRadius(rows[v.index + 1], edge.toColumn)
-							)}
+							d={laneSegment(edge, v.index)}
 							stroke={graphColour(edge.colour)}
 							stroke-width={EDGE_W}
 							stroke-dasharray={fromStash && edge.fromColumn === v.row.nodeColumn
