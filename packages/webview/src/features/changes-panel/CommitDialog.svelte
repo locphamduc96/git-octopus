@@ -1,5 +1,11 @@
 <script lang="ts">
 	import Modal from '../../lib/ui/Modal.svelte';
+	import {
+		COMMIT_TYPES,
+		formatSubject,
+		parseSubject,
+		typeColour,
+	} from '../../lib/commitSubject';
 
 	let {
 		stagedCount,
@@ -15,6 +21,15 @@
 	let description = $state('');
 
 	const canCommit = $derived(summary.trim() !== '');
+	const parsed = $derived(parseSubject(summary));
+
+	/**
+	 * Set or clear the conventional-commit type, keeping any `[ticket]` in front of it.
+	 * Clicking the type that is already applied removes it again.
+	 */
+	function applyType(type: string): void {
+		summary = formatSubject({ ...parsed, type: parsed.type === type ? null : type });
+	}
 
 	/** Git convention: subject, blank line, then the body. */
 	function submit(): void {
@@ -38,11 +53,28 @@
 				}}
 			/>
 		</label>
+
+		<div class="types">
+			{#each COMMIT_TYPES as type (type)}
+				<button
+					class="type"
+					class:on={parsed.type === type}
+					style="--type-colour:{typeColour(type)}"
+					onclick={() => applyType(type)}
+				>
+					{type}
+				</button>
+			{/each}
+		</div>
+
 		<label>
 			Description <span class="optional">(optional)</span>
 			<textarea bind:value={description} rows="6" placeholder="Why the change was made"></textarea>
 		</label>
-		<p class="hint">Press Ctrl/Cmd + Enter in the description to commit.</p>
+		<p class="hint">
+			Optional: pick a type above, or write any subject. A leading <code>[TICKET]</code> is kept in
+			front. Ctrl/Cmd + Enter commits.
+		</p>
 	{/snippet}
 	{#snippet actions()}
 		<button class="confirm" disabled={!canCommit} onclick={submit}>Commit</button>
@@ -81,10 +113,35 @@
 	textarea:focus {
 		outline: 1px solid var(--vscode-focusBorder);
 	}
+	.types {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--gg-space-1);
+	}
+	.type {
+		padding: 1px 8px;
+		border: 1px solid var(--type-colour);
+		border-radius: 10px;
+		background: transparent;
+		color: var(--type-colour);
+		font-size: 0.85em;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.type:hover {
+		background: color-mix(in srgb, var(--type-colour) 18%, transparent);
+	}
+	.type.on {
+		background: var(--type-colour);
+		color: var(--vscode-editor-background);
+	}
 	.hint {
 		margin: 0;
 		color: var(--gg-fg-muted);
 		font-size: 0.8em;
+	}
+	code {
+		font-family: var(--vscode-editor-font-family, monospace);
 	}
 	button {
 		border: none;

@@ -2,7 +2,7 @@
 	import type { Commit, CommitActionId, GraphRow, Ref } from '@git-octopus/shared';
 	import { graphWidth } from '@git-octopus/graph-layout';
 	import { graphColour } from '../../lib/graphColours';
-	import { parseSubject } from '../../lib/commitSubject';
+	import { parseSubject, typeColour } from '../../lib/commitSubject';
 	import { tooltip } from '../../lib/ui/tooltip';
 	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
@@ -547,7 +547,11 @@
 					</span>
 					<span class="graph-cell"></span>
 					<span class="subject" class:uncommitted={v.row.commit.isUncommitted}>
-						{#if parsed.ticket}<span class="ticket">{parsed.ticket}</span>{/if}{parsed.text}
+						{#if parsed.ticket}<span class="ticket">{parsed.ticket}</span>{/if}{#if parsed.type}<span
+								class="type"
+								style="color:{typeColour(parsed.type)}; border-color:{typeColour(parsed.type)}"
+								>{parsed.type}{parsed.scope ? `(${parsed.scope})` : ''}</span
+							>{/if}{parsed.text}
 					</span>
 					{#if columns.author}
 						<span class="muted author">
@@ -768,16 +772,24 @@
 	.subject.uncommitted {
 		font-weight: 600;
 	}
-	.ticket {
+	.ticket,
+	.type {
 		display: inline-block;
 		margin-right: var(--gg-space-1);
 		padding: 0 5px;
 		border-radius: 3px;
-		background: var(--vscode-badge-background);
-		color: var(--vscode-badge-foreground);
 		font-size: 0.8em;
 		font-weight: 600;
 		vertical-align: 1px;
+	}
+	.ticket {
+		background: var(--vscode-badge-background);
+		color: var(--vscode-badge-foreground);
+	}
+	/* Outlined rather than filled, so every type colour stays legible on light and dark themes. */
+	.type {
+		border: 1px solid;
+		padding: 0 4px;
 	}
 	.muted {
 		color: var(--gg-fg-muted);
