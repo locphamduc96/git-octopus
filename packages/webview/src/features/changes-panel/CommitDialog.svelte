@@ -118,10 +118,11 @@
 		flex-wrap: wrap;
 		gap: var(--gg-space-1);
 	}
+	/* Same shape as the type chips drawn on the graph, so a picked type looks like its result. */
 	.type {
 		padding: 2px 10px;
 		border: 1px solid var(--type-colour);
-		border-radius: 10px;
+		border-radius: 3px;
 		background: transparent;
 		color: var(--type-colour);
 		font-size: 0.95em;
