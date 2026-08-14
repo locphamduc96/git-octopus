@@ -15,6 +15,9 @@
 	/** Folders start open, so a diff is readable at a glance; this holds the ones folded away. */
 	const setCollapsed = new SvelteSet<string>();
 
+	/** Width of a folder's chevron and icon plus their gaps, so file names line up with folder names. */
+	const LABEL_INSET = 40;
+
 	function toggle(path: string): void {
 		if (setCollapsed.has(path)) setCollapsed.delete(path);
 		else setCollapsed.add(path);
@@ -41,7 +44,7 @@
 				{@render branch(node.children, depth + 1)}
 			{/if}
 		{:else}
-			<FileRow file={node.file} label={node.name} indent={depth * 12 + 8} {onopen} />
+			<FileRow file={node.file} label={node.name} indent={depth * 12 + 8 + LABEL_INSET} {onopen} />
 		{/if}
 	{/each}
 {/snippet}

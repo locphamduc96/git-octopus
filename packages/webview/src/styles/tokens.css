@@ -17,6 +17,15 @@
 	--gg-space-4: 16px;
 
 	/*
+	 * Chips — branch/tag refs on the left of a row, ticket and type prefixes inside the subject —
+	 * share one box so a row does not mix two chip sizes.
+	 */
+	--gg-chip-font-size: 0.9em;
+	--gg-chip-line-height: 1.5;
+	--gg-chip-padding: 0 5px;
+	--gg-chip-radius: 4px;
+
+	/*
 	 * Every bar stacked at the top of the two panes uses this height — the control bar and the
 	 * panel header on one row, the column header and the panel toolbar on the next — so the
 	 * horizontal rules run unbroken across both panes.

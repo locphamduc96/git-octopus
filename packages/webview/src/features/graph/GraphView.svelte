@@ -727,10 +727,10 @@
 		gap: 3px;
 		min-width: 0;
 		flex: 0 1 auto;
-		font-size: 0.85em;
-		line-height: 1.6;
-		padding: 0 var(--gg-space-1);
-		border-radius: 4px;
+		font-size: var(--gg-chip-font-size);
+		line-height: var(--gg-chip-line-height);
+		padding: var(--gg-chip-padding);
+		border-radius: var(--gg-chip-radius);
 		border: 1px solid var(--gg-border);
 		background: var(--vscode-editorWidget-background, transparent);
 	}
@@ -741,8 +741,9 @@
 	}
 	.ref.checkoutable {
 		cursor: pointer;
-		font: inherit;
-		font-size: 0.9em;
+		/* A <button> falls back to the browser's own font; only the family needs restoring, since
+		   `font: inherit` would also drop the chip's size and line height. */
+		font-family: inherit;
 		color: inherit;
 	}
 	.ref.checkoutable:hover {
@@ -777,10 +778,11 @@
 	.type {
 		display: inline-block;
 		margin-right: var(--gg-space-1);
-		padding: 0 6px;
+		padding: var(--gg-chip-padding);
 		border: 1px solid;
-		border-radius: 3px;
-		font-size: 0.9em;
+		border-radius: var(--gg-chip-radius);
+		font-size: var(--gg-chip-font-size);
+		line-height: var(--gg-chip-line-height);
 		font-weight: 600;
 		vertical-align: 1px;
 	}

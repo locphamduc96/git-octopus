@@ -35,7 +35,6 @@
 		onclick={() => onopen(file.path)}
 		use:tooltip={`${file.path} — click to open the diff`}
 	>
-		<span class="st st-{file.status}">{file.status}</span>
 		<span class="path">{label ?? file.path}</span>
 	</button>
 	{#if file.additions !== undefined || file.deletions !== undefined}
@@ -44,6 +43,9 @@
 			{#if file.deletions}<span class="del">−{file.deletions}</span>{/if}
 		</span>
 	{/if}
+	<!-- Kept out of the name column: in tree view a leading letter pushes every file name off the
+	     indent its folder sets, so the status sits in a column of its own on the right. -->
+	<span class="st st-{file.status}">{file.status}</span>
 	<span class="actions">
 		{#each actions as action (action.id)}
 			<button
