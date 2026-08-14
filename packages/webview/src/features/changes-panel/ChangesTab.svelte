@@ -4,6 +4,7 @@
 	import Icon from '../../lib/ui/Icon.svelte';
 	import ConfirmDialog from '../../lib/ui/ConfirmDialog.svelte';
 	import CommitDialog from './CommitDialog.svelte';
+	import { tooltip } from '../../lib/ui/tooltip';
 
 	let {
 		working,
@@ -53,7 +54,7 @@
 				dialog = 'forcePush';
 			}}
 			disabled={ahead === 0}
-			title={ahead > 0
+			use:tooltip={ahead > 0
 				? `Push ${ahead} commit${ahead === 1 ? '' : 's'} to the remote — right-click to force push (with lease)`
 				: 'Push — nothing to push, the remote is up to date'}
 		>
@@ -62,26 +63,26 @@
 		</button>
 		<button
 			onclick={() => (dialog = 'undo')}
-			title="Undo last commit — put its changes back as staged, keeping your work"
+			use:tooltip={'Undo last commit — put its changes back as staged, keeping your work'}
 		>
 			<Icon name="discard" label="Undo last commit" />
 		</button>
 		<button
 			onclick={() => onaction('stash')}
-			title="Stash — save all uncommitted changes aside and clean the working tree"
+			use:tooltip={'Stash — save all uncommitted changes aside and clean the working tree'}
 			disabled={changes.length + untracked.length + staged.length === 0}
 		>
 			<Icon name="archive" label="Stash uncommitted changes" />
 		</button>
 		<button
 			onclick={() => onaction('unstageAll')}
-			title="Unstage all — move every staged file back out of the next commit"
+			use:tooltip={'Unstage all — move every staged file back out of the next commit'}
 		>
 			<Icon name="remove" label="Unstage all" />
 		</button>
 		<button
 			onclick={() => onaction('stageAll')}
-			title="Stage all — include every changed and untracked file in the next commit"
+			use:tooltip={'Stage all — include every changed and untracked file in the next commit'}
 		>
 			<Icon name="add" label="Stage all" />
 		</button>
@@ -89,7 +90,7 @@
 			class="primary"
 			onclick={() => (dialog = 'commit')}
 			disabled={staged.length === 0}
-			title={staged.length === 0
+			use:tooltip={staged.length === 0
 				? 'Commit — stage at least one file first'
 				: `Commit ${staged.length} staged file${staged.length === 1 ? '' : 's'}`}
 		>

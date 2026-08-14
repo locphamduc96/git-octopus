@@ -2,6 +2,7 @@
 	import type { RepoInfo } from '@git-octopus/shared';
 	import Dropdown from '../../lib/ui/Dropdown.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
+	import { tooltip } from '../../lib/ui/tooltip';
 
 	const SHOW_ALL = ' all';
 
@@ -71,7 +72,7 @@
 		onchange={(next) => onselectBranch(next === SHOW_ALL ? null : next)}
 	/>
 
-	<label class="remote" title="Include commits that only exist on remote branches (e.g. origin/…)">
+	<label class="remote" use:tooltip={'Include commits that only exist on remote branches (e.g. origin/…)'}>
 		<input
 			type="checkbox"
 			checked={showRemoteBranches}
@@ -89,22 +90,22 @@
 	<div class="actions">
 		<button
 			onclick={onfind}
-			title="Find commits — search by message, author or hash (Ctrl/Cmd + F)"
+			use:tooltip={'Find commits — search by message, author or hash (Ctrl/Cmd + F)'}
 		>
 			<Icon name="search" label="Find commits" />
 		</button>
-		<button onclick={onterminal} title="Open a terminal in this repository's folder">
+		<button onclick={onterminal} use:tooltip={'Open a terminal in this repository\'s folder'}>
 			<Icon name="terminal" label="Open terminal" />
 		</button>
 		<button
 			onclick={onfetch}
-			title="Fetch — download commits from all remotes and prune deleted branches"
+			use:tooltip={'Fetch — download commits from all remotes and prune deleted branches'}
 		>
 			<Icon name="cloud-download" label="Fetch" />
 		</button>
 		<button
 			onclick={onpull}
-			title={behind > 0
+			use:tooltip={behind > 0
 				? `Pull — merge ${behind} commit${behind === 1 ? '' : 's'} from the remote into this branch`
 				: 'Pull — nothing to pull, this branch is up to date'}
 			disabled={behind === 0}
@@ -112,10 +113,10 @@
 			<Icon name="arrow-down" label="Pull" />
 			{#if behind > 0}<span class="badge">{behind}</span>{/if}
 		</button>
-		<button onclick={onsettings} title="Settings — commits to load, date format, graph style">
+		<button onclick={onsettings} use:tooltip={'Settings — commits to load, date format, graph style'}>
 			<Icon name="settings-gear" label="Settings" />
 		</button>
-		<button onclick={onrefresh} title="Refresh — reload the graph and working tree (Ctrl/Cmd + R)">
+		<button onclick={onrefresh} use:tooltip={'Refresh — reload the graph and working tree (Ctrl/Cmd + R)'}>
 			<Icon name="refresh" label="Refresh" />
 		</button>
 	</div>

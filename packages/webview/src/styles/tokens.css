@@ -30,6 +30,23 @@ body,
 	height: 100%;
 }
 
+/* Rendered on document.body by the `tooltip` action, so it cannot be a scoped component style. */
+.gg-tooltip {
+	position: fixed;
+	z-index: 100;
+	display: none;
+	max-width: 320px;
+	padding: 4px 8px;
+	background: var(--vscode-editorHoverWidget-background, #252526);
+	color: var(--vscode-editorHoverWidget-foreground, var(--gg-fg));
+	border: 1px solid var(--vscode-editorHoverWidget-border, var(--gg-border));
+	border-radius: 4px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+	font-size: 0.9em;
+	line-height: 1.4;
+	pointer-events: none;
+}
+
 html,
 body {
 	margin: 0;

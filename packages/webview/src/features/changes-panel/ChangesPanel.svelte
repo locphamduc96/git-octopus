@@ -9,6 +9,7 @@
 	import CommitTab, { type FileViewMode } from './CommitTab.svelte';
 	import CompareTab from './CompareTab.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
+	import { tooltip } from '../../lib/ui/tooltip';
 
 	/** What the panel shows, derived from the graph selection rather than a tab strip. */
 	export type PanelMode = 'changes' | 'commit' | 'compare';
@@ -74,12 +75,12 @@
 		{#if mode === 'changes'}
 			<span class="summary">
 				{#if branchName}
-					<span class="branch" title="Commits and pushes go to this branch">{branchName}</span>
+					<span class="branch" use:tooltip={'Commits and pushes go to this branch'}>{branchName}</span>
 				{:else}
-					<span class="branch" title="HEAD is detached">detached</span>
+					<span class="branch" use:tooltip={'HEAD is detached'}>detached</span>
 				{/if}
-				{#if ahead > 0}<span class="sync" title="{ahead} commit(s) to push">↑{ahead}</span>{/if}
-				{#if behind > 0}<span class="sync" title="{behind} commit(s) to pull">↓{behind}</span>{/if}
+				{#if ahead > 0}<span class="sync" use:tooltip={`${ahead} commit${ahead === 1 ? '' : 's'} waiting to be pushed`}>↑{ahead}</span>{/if}
+				{#if behind > 0}<span class="sync" use:tooltip={`${behind} commit${behind === 1 ? '' : 's'} waiting to be pulled`}>↓{behind}</span>{/if}
 				{#if changeCount > 0}
 					· {changeCount} change{changeCount === 1 ? '' : 's'}
 				{/if}
@@ -105,18 +106,18 @@
 				<button
 					class:active={fileView === 'list'}
 					onclick={() => onfileView('list')}
-					title="File list — show every changed file with its full path"
+					use:tooltip={'File list — show every changed file with its full path'}
 				>
 					<Icon name="list-flat" label="File list" />
 				</button>
 				<button
 					class:active={fileView === 'tree'}
 					onclick={() => onfileView('tree')}
-					title="File tree — group changed files into folders"
+					use:tooltip={'File tree — group changed files into folders'}
 				>
 					<Icon name="list-tree" label="File tree" />
 				</button>
-				<button onclick={onclose} title="Close — go back to the working tree">
+				<button onclick={onclose} use:tooltip={'Close — go back to the working tree'}>
 					<Icon name="close" label="Close" />
 				</button>
 			</span>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { FileChange } from '@git-octopus/shared';
 	import Icon from './Icon.svelte';
+	import { tooltip } from './tooltip';
 
 	interface Action {
 		id: string;
@@ -32,7 +33,7 @@
 		class="open"
 		style="padding-left:{indent}px"
 		onclick={() => onopen(file.path)}
-		title="{file.path} — click to open the diff"
+		use:tooltip={`${file.path} — click to open the diff`}
 	>
 		<span class="st st-{file.status}">{file.status}</span>
 		<span class="path">{label ?? file.path}</span>
@@ -47,7 +48,7 @@
 		{#each actions as action (action.id)}
 			<button
 				class="act"
-				title={action.label}
+				use:tooltip={action.label}
 				aria-label={action.label}
 				onclick={() => onaction?.(action.id, file.path)}
 			>
