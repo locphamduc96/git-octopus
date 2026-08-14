@@ -138,19 +138,10 @@
 		if (x1 === x2) return `M${x1} ${y1} L${x2} ${y2}`;
 		const ym = (y1 + y2) / 2;
 		if (graphStyle === 'angular') return `M${x1} ${y1} L${x1} ${ym} L${x2} ${ym} L${x2} ${y2}`;
-		// Two rounded corners around a straight middle, rather than one bezier stretched over the
-		// whole row: the lane stays vertical where it can, and only bends where it actually changes
-		// column, which is what keeps a wall of merges readable.
-		const dir = Math.sign(x2 - x1);
-		const r = Math.min(Math.abs(x2 - x1) / 2, (y2 - y1) / 2);
-		return [
-			`M${x1} ${y1}`,
-			`L${x1} ${ym - r}`,
-			`Q${x1} ${ym} ${x1 + dir * r} ${ym}`,
-			`L${x2 - dir * r} ${ym}`,
-			`Q${x2} ${ym} ${x2} ${ym + r}`,
-			`L${x2} ${y2}`,
-		].join(' ');
+		// One continuous curve across the whole gap, not corner-straight-corner: the control points
+		// sit directly above and below the two ends, so the line leaves and arrives vertical and
+		// joins the lanes above and below without a kink.
+		return `M${x1} ${y1} C${x1} ${ym} ${x2} ${ym} ${x2} ${y2}`;
 	}
 
 	interface RefChip {
