@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { SvelteSet } from 'svelte/reactivity';
+	import type { FileChange } from '@git-octopus/shared';
 	import type { FileTreeNode } from '../fileTree';
 	import FileIcon from './FileIcon.svelte';
 	import FileRow, { type FileRowAction } from './FileRow.svelte';
@@ -10,11 +11,13 @@
 		actions = [],
 		onopen,
 		onaction,
+		onmenu,
 	}: {
 		nodes: FileTreeNode[];
 		actions?: FileRowAction[];
 		onopen: (path: string) => void;
 		onaction?: (id: string, path: string) => void;
+		onmenu?: (event: MouseEvent, file: FileChange) => void;
 	} = $props();
 
 	/** Folders start open, so a diff is readable at a glance; this holds the ones folded away. */
@@ -65,6 +68,7 @@
 				{actions}
 				{onopen}
 				{onaction}
+				{onmenu}
 			/>
 		{/if}
 	{/each}

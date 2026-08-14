@@ -11,6 +11,7 @@
 		loading,
 		fileView,
 		onopenDiff,
+		onmenu,
 	}: {
 		fromHash: string | null;
 		toHash: string | null;
@@ -18,6 +19,7 @@
 		loading: boolean;
 		fileView: FileViewMode;
 		onopenDiff: (path: string) => void;
+		onmenu: (event: MouseEvent, file: FileChange) => void;
 	} = $props();
 
 	const tree = $derived(buildFileTree(files));
@@ -36,11 +38,11 @@
 		{#if files.length === 0}
 			<p class="hint">No differences.</p>
 		{:else if fileView === 'tree'}
-			<FileTree nodes={tree} onopen={onopenDiff} />
+			<FileTree nodes={tree} onopen={onopenDiff} {onmenu} />
 		{:else}
 			<ul>
 				{#each files as file (file.path)}
-					<FileRow {file} onopen={onopenDiff} />
+					<FileRow {file} onopen={onopenDiff} onmenu={(event) => onmenu(event, file)} />
 				{/each}
 			</ul>
 		{/if}

@@ -6,6 +6,7 @@
 	import ConfirmDialog from '../../lib/ui/ConfirmDialog.svelte';
 	import CommitDialog from './CommitDialog.svelte';
 	import { buildFileTree, type FileViewMode } from '../../lib/fileTree';
+	import type { FileMenuAction } from '../../lib/fileMenu';
 	import { tooltip } from '../../lib/ui/tooltip';
 
 	let {
@@ -14,12 +15,15 @@
 		fileView,
 		onaction,
 		onopenFile,
+		onmenu,
 		onpush,
 		onpushForce,
 	}: {
 		working: WorkingTreeStatus | null;
 		ahead: number;
 		fileView: FileViewMode;
+		/** Right-click on a file; the section's own actions ride along into the menu. */
+		onmenu: (event: MouseEvent, file: FileChange, listActions: FileMenuAction[]) => void;
 		onaction: (action: WorkingTreeAction, path?: string, message?: string) => void;
 		onopenFile: (path: string) => void;
 		onpush: () => void;
@@ -41,6 +45,12 @@
 	const unstageActions = [
 		{ id: 'unstage', label: 'Unstage this file — keep the change, drop it from the commit', icon: 'remove' },
 	];
+	// The hover buttons carry a full explanation as their tooltip; a menu row needs a short label.
+	const stageMenu = [
+		{ id: 'stage', label: 'Stage' },
+		{ id: 'discard', label: 'Discard Changes' },
+	];
+	const unstageMenu = [{ id: 'unstage', label: 'Unstage' }];
 
 	function commit(message: string): void {
 		dialog = null;
@@ -103,13 +113,18 @@
 	</div>
 
 	<div class="sections">
-		{@render section('Changes', changes, stageActions)}
-		{@render section('Untracked', untracked, stageActions)}
-		{@render section('Staged Changes', staged, unstageActions)}
+		{@render section('Changes', changes, stageActions, stageMenu)}
+		{@render section('Untracked', untracked, stageActions, stageMenu)}
+		{@render section('Staged Changes', staged, unstageActions, unstageMenu)}
 	</div>
 </div>
 
-{#snippet section(title: string, listFiles: FileChange[], actions: FileRowAction[])}
+{#snippet section(
+	title: string,
+	listFiles: FileChange[],
+	actions: FileRowAction[],
+	listMenuActions: FileMenuAction[]
+)}
 	<section>
 		<h3>{title} <span class="count">{listFiles.length}</span></h3>
 		{#if listFiles.length === 0}
@@ -120,6 +135,7 @@
 				{actions}
 				onopen={onopenFile}
 				onaction={(id, path) => onaction(id as WorkingTreeAction, path)}
+				onmenu={(event, file) => onmenu(event, file, listMenuActions)}
 			/>
 		{:else}
 			<ul>
@@ -129,6 +145,7 @@
 						{actions}
 						onopen={onopenFile}
 						onaction={(id, path) => onaction(id as WorkingTreeAction, path)}
+						onmenu={(event) => onmenu(event, file, listMenuActions)}
 					/>
 				{/each}
 			</ul>

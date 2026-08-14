@@ -547,7 +547,12 @@
 					</span>
 					<span class="graph-cell"></span>
 					<span class="subject" class:uncommitted={v.row.commit.isUncommitted}>
-						{#if parsed.ticket}<span class="ticket">{parsed.ticket}</span>{/if}{#if parsed.type}<span
+						{#if v.row.commit.parents.length > 1}<span
+								class="type"
+								style="color:{typeColour('merge')}; border-color:{typeColour('merge')}"
+								use:tooltip={`Merge commit — ${v.row.commit.parents.length} parents`}
+								>merge</span
+							>{/if}{#if parsed.ticket}<span class="ticket">{parsed.ticket}</span>{/if}{#if parsed.type}<span
 								class="type"
 								style="color:{typeColour(parsed.type)}; border-color:{typeColour(parsed.type)}"
 								>{parsed.type}{parsed.scope ? `(${parsed.scope})` : ''}</span

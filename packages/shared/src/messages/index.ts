@@ -120,6 +120,20 @@ export interface OpenWorkingDiffMessage {
 	path: string;
 }
 
+export interface OpenFileMessage {
+	type: 'openFile';
+	path: string;
+	/** Open the file as it stood at this commit; omitted for the working copy on disk. */
+	hash?: string;
+}
+
+export interface CopyFilePathMessage {
+	type: 'copyFilePath';
+	path: string;
+	/** Copy the path on disk; otherwise the path relative to the repository root. */
+	absolute: boolean;
+}
+
 export interface OpenTerminalMessage {
 	type: 'openTerminal';
 }
@@ -143,6 +157,8 @@ export type WebviewToHost =
 	| WorkingTreeActionMessage
 	| RepoActionMessage
 	| OpenWorkingDiffMessage
+	| OpenFileMessage
+	| CopyFilePathMessage
 	| OpenTerminalMessage
 	| CopyTextMessage;
 

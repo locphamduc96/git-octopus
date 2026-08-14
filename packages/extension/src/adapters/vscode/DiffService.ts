@@ -53,6 +53,14 @@ export class DiffService implements vscode.TextDocumentContentProvider {
 		);
 	}
 
+	/** Open the file itself: the copy on disk, or a read-only view of it at `rev`. */
+	public async openFile(filePath: string, cwd: string, rev?: string): Promise<void> {
+		const uri = rev
+			? this.buildUri(rev, filePath, cwd)
+			: vscode.Uri.file(path.join(cwd, filePath));
+		await vscode.commands.executeCommand('vscode.open', uri);
+	}
+
 	private buildUri(rev: string, filePath: string, cwd: string): vscode.Uri {
 		return vscode.Uri.from({
 			scheme: DiffService.scheme,

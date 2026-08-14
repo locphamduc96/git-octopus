@@ -87,6 +87,9 @@ const mapTypeColour: Record<string, string> = {
 	build: '#6e7681',
 	ci: '#6e7681',
 	revert: '#f85149',
+	// Not a conventional-commit type: the graph tags merge commits with a chip of the same kind, and
+	// this hue is the one nothing else claims.
+	merge: '#39c5cf',
 };
 
 export function typeColour(type: string): string {

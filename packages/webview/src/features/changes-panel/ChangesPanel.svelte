@@ -8,8 +8,10 @@
 	import ChangesTab from './ChangesTab.svelte';
 	import CommitTab from './CommitTab.svelte';
 	import CompareTab from './CompareTab.svelte';
+	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
 	import type { FileViewMode } from '../../lib/fileTree';
+	import { buildFileMenu, type FileMenuAction } from '../../lib/fileMenu';
 	import { tooltip } from '../../lib/ui/tooltip';
 
 	/** What the panel shows, derived from the graph selection rather than a tab strip. */
@@ -35,6 +37,8 @@
 		onopenWorkingFile,
 		onopenDiff,
 		onopenCompareDiff,
+		onopenFile,
+		oncopyPath,
 		onpush,
 		onpushForce,
 		oncopy,
@@ -62,6 +66,9 @@
 		onopenWorkingFile: (path: string) => void;
 		onopenDiff: (path: string) => void;
 		onopenCompareDiff: (path: string) => void;
+		/** Open the file itself: the copy on disk, or its content at `hash`. */
+		onopenFile: (path: string, hash?: string) => void;
+		oncopyPath: (path: string, absolute: boolean) => void;
 		onpush: () => void;
 		onpushForce: () => void;
 		oncopy: (text: string) => void;
@@ -69,6 +76,45 @@
 	} = $props();
 
 	const changeCount = $derived(working ? working.staged.length + working.unstaged.length : 0);
+
+	/**
+	 * One menu for all three tabs. Each tab hands over the file plus whatever actions its own section
+	 * offers, so the panel does not have to work out which list a row came from.
+	 */
+	let menu = $state<{ x: number; y: number; file: FileChange; listActions: FileMenuAction[] } | null>(
+		null
+	);
+
+	function openMenu(event: MouseEvent, file: FileChange, listActions: FileMenuAction[] = []): void {
+		menu = { x: event.clientX, y: event.clientY, file, listActions };
+	}
+
+	/** The diff a file opens to depends on what the panel is showing. */
+	function openChanges(path: string): void {
+		if (mode === 'changes') onopenWorkingFile(path);
+		else if (mode === 'commit') onopenDiff(path);
+		else onopenCompareDiff(path);
+	}
+
+	function runMenu(id: string): void {
+		const file = menu?.file;
+		menu = null;
+		if (!file) return;
+		switch (id) {
+			case 'openChanges':
+				return openChanges(file.path);
+			case 'openFile':
+				return onopenFile(file.path);
+			case 'openFileAtRev':
+				return onopenFile(file.path, details?.hash);
+			case 'copyPath':
+				return oncopyPath(file.path, true);
+			case 'copyRelativePath':
+				return oncopyPath(file.path, false);
+			default:
+				return onworkingAction(id as WorkingTreeAction, file.path);
+		}
+	}
 </script>
 
 <aside class="panel">
@@ -136,6 +182,7 @@
 				{onpushForce}
 				onaction={onworkingAction}
 				onopenFile={onopenWorkingFile}
+				onmenu={openMenu}
 			/>
 		{:else if mode === 'commit'}
 			<CommitTab
@@ -147,6 +194,7 @@
 				{onopenDiff}
 				{oncopy}
 				{onselectCommit}
+				onmenu={(event, file) => openMenu(event, file)}
 			/>
 		{:else}
 			<CompareTab
@@ -156,10 +204,25 @@
 				loading={comparison.loading}
 				{fileView}
 				onopenDiff={onopenCompareDiff}
+				onmenu={(event, file) => openMenu(event, file)}
 			/>
 		{/if}
 	</div>
 </aside>
+
+{#if menu}
+	<ContextMenu
+		x={menu.x}
+		y={menu.y}
+		items={buildFileMenu({
+			listActions: menu.listActions,
+			atRevision: mode === 'commit' && details !== null,
+			deleted: menu.file.status === 'D',
+		})}
+		onselect={runMenu}
+		onclose={() => (menu = null)}
+	/>
+{/if}
 
 <style>
 	.panel {

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'node:path';
 import type { GraphFilters, HostToWebview, RepoInfo, WebviewToHost } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import { routeMessage } from '../../app/messageRouter.js';
@@ -134,6 +135,16 @@ export class GitOctopusController {
 				return;
 			case 'openWorkingDiff':
 				if (cwd) await this.diff.openWorkingDiff(message.path, cwd);
+				return;
+			case 'openFile':
+				if (cwd) await this.diff.openFile(message.path, cwd, message.hash);
+				return;
+			case 'copyFilePath':
+				if (cwd) {
+					const text = message.absolute ? path.join(cwd, message.path) : message.path;
+					await vscode.env.clipboard.writeText(text);
+					vscode.window.showInformationMessage(`Git Octopus: ${text} copied.`);
+				}
 				return;
 			case 'commitAction':
 				if (cwd && (await this.actions.run(message, cwd))) await this.refresh();

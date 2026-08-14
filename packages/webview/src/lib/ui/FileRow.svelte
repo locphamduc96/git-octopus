@@ -17,6 +17,7 @@
 		actions = [],
 		onopen,
 		onaction,
+		onmenu,
 	}: {
 		file: FileChange;
 		/** Text to show instead of the full path — the file name alone in tree view. */
@@ -26,6 +27,7 @@
 		actions?: FileRowAction[];
 		onopen: (path: string) => void;
 		onaction?: (id: string, path: string) => void;
+		onmenu?: (event: MouseEvent, file: FileChange) => void;
 	} = $props();
 
 	// Split so the folders can be cut short while the file name stays whole — a row of paths ending
@@ -35,7 +37,17 @@
 	const name = $derived(label ?? file.path.slice(cut + 1));
 </script>
 
-<li class="file-row">
+<!-- The menu hangs off the whole row, not just the name, so right-clicking the counts or the status
+	letter works too. The row's button stays the keyboard path. -->
+<li
+	class="file-row"
+	oncontextmenu={onmenu
+		? (event) => {
+				event.preventDefault();
+				onmenu(event, file);
+			}
+		: undefined}
+>
 	<button
 		class="open"
 		style="padding-left:{indent}px"

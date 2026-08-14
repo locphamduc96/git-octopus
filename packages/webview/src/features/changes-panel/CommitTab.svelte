@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { CommitDetails, Person } from '@git-octopus/shared';
+	import type { CommitDetails, FileChange, Person } from '@git-octopus/shared';
 	import FileRow from '../../lib/ui/FileRow.svelte';
 	import FileTree from '../../lib/ui/FileTree.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
@@ -12,6 +12,7 @@
 		metaOpen,
 		onmetaOpen,
 		onopenDiff,
+		onmenu,
 		oncopy,
 		onselectCommit,
 	}: {
@@ -25,6 +26,7 @@
 		metaOpen: boolean;
 		onmetaOpen: (open: boolean) => void;
 		onopenDiff: (path: string) => void;
+		onmenu: (event: MouseEvent, file: FileChange) => void;
 		oncopy: (text: string) => void;
 		onselectCommit: (hash: string) => void;
 	} = $props();
@@ -142,11 +144,11 @@
 			{#if totals.deletions > 0}<span class="del">−{totals.deletions}</span>{/if}
 		</h3>
 		{#if fileView === 'tree'}
-			<FileTree nodes={tree} onopen={onopenDiff} />
+			<FileTree nodes={tree} onopen={onopenDiff} {onmenu} />
 		{:else}
 			<ul>
 				{#each details.files as file (file.path)}
-					<FileRow {file} onopen={onopenDiff} />
+					<FileRow {file} onopen={onopenDiff} onmenu={(event) => onmenu(event, file)} />
 				{/each}
 			</ul>
 		{/if}

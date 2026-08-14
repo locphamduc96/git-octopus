@@ -478,6 +478,8 @@
 				onopenWorkingFile={openWorkingFile}
 				onopenDiff={openDiff}
 				onopenCompareDiff={openCompareDiff}
+				onopenFile={(path, hash) => postToHost({ type: 'openFile', path, hash })}
+				oncopyPath={(path, absolute) => postToHost({ type: 'copyFilePath', path, absolute })}
 			/>
 		</div>
 	</div>
