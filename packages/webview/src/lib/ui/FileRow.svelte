@@ -154,14 +154,19 @@
 	.del {
 		color: var(--vscode-gitDecoration-deletedResourceForeground, #f44336);
 	}
+	/*
+	 * Out of the layout until the row is hovered, rather than merely invisible: keeping the space
+	 * reserved left a blank strip down the panel on every row, and the file name is worth more than
+	 * a gap held open for buttons nobody is reaching for. `focus-within` keeps them tabbable.
+	 */
 	.actions {
 		flex: none;
-		display: flex;
+		display: none;
 		gap: 2px;
-		visibility: hidden;
 	}
-	.file-row:hover .actions {
-		visibility: visible;
+	.file-row:hover .actions,
+	.file-row:focus-within .actions {
+		display: flex;
 	}
 	.act {
 		display: inline-flex;
