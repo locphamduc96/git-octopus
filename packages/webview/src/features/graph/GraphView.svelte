@@ -126,22 +126,39 @@
 	/**
 	 * A line from row `i` down to the next row.
 	 *
-	 * `fromNode` starts it at the node's rim instead of its centre. Under a filled node the
-	 * difference is invisible, but the uncommitted-changes node is drawn hollow, and a line running
-	 * out of its centre shows straight through the ring.
+	 * A lane that changes column bends **once**, and the bend belongs to whichever end sits at a
+	 * node. Forcing both ends vertical — as a line between two nodes would want — costs two
+	 * reversals of curvature, and a screen full of those reads as weaving rather than as branches.
+	 * So the straight run belongs to the lane, and the single quarter turn belongs to the node,
+	 * which the line therefore enters or leaves sideways.
+	 *
+	 * `fromNode` says this row's node is the upper end.
 	 */
 	function edgePath(fromColumn: number, toColumn: number, i: number, fromNode: boolean): string {
 		const x1 = cx(fromColumn);
-		const y1 = cy(i) + (fromNode ? NODE_R : 0);
 		const x2 = cx(toColumn);
-		const y2 = cy(i + 1);
-		if (x1 === x2) return `M${x1} ${y1} L${x2} ${y2}`;
-		const ym = (y1 + y2) / 2;
-		if (graphStyle === 'angular') return `M${x1} ${y1} L${x1} ${ym} L${x2} ${ym} L${x2} ${y2}`;
-		// One continuous curve across the whole gap, not corner-straight-corner: the control points
-		// sit directly above and below the two ends, so the line leaves and arrives vertical and
-		// joins the lanes above and below without a kink.
-		return `M${x1} ${y1} C${x1} ${ym} ${x2} ${ym} ${x2} ${y2}`;
+		const yTop = cy(i);
+		const yBottom = cy(i + 1);
+
+		// Straight down: still start at the node's rim, since the hollow nodes would otherwise show
+		// the line running out of their centre.
+		if (x1 === x2) return `M${x1} ${yTop + (fromNode ? NODE_R : 0)} L${x2} ${yBottom}`;
+
+		const dir = Math.sign(x2 - x1);
+		if (graphStyle === 'angular') {
+			const ym = (yTop + yBottom) / 2;
+			return `M${x1} ${yTop} L${x1} ${ym} L${x2} ${ym} L${x2} ${yBottom}`;
+		}
+
+		if (fromNode) {
+			// Out of the node sideways, one turn, then straight down the lane it is joining.
+			const startX = x1 + dir * NODE_R;
+			const r = Math.min(Math.abs(x2 - startX), yBottom - yTop);
+			return `M${startX} ${yTop} Q${x2} ${yTop} ${x2} ${yTop + r} L${x2} ${yBottom}`;
+		}
+		// Straight down this lane, then one turn into the column it is converging on.
+		const r = Math.min(Math.abs(x2 - x1), yBottom - yTop);
+		return `M${x1} ${yTop} L${x1} ${yBottom - r} Q${x1} ${yBottom} ${x2} ${yBottom}`;
 	}
 
 	interface RefChip {
