@@ -65,12 +65,15 @@ export async function loadCommits(
 				}
 			}
 		}
-		const dirty = working.staged.length > 0 || working.unstaged.length > 0;
-		const listCommits = dirty ? [makeUncommittedNode(headHash), ...listHistory] : listHistory;
+		const changeCount = working.staged.length + working.unstaged.length;
+		const listCommits =
+			changeCount > 0
+				? [makeUncommittedNode(headHash, changeCount), ...listHistory]
+				: listHistory;
 		return {
 			type: 'commits',
 			commits: listCommits,
-			working: dirty ? working : null,
+			working: changeCount > 0 ? working : null,
 			repos: ctx.repos,
 			activeRepo: ctx.cwd,
 			repoName: ctx.repoName,
@@ -116,13 +119,13 @@ function applyStashes(listCommits: Commit[], listStashes: StashEntry[]): Commit[
 	);
 }
 
-function makeUncommittedNode(headHash: string | null): Commit {
+function makeUncommittedNode(headHash: string | null, changeCount: number): Commit {
 	return {
 		hash: UNCOMMITTED_HASH,
 		parents: headHash ? [headHash] : [],
 		author: { name: '', email: '' },
 		committedAt: Math.floor(Date.now() / 1000),
-		subject: 'Uncommitted Changes',
+		subject: `Uncommitted Changes (${changeCount})`,
 		refs: [],
 		isUncommitted: true,
 	};
