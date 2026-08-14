@@ -742,7 +742,7 @@
 	.ref.checkoutable {
 		cursor: pointer;
 		font: inherit;
-		font-size: 0.85em;
+		font-size: 0.9em;
 		color: inherit;
 	}
 	.ref.checkoutable:hover {
@@ -772,24 +772,21 @@
 	.subject.uncommitted {
 		font-weight: 600;
 	}
+	/* Outlined rather than filled, so every colour stays legible on light and dark themes. */
 	.ticket,
 	.type {
 		display: inline-block;
 		margin-right: var(--gg-space-1);
-		padding: 0 5px;
+		padding: 0 6px;
+		border: 1px solid;
 		border-radius: 3px;
-		font-size: 0.8em;
+		font-size: 0.9em;
 		font-weight: 600;
 		vertical-align: 1px;
 	}
 	.ticket {
-		background: var(--vscode-badge-background);
-		color: var(--vscode-badge-foreground);
-	}
-	/* Outlined rather than filled, so every type colour stays legible on light and dark themes. */
-	.type {
-		border: 1px solid;
-		padding: 0 4px;
+		border-color: var(--gg-fg-muted);
+		color: var(--gg-fg-muted);
 	}
 	.muted {
 		color: var(--gg-fg-muted);

@@ -119,12 +119,12 @@
 		gap: var(--gg-space-1);
 	}
 	.type {
-		padding: 1px 8px;
+		padding: 2px 10px;
 		border: 1px solid var(--type-colour);
 		border-radius: 10px;
 		background: transparent;
 		color: var(--type-colour);
-		font-size: 0.85em;
+		font-size: 0.95em;
 		font-weight: 600;
 		cursor: pointer;
 	}
