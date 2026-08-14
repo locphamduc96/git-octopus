@@ -10,11 +10,17 @@
 
 	let {
 		file,
+		label,
+		indent = 0,
 		actions = [],
 		onopen,
 		onaction,
 	}: {
 		file: FileChange;
+		/** Text to show instead of the full path — the file name alone in tree view. */
+		label?: string;
+		/** Left inset in pixels, used to show tree depth. */
+		indent?: number;
 		actions?: Action[];
 		onopen: (path: string) => void;
 		onaction?: (id: string, path: string) => void;
@@ -22,9 +28,14 @@
 </script>
 
 <li class="file-row">
-	<button class="open" onclick={() => onopen(file.path)} title="{file.path} — click to open the diff">
+	<button
+		class="open"
+		style="padding-left:{indent}px"
+		onclick={() => onopen(file.path)}
+		title="{file.path} — click to open the diff"
+	>
 		<span class="st st-{file.status}">{file.status}</span>
-		<span class="path">{file.path}</span>
+		<span class="path">{label ?? file.path}</span>
 	</button>
 	{#if file.additions !== undefined || file.deletions !== undefined}
 		<span class="counts">

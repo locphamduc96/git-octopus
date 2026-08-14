@@ -1,20 +1,27 @@
 <script lang="ts">
 	import type { FileChange } from '@git-octopus/shared';
 	import FileRow from '../../lib/ui/FileRow.svelte';
+	import FileTree from '../../lib/ui/FileTree.svelte';
+	import { buildFileTree } from '../../lib/fileTree';
+	import type { FileViewMode } from './CommitTab.svelte';
 
 	let {
 		fromHash,
 		toHash,
 		files,
 		loading,
+		fileView,
 		onopenDiff,
 	}: {
 		fromHash: string | null;
 		toHash: string | null;
 		files: FileChange[];
 		loading: boolean;
+		fileView: FileViewMode;
 		onopenDiff: (path: string) => void;
 	} = $props();
+
+	const tree = $derived(buildFileTree(files));
 </script>
 
 <div class="tab">
@@ -29,6 +36,8 @@
 		</div>
 		{#if files.length === 0}
 			<p class="hint">No differences.</p>
+		{:else if fileView === 'tree'}
+			<FileTree nodes={tree} onopen={onopenDiff} />
 		{:else}
 			<ul>
 				{#each files as file (file.path)}

@@ -6,8 +6,9 @@
 		WorkingTreeStatus,
 	} from '@git-octopus/shared';
 	import ChangesTab from './ChangesTab.svelte';
-	import CommitTab from './CommitTab.svelte';
+	import CommitTab, { type FileViewMode } from './CommitTab.svelte';
 	import CompareTab from './CompareTab.svelte';
+	import Icon from '../../lib/ui/Icon.svelte';
 
 	/** What the panel shows, derived from the graph selection rather than a tab strip. */
 	export type PanelMode = 'changes' | 'commit' | 'compare';
@@ -36,7 +37,13 @@
 		onpushForce,
 		oncopy,
 		onselectCommit,
+		fileView,
+		onfileView,
+		onclose,
 	}: {
+		fileView: FileViewMode;
+		onfileView: (mode: FileViewMode) => void;
+		onclose: () => void;
 		mode: PanelMode;
 		working: WorkingTreeStatus | null;
 		details: CommitDetails | null;
@@ -88,6 +95,28 @@
 				{/if}
 			</span>
 		{/if}
+
+		{#if mode !== 'changes'}
+			<span class="tools">
+				<button
+					class:active={fileView === 'list'}
+					onclick={() => onfileView('list')}
+					title="File list — show every changed file with its full path"
+				>
+					<Icon name="list-flat" label="File list" />
+				</button>
+				<button
+					class:active={fileView === 'tree'}
+					onclick={() => onfileView('tree')}
+					title="File tree — group changed files into folders"
+				>
+					<Icon name="list-tree" label="File tree" />
+				</button>
+				<button onclick={onclose} title="Close — go back to the working tree">
+					<Icon name="close" label="Close" />
+				</button>
+			</span>
+		{/if}
 	</header>
 
 	<div class="body">
@@ -104,6 +133,7 @@
 			<CommitTab
 				{details}
 				loading={detailsLoading}
+				{fileView}
 				{onopenDiff}
 				{oncopy}
 				{onselectCommit}
@@ -114,6 +144,7 @@
 				toHash={comparison.toHash}
 				files={comparison.files}
 				loading={comparison.loading}
+				{fileView}
 				onopenDiff={onopenCompareDiff}
 			/>
 		{/if}
@@ -154,6 +185,29 @@
 	.sync {
 		color: var(--gg-accent);
 		margin-left: var(--gg-space-1);
+	}
+	.tools {
+		display: flex;
+		align-items: center;
+		gap: 1px;
+		margin-left: auto;
+		flex: none;
+	}
+	.tools button {
+		display: inline-flex;
+		align-items: center;
+		background: transparent;
+		color: var(--gg-fg);
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		padding: 3px 4px;
+	}
+	.tools button:hover {
+		background: var(--vscode-toolbar-hoverBackground);
+	}
+	.tools button.active {
+		background: var(--vscode-toolbar-activeBackground, var(--vscode-list-activeSelectionBackground));
 	}
 	.mono {
 		font-family: var(--vscode-editor-font-family, monospace);

@@ -26,6 +26,7 @@
 		type PanelMode,
 	} from './features/changes-panel/ChangesPanel.svelte';
 	import SettingsWidget, { type ViewSettings } from './features/settings/SettingsWidget.svelte';
+	import type { FileViewMode } from './features/changes-panel/CommitTab.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
 
 	type Status = 'loading' | 'ready' | 'error';
@@ -68,6 +69,7 @@
 	let details = $state<CommitDetails | null>(null);
 	let detailsLoading = $state(false);
 
+	let fileView = $state<FileViewMode>(saved.fileView ?? 'tree');
 	let settingsOpen = $state(false);
 	let settings = $state<ViewSettings>({
 		commitLimit: 300,
@@ -106,6 +108,7 @@
 			widths,
 			panelRatio,
 			showRemoteBranches,
+			fileView,
 			settings,
 		});
 	});
@@ -250,6 +253,13 @@
 		postToHost({ type: 'loadCommitDetails', hash });
 	}
 
+	/** Drop the selection so the panel falls back to the working tree. */
+	function closeDetails(): void {
+		selectedHash = null;
+		details = null;
+		comparison = { fromHash: null, toHash: null, files: [], loading: false };
+	}
+
 	function resizeColumn(column: ColumnKey, width: number): void {
 		widths = { ...widths, [column]: width };
 	}
@@ -392,6 +402,9 @@
 				{comparison}
 				onpush={() => postToHost({ type: 'repoAction', action: 'push' })}
 				onpushForce={() => postToHost({ type: 'repoAction', action: 'pushForce' })}
+				{fileView}
+				onfileView={(next) => (fileView = next)}
+				onclose={closeDetails}
 				oncopy={(text) => postToHost({ type: 'copyText', text, label: 'commit hash' })}
 				onselectCommit={(hash) => {
 					select(hash);

@@ -1,21 +1,32 @@
 <script lang="ts">
 	import type { CommitDetails, Person } from '@git-octopus/shared';
 	import FileRow from '../../lib/ui/FileRow.svelte';
+	import FileTree from '../../lib/ui/FileTree.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
+	import { buildFileTree } from '../../lib/fileTree';
+
+	export type FileViewMode = 'list' | 'tree';
 
 	let {
 		details,
 		loading,
+		fileView,
 		onopenDiff,
 		oncopy,
 		onselectCommit,
 	}: {
 		details: CommitDetails | null;
 		loading: boolean;
+		fileView: FileViewMode;
 		onopenDiff: (path: string) => void;
 		oncopy: (text: string) => void;
 		onselectCommit: (hash: string) => void;
 	} = $props();
+
+	const tree = $derived(buildFileTree(details?.files ?? []));
+	/** The first line of the message, which is what the graph shows as the commit's subject. */
+	const subject = $derived(details?.body.split('\n', 1)[0] ?? '');
+	const restOfBody = $derived((details?.body ?? '').slice(subject.length).replace(/^\n+/, ''));
 
 	const totals = $derived.by(() => {
 		let additions = 0;
@@ -49,6 +60,15 @@
 	{:else if !details}
 		<p class="hint">Select a commit to see its details.</p>
 	{:else}
+		<header class="subject-bar">
+			<span class="subject" title={subject}>{subject}</span>
+			<span class="byline">
+				<span class="mono">{details.hash.slice(0, 8)}</span>
+				· {details.author.name}
+				· {fmtWhen(details.authoredAt)}
+			</span>
+		</header>
+
 		<dl class="meta">
 			<dt>Commit</dt>
 			<dd>
@@ -93,8 +113,8 @@
 			{/if}
 		</dl>
 
-		{#if details.body}
-			<pre class="body">{details.body}</pre>
+		{#if restOfBody}
+			<pre class="body">{restOfBody}</pre>
 		{/if}
 
 		<h3>
@@ -103,11 +123,15 @@
 			{#if totals.additions > 0}<span class="add">+{totals.additions}</span>{/if}
 			{#if totals.deletions > 0}<span class="del">−{totals.deletions}</span>{/if}
 		</h3>
-		<ul>
-			{#each details.files as file (file.path)}
-				<FileRow {file} onopen={onopenDiff} />
-			{/each}
-		</ul>
+		{#if fileView === 'tree'}
+			<FileTree nodes={tree} onopen={onopenDiff} />
+		{:else}
+			<ul>
+				{#each details.files as file (file.path)}
+					<FileRow {file} onopen={onopenDiff} />
+				{/each}
+			</ul>
+		{/if}
 	{/if}
 </div>
 
@@ -116,6 +140,26 @@
 		height: 100%;
 		overflow: auto;
 		min-height: 0;
+	}
+	.subject-bar {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: var(--gg-space-2);
+		border-bottom: 1px solid var(--gg-border);
+	}
+	.subject {
+		font-weight: 600;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.byline {
+		color: var(--gg-fg-muted);
+		font-size: 0.85em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.meta {
 		display: grid;
