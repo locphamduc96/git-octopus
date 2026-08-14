@@ -26,8 +26,6 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 	let lanes: (string | null)[] = []; // hash each column currently expects (a line from above)
 	let laneColours: number[] = [];
 	let nextColour = 0;
-	// Columns owned by an open branch: never recycled, so no other line can ever enter them.
-	const setReservedColumns = new Set<number>();
 	// How far right any lane has ever reached — the first column no line has ever run through.
 	let usedColumns = 0;
 
@@ -45,11 +43,10 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 		const isTip = nodeColumn === -1;
 		if (isTip) {
 			if (isOpenBranchTip(commit)) {
-				// An open branch gets a column of its own for the whole graph: one no line has ever
-				// run through, and one nothing may take afterwards. Recycling a closed branch's
-				// column here is what made two unrelated branches read as a single line.
+				// An open branch starts in a column no line has ever run through. A tip has no edge
+				// coming into it from above, so dropping it into a column an earlier branch has
+				// released would read as that branch simply carrying on.
 				nodeColumn = usedColumns;
-				setReservedColumns.add(nodeColumn);
 			} else {
 				// Everything else — stashes, tags, dangling tips — takes the next column at the right
 				// edge, which is reclaimed once it closes, so the graph stays narrow.
@@ -88,10 +85,15 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 				column = nodeColumn;
 				colour = nodeColour;
 			} else {
-				// A merge's extra parents also start their own lane.
-				column = nextLanes.length;
-				nextLanes.push(null);
-				nextColours.push(0);
+				// A merge's extra parents also start their own lane, and they may move into any column
+				// an earlier branch has released — the lane hangs off this node's edge, so it reads as
+				// a branch of this commit rather than as a continuation of what ran there before.
+				column = nextLanes.indexOf(null);
+				if (column === -1) {
+					column = nextLanes.length;
+					nextLanes.push(null);
+					nextColours.push(0);
+				}
 				colour = allocColour();
 			}
 			nextLanes[column] = parent;
@@ -121,14 +123,9 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 
 		if (nextLanes.length > usedColumns) usedColumns = nextLanes.length;
 
-		// Reclaim lanes at the right edge only, so the graph does not grow with every branch while
-		// still never reusing a gap that sits between two live lanes. A column reserved by an open
-		// branch stays put even once empty, and stops the trim there.
-		while (
-			nextLanes.length > 0 &&
-			nextLanes[nextLanes.length - 1] === null &&
-			!setReservedColumns.has(nextLanes.length - 1)
-		) {
+		// Reclaim lanes at the right edge, so the graph does not grow with every branch. Gaps inside
+		// the array stay: only a merge's extra parents may move into them.
+		while (nextLanes.length > 0 && nextLanes[nextLanes.length - 1] === null) {
 			nextLanes.pop();
 			nextColours.pop();
 		}

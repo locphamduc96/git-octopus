@@ -22,6 +22,10 @@ function makeStash(hash: string, parents: string[], name: string): Commit {
 	return { ...makeCommit(hash, parents), refs: [{ kind: 'stash', name }] };
 }
 
+function makeUncommitted(parents: string[]): Commit {
+	return { ...makeCommit('*uncommitted*', parents), isUncommitted: true };
+}
+
 function mapColumnsByHash(listRows: ReturnType<typeof layoutCommits>): Record<string, number> {
 	return Object.fromEntries(listRows.map((row) => [row.commit.hash, row.nodeColumn]));
 }
@@ -136,6 +140,28 @@ describe('layoutCommits', () => {
 		expect(mapColumn.x1).toBe(1);
 		expect(mapColumn.y1).toBe(1);
 		expect(graphWidth(listRows)).toBe(2);
+	});
+
+	it('lets a merged branch take a column an open branch has finished with', () => {
+		// The checked-out branch `b1` holds column 0 until it merges into master. `g1` merges in a
+		// row later, so it can have that column back — leaving it empty would waste it for the whole
+		// graph. The still-open `o1` further down keeps a column of its own regardless.
+		const listRows = layoutCommits([
+			makeUncommitted(['b1']),
+			makeCommit('m1', ['m2', 'b1']),
+			makeBranchTip('b1', ['m2'], 'feature/merged'),
+			makeCommit('m2', ['m3', 'g1']),
+			makeCommit('g1', ['m3']),
+			makeCommit('m3', ['m4']),
+			makeBranchTip('o1', ['m4'], 'feature/open'),
+			makeCommit('m4', []),
+		]);
+		const mapColumn = mapColumnsByHash(listRows);
+		expect(mapColumn.b1).toBe(0);
+		expect(mapColumn.m1).toBe(1);
+		expect(mapColumn.g1).toBe(0);
+		expect(mapColumn.o1).toBe(2);
+		expect(graphWidth(listRows)).toBe(3);
 	});
 
 	it('does not reserve a column for stashes, which are not open branches', () => {
