@@ -50,6 +50,12 @@ export interface GraphRow {
 	nodeColour: number;
 	listInputLanes: (GraphLane | null)[];
 	listOutputLanes: (GraphLane | null)[];
+	/**
+	 * Columns this commit's parents leave in. Usually just the node's own column, but a parent
+	 * already awaited by another lane is *not* a new lane, so nothing in `listOutputLanes` would say
+	 * this commit connects to it — and its node would hang there with no line out.
+	 */
+	listParentColumns: number[];
 }
 
 export type FileStatus = 'A' | 'M' | 'D' | 'R' | 'C' | 'T' | 'U' | 'X' | '?';

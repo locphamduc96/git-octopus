@@ -157,11 +157,8 @@
 		const listSegments: LaneSegment[] = [];
 		const node = row.nodeColumn;
 		const hash = row.commit.hash;
-		const width = Math.max(row.listInputLanes.length, row.listOutputLanes.length);
-
-		for (let column = 0; column < width; column++) {
+		for (let column = 0; column < row.listInputLanes.length; column++) {
 			const input = row.listInputLanes[column] ?? null;
-			const output = row.listOutputLanes[column] ?? null;
 
 			if (input && input.hash !== hash) {
 				// Not this commit's lane, so it crosses the whole band untouched.
@@ -175,13 +172,18 @@
 						: { d: mergeIn(column, node, metrics), colour: input.colour, fromNode: false }
 				);
 			}
-			if (output) {
-				listSegments.push(
-					column === node
-						? { d: outOfNode(column, metrics), colour: output.colour, fromNode: true }
-						: { d: branchOut(node, column, metrics), colour: output.colour, fromNode: true }
-				);
-			}
+		}
+
+		// The lines out of the node, one per parent. Driven by the parent columns rather than by the
+		// output lanes: a parent another lane already awaits opens no lane of its own, so the lanes
+		// alone would leave this commit with no way down.
+		for (const column of row.listParentColumns) {
+			const colour = row.listOutputLanes[column]?.colour ?? row.nodeColour;
+			listSegments.push(
+				column === node
+					? { d: outOfNode(column, metrics), colour, fromNode: true }
+					: { d: branchOut(node, column, metrics), colour, fromNode: true }
+			);
 		}
 		return listSegments;
 	}

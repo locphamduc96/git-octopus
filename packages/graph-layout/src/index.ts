@@ -74,10 +74,15 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 		for (const i of listTerminating) nextLanes[i] = null;
 		if (isTip) nextLanes[nodeColumn] = null;
 
+		const listParentColumns: number[] = [];
 		commit.parents.forEach((parent, idx) => {
 			// A parent already expected somewhere is where this commit's line goes; it does not open a
-			// lane of its own.
-			if (nextLanes.includes(parent)) return;
+			// lane of its own, but the line to it still has to be drawn.
+			const existing = nextLanes.indexOf(parent);
+			if (existing !== -1) {
+				listParentColumns.push(existing);
+				return;
+			}
 			let column: number;
 			let colour: number;
 			if (idx === 0) {
@@ -97,6 +102,7 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 			}
 			nextLanes[column] = parent;
 			nextColours[column] = colour;
+			listParentColumns.push(column);
 		});
 
 		// 4. The row's own band: what crosses its top edge, and what crosses its bottom edge. The view
@@ -107,6 +113,7 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 			nodeColour,
 			listInputLanes: toLanes(lanes, laneColours),
 			listOutputLanes: toLanes(nextLanes, nextColours),
+			listParentColumns,
 		});
 
 		if (nextLanes.length > usedColumns) usedColumns = nextLanes.length;

@@ -181,6 +181,24 @@ describe('layoutCommits', () => {
 		expect(graphWidth(listRows)).toBe(2);
 	});
 
+	it('reports the column of a parent another lane is already waiting for', () => {
+		// `b` ends by handing over to `c`, which column 0 already expects. No lane opens for it, so
+		// without this the row says nothing links `b` to anything and its node is left hanging.
+		const listRows = layoutCommits([
+			makeCommit('m', ['a', 'b']),
+			makeCommit('a', ['c']),
+			makeCommit('b', ['c']),
+			makeCommit('c', []),
+		]);
+		const mapRow = Object.fromEntries(listRows.map((row) => [row.commit.hash, row]));
+		expect(mapRow.b.nodeColumn).toBe(1);
+		expect(mapRow.b.listParentColumns).toEqual([0]);
+		// A merge names both: its own column carries the first parent, the second opens a lane.
+		expect(mapRow.m.listParentColumns).toEqual([0, 1]);
+		// A root commit has nowhere to go.
+		expect(mapRow.c.listParentColumns).toEqual([]);
+	});
+
 	it('hands every row the lanes the row above it let out', () => {
 		// The view draws each row on its own, from its top edge to its bottom edge. That only lines up
 		// if what leaves one row is exactly what enters the next, column for column and colour for
