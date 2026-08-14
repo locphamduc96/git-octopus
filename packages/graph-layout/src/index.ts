@@ -4,6 +4,16 @@ import type { Commit, GraphEdge, GraphRow } from '@git-octopus/shared';
 export const GRAPH_COLOUR_COUNT = 10;
 
 /**
+ * A commit that opens a branch still under development: nothing in the graph descends from it (so
+ * it was never merged), and a branch — or the working tree — points at it. Tags and stashes do not
+ * count: they are dead ends, not lines someone is still committing to.
+ */
+function isOpenBranchTip(commit: Commit): boolean {
+	if (commit.isUncommitted) return true;
+	return commit.refs.some((ref) => ref.kind === 'branch' || ref.kind === 'head');
+}
+
+/**
  * Pure graph layout engine.
  *
  * Assigns each commit a column and computes the connecting edges to the next row, using a
@@ -16,6 +26,10 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 	let lanes: (string | null)[] = []; // hash each column currently expects (a line from above)
 	let laneColours: number[] = [];
 	let nextColour = 0;
+	// Columns owned by an open branch: never recycled, so no other line can ever enter them.
+	const setReservedColumns = new Set<number>();
+	// How far right any lane has ever reached — the first column no line has ever run through.
+	let usedColumns = 0;
 
 	const allocColour = (): number => {
 		const colour = nextColour;
@@ -30,12 +44,22 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 		let nodeColumn = lanes.indexOf(hash);
 		const isTip = nodeColumn === -1;
 		if (isTip) {
-			// Branches take a lane of their own rather than dropping into a gap left by an unrelated
-			// branch, which would read as one continuous line. Gaps at the right edge are trimmed
-			// below, so the graph still stays narrow when branches close in order.
-			nodeColumn = lanes.length;
-			lanes.push(null);
-			laneColours.push(allocColour());
+			if (isOpenBranchTip(commit)) {
+				// An open branch gets a column of its own for the whole graph: one no line has ever
+				// run through, and one nothing may take afterwards. Recycling a closed branch's
+				// column here is what made two unrelated branches read as a single line.
+				nodeColumn = usedColumns;
+				setReservedColumns.add(nodeColumn);
+			} else {
+				// Everything else — stashes, tags, dangling tips — takes the next column at the right
+				// edge, which is reclaimed once it closes, so the graph stays narrow.
+				nodeColumn = lanes.length;
+			}
+			while (lanes.length <= nodeColumn) {
+				lanes.push(null);
+				laneColours.push(0);
+			}
+			laneColours[nodeColumn] = allocColour();
 		}
 		const nodeColour = laneColours[nodeColumn];
 
@@ -95,9 +119,16 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 
 		listRows.push({ commit, nodeColumn, nodeColour, edges: listEdges });
 
+		if (nextLanes.length > usedColumns) usedColumns = nextLanes.length;
+
 		// Reclaim lanes at the right edge only, so the graph does not grow with every branch while
-		// still never reusing a gap that sits between two live lanes.
-		while (nextLanes.length > 0 && nextLanes[nextLanes.length - 1] === null) {
+		// still never reusing a gap that sits between two live lanes. A column reserved by an open
+		// branch stays put even once empty, and stops the trim there.
+		while (
+			nextLanes.length > 0 &&
+			nextLanes[nextLanes.length - 1] === null &&
+			!setReservedColumns.has(nextLanes.length - 1)
+		) {
 			nextLanes.pop();
 			nextColours.pop();
 		}
