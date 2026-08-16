@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm package
+      # The one packaging regression that already happened once: an asset used in the source
+      # whose licence text never made it into the shipped artifact.
+      - name: Third-party notices ship inside the VSIX
+        run: |
+          unzip -p git-octopus.vsix extension/THIRD-PARTY-NOTICES.md > notices.md
+          for component in Codicons Octicons Svelte Shiki; do
+            grep -q "$component" notices.md || { echo "missing $component notice"; exit 1; }
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: git-octopus-vsix
+          path: git-octopus.vsix

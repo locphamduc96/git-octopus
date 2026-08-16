@@ -7,6 +7,7 @@ import type {
 } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import { remoteCommitUrl } from '../../core/git/remoteUrl.js';
+import { isFirstParentRun } from '../../core/git/rewriteGuards.js';
 
 /**
  * What to name a commit when merging or rebasing onto it.
@@ -399,30 +400,9 @@ export class CommitActionService {
 		}
 	}
 
-	/**
-	 * Re-prove against the repository what the webview promised about a squash/drop selection:
-	 * the hashes are exactly the first-parent chain below their newest commit, in newest → oldest
-	 * order, with no merge and no root among them. The graph the user clicked in may be stale —
-	 * a fetch, rebase or another view can move history between render and confirm — and a rewrite
-	 * scoped by unverified hashes would rewrite whatever is there now, not what they saw.
-	 */
-	private async verifyFirstParentRun(listHashes: string[], cwd: string): Promise<boolean> {
-		try {
-			const output = await this.executor.run(
-				['rev-list', '--first-parent', '--parents', '-n', String(listHashes.length), listHashes[0]],
-				cwd
-			);
-			const listLines = output.trim().split('\n');
-			if (listLines.length !== listHashes.length) return false;
-			return listLines.every((line, index) => {
-				const listParts = line.split(' ');
-				// One hash plus exactly one parent: a merge (two parents) or the root (none) may not
-				// be squashed or dropped by a linear rewrite.
-				return listParts[0] === listHashes[index] && listParts.length === 2;
-			});
-		} catch {
-			return false;
-		}
+	/** See {@link isFirstParentRun} — the host's re-proof of a squash/drop selection. */
+	private verifyFirstParentRun(listHashes: string[], cwd: string): Promise<boolean> {
+		return isFirstParentRun(this.executor, listHashes, cwd);
 	}
 
 	private staleSelectionError(): void {
