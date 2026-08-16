@@ -1,71 +1,310 @@
 {
-  "name": "git-octopus",
-  "displayName": "Git Octopus",
-  "description": "View a Git graph of your repository and perform Git actions from it.",
-  "version": "0.1.0",
-  "publisher": "locpham",
-  "license": "MIT",
-  "type": "commonjs",
-  "engines": {
-    "vscode": "^1.90.0"
-  },
-  "categories": ["SCM Providers", "Other"],
-  "main": "./dist/extension.js",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/locphamduc96/git-octopus.git"
-  },
-  "contributes": {
-    "viewsContainers": {
-      "panel": [
-        {
-          "id": "git-octopus-panel",
-          "title": "Git Octopus",
-          "icon": "$(git-branch)"
-        }
-      ]
-    },
-    "views": {
-      "git-octopus-panel": [
-        {
-          "type": "webview",
-          "id": "git-octopus.view",
-          "name": "Git Octopus"
-        }
-      ]
-    },
-    "commands": [
-      {
-        "category": "Git Octopus",
-        "command": "git-octopus.refresh",
-        "title": "Refresh"
-      },
-      {
-        "category": "Git Octopus",
-        "command": "git-octopus.focus",
-        "title": "Open Git Octopus"
-      },
-      {
-        "category": "Git Octopus",
-        "command": "git-octopus.openInTab",
-        "title": "Open Git Octopus in Editor Tab"
-      }
-    ]
-  },
-  "scripts": {
-    "build": "node esbuild.mjs",
-    "dev": "node esbuild.mjs --watch",
-    "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "package": "node esbuild.mjs && vsce package --no-dependencies -o ../../git-octopus.vsix"
-  },
-  "dependencies": {
-    "@git-octopus/graph-layout": "workspace:*",
-    "@git-octopus/shared": "workspace:*"
-  },
-  "devDependencies": {
-    "@types/vscode": "^1.90.0",
-    "@vscode/vsce": "^2.15.0",
-    "esbuild": "^0.24.2"
-  }
+	"name": "git-octopus",
+	"displayName": "Git Octopus",
+	"description": "View a Git graph of your repository and perform Git actions from it.",
+	"version": "0.12.0",
+	"publisher": "locpham",
+	"license": "MIT",
+	"icon": "media/icon.png",
+	"type": "commonjs",
+	"engines": {
+		"vscode": "^1.90.0"
+	},
+	"categories": [
+		"SCM Providers",
+		"Other"
+	],
+	"keywords": [
+		"git",
+		"graph",
+		"git graph",
+		"branch",
+		"diff",
+		"merge",
+		"rebase",
+		"source control"
+	],
+	"galleryBanner": {
+		"color": "#1e2228",
+		"theme": "dark"
+	},
+	"main": "./dist/extension.js",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/locphamduc96/git-octopus.git"
+	},
+	"homepage": "https://github.com/locphamduc96/git-octopus#readme",
+	"bugs": {
+		"url": "https://github.com/locphamduc96/git-octopus/issues"
+	},
+	"contributes": {
+		"viewsContainers": {
+			"panel": [
+				{
+					"id": "git-octopus-panel",
+					"title": "Git Octopus",
+					"icon": "$(git-branch)"
+				}
+			],
+			"activitybar": [
+				{
+					"id": "git-octopus-sidebar",
+					"title": "Git Octopus",
+					"icon": "$(git-merge)"
+				}
+			]
+		},
+		"views": {
+			"git-octopus-panel": [
+				{
+					"type": "webview",
+					"id": "git-octopus.view",
+					"name": "Git Octopus"
+				}
+			],
+			"git-octopus-sidebar": [
+				{
+					"id": "git-octopus.repoTree",
+					"name": "Repository"
+				}
+			]
+		},
+		"commands": [
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.refresh",
+				"title": "Refresh"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.tree.refresh",
+				"title": "Refresh Repository Tree",
+				"icon": "$(refresh)"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.tree.checkout",
+				"title": "Checkout"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.tree.deleteBranch",
+				"title": "Delete Branch…"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.tree.checkoutRemote",
+				"title": "Checkout as Local Branch"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.tree.deleteRemoteBranch",
+				"title": "Delete Remote Branch…"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.tree.pushTag",
+				"title": "Push Tag to Origin"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.tree.deleteTag",
+				"title": "Delete Tag…"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.tree.deleteRemoteTag",
+				"title": "Delete Tag on Origin…"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.tree.stashApply",
+				"title": "Apply Stash…"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.tree.stashPop",
+				"title": "Pop Stash…"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.tree.stashDrop",
+				"title": "Drop Stash…"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.focus",
+				"title": "Open Git Octopus"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.openInTab",
+				"title": "Open Git Octopus in Editor Tab"
+			}
+		],
+		"menus": {
+			"commandPalette": [
+				{
+					"command": "git-octopus.tree.refresh",
+					"when": "false"
+				},
+				{
+					"command": "git-octopus.tree.checkout",
+					"when": "false"
+				},
+				{
+					"command": "git-octopus.tree.deleteBranch",
+					"when": "false"
+				},
+				{
+					"command": "git-octopus.tree.checkoutRemote",
+					"when": "false"
+				},
+				{
+					"command": "git-octopus.tree.deleteRemoteBranch",
+					"when": "false"
+				},
+				{
+					"command": "git-octopus.tree.pushTag",
+					"when": "false"
+				},
+				{
+					"command": "git-octopus.tree.deleteTag",
+					"when": "false"
+				},
+				{
+					"command": "git-octopus.tree.deleteRemoteTag",
+					"when": "false"
+				},
+				{
+					"command": "git-octopus.tree.stashApply",
+					"when": "false"
+				},
+				{
+					"command": "git-octopus.tree.stashPop",
+					"when": "false"
+				},
+				{
+					"command": "git-octopus.tree.stashDrop",
+					"when": "false"
+				}
+			],
+			"view/title": [
+				{
+					"command": "git-octopus.tree.refresh",
+					"when": "view == git-octopus.repoTree",
+					"group": "navigation"
+				}
+			],
+			"view/item/context": [
+				{
+					"command": "git-octopus.tree.checkout",
+					"when": "view == git-octopus.repoTree && viewItem == localBranch",
+					"group": "1_actions@1"
+				},
+				{
+					"command": "git-octopus.tree.deleteBranch",
+					"when": "view == git-octopus.repoTree && viewItem == localBranch",
+					"group": "1_actions@2"
+				},
+				{
+					"command": "git-octopus.tree.checkoutRemote",
+					"when": "view == git-octopus.repoTree && viewItem == remoteBranch",
+					"group": "1_actions@1"
+				},
+				{
+					"command": "git-octopus.tree.deleteRemoteBranch",
+					"when": "view == git-octopus.repoTree && viewItem == remoteBranch",
+					"group": "1_actions@2"
+				},
+				{
+					"command": "git-octopus.tree.pushTag",
+					"when": "view == git-octopus.repoTree && viewItem == tag",
+					"group": "1_actions@1"
+				},
+				{
+					"command": "git-octopus.tree.deleteTag",
+					"when": "view == git-octopus.repoTree && viewItem == tag",
+					"group": "1_actions@2"
+				},
+				{
+					"command": "git-octopus.tree.deleteRemoteTag",
+					"when": "view == git-octopus.repoTree && viewItem == tag",
+					"group": "1_actions@3"
+				},
+				{
+					"command": "git-octopus.tree.stashApply",
+					"when": "view == git-octopus.repoTree && viewItem == stash",
+					"group": "1_actions@1"
+				},
+				{
+					"command": "git-octopus.tree.stashPop",
+					"when": "view == git-octopus.repoTree && viewItem == stash",
+					"group": "1_actions@2"
+				},
+				{
+					"command": "git-octopus.tree.stashDrop",
+					"when": "view == git-octopus.repoTree && viewItem == stash",
+					"group": "1_actions@3"
+				}
+			]
+		},
+		"configuration": {
+			"title": "Git Octopus",
+			"properties": {
+				"gitOctopus.autoRefresh": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "Reload the graph when the repository changes on disk — commits made in a terminal, files edited by another tool, or a branch checked out elsewhere. Only a moved `HEAD` reloads history; anything else re-reads the working tree alone."
+				},
+				"gitOctopus.identities": {
+					"type": "array",
+					"default": [],
+					"markdownDescription": "Saved Git identities. Each identity can be applied to a repository from the Git Octopus settings; `hostPattern` is a substring matched against the repository's remote URLs to suggest the identity (e.g. `github.com/mycompany`).",
+					"items": {
+						"type": "object",
+						"required": [
+							"label",
+							"name",
+							"email"
+						],
+						"properties": {
+							"label": {
+								"type": "string",
+								"description": "Display name, e.g. Work or Personal."
+							},
+							"name": {
+								"type": "string",
+								"description": "Value for user.name."
+							},
+							"email": {
+								"type": "string",
+								"description": "Value for user.email."
+							},
+							"hostPattern": {
+								"type": "string",
+								"description": "Substring of a remote URL that suggests this identity."
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	"scripts": {
+		"build": "node esbuild.mjs",
+		"dev": "node esbuild.mjs --watch",
+		"test": "vitest run",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"package": "node esbuild.mjs && vsce package --no-dependencies -o ../../git-octopus.vsix"
+	},
+	"dependencies": {
+		"@git-octopus/graph-layout": "workspace:*",
+		"@git-octopus/shared": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/vscode": "^1.90.0",
+		"@vscode/vsce": "^2.15.0",
+		"esbuild": "^0.24.2"
+	}
 }

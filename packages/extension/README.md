@@ -49,6 +49,13 @@ View a Git graph of your repository and perform Git actions from it, inside Visu
 
 VS Code 1.90 or newer and `git` on your PATH.
 
+## Privacy
+
+No telemetry, no tracking — the extension talks to your local `git` and nothing else, with one
+exception: the **Fetch avatars** setting (on by default) loads author images from gravatar.com,
+which sends a hash of each author's email address to that service. Turn it off in the view's
+settings to keep everything local.
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE). Bundled third-party components and their licences are listed in
