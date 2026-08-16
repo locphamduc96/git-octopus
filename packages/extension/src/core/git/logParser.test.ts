@@ -8,12 +8,21 @@ function line(fields: string[]): string {
 
 describe('parseLog', () => {
 	it('parses a commit with a single parent', () => {
-		const output = line(['abc', 'def', 'Ada', 'ada@x.io', '1700000000', 'Initial commit']);
+		const output = line([
+			'abc',
+			'def',
+			'Ada',
+			'ada@x.io',
+			'1690000000',
+			'1700000000',
+			'Initial commit',
+		]);
 		const [commit] = parseLog(output);
 		expect(commit).toEqual({
 			hash: 'abc',
 			parents: ['def'],
 			author: { name: 'Ada', email: 'ada@x.io' },
+			authoredAt: 1690000000,
 			committedAt: 1700000000,
 			subject: 'Initial commit',
 			refs: [],
@@ -22,8 +31,8 @@ describe('parseLog', () => {
 
 	it('parses a merge (multiple parents) and a root (no parents)', () => {
 		const output = [
-			line(['m', 'a b', 'X', 'x@x', '10', 'Merge']),
-			line(['r', '', 'X', 'x@x', '1', 'Root']),
+			line(['m', 'a b', 'X', 'x@x', '10', '10', 'Merge']),
+			line(['r', '', 'X', 'x@x', '1', '1', 'Root']),
 		].join('\n');
 		const listCommits = parseLog(output);
 		expect(listCommits[0].parents).toEqual(['a', 'b']);

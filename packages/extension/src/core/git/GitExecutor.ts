@@ -3,5 +3,9 @@
  * `git` CLI). Kept free of `vscode`/`child_process` so `core` stays pure and testable.
  */
 export interface GitExecutor {
-	run(args: string[], cwd: string): Promise<string>;
+	/**
+	 * `listOkCodes` names non-zero exit codes that still mean success — `git diff --no-index`
+	 * exits 1 whenever the files differ, with the diff on stdout.
+	 */
+	run(args: string[], cwd: string, listOkCodes?: number[]): Promise<string>;
 }

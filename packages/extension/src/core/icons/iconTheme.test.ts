@@ -14,7 +14,7 @@ describe('buildIconTheme', () => {
 			iconDefinitions: { ts: { iconPath: './icons/ts.svg' }, _file: { iconPath: './icons/_.svg' } },
 			file: '_file',
 			fileExtensions: { TS: 'ts' },
-			fileNames: { 'Dockerfile': 'ts' },
+			fileNames: { Dockerfile: 'ts' },
 		};
 		const theme = buildIconTheme(raw, OPTIONS);
 		expect(theme.mapIcons.ts).toEqual({ kind: 'image', src: 'webview:./icons/ts.svg' });
@@ -23,7 +23,7 @@ describe('buildIconTheme', () => {
 		expect(theme.file).toBe('_file');
 	});
 
-	it('reads glyph icons, defaulting to the theme\'s first font', () => {
+	it("reads glyph icons, defaulting to the theme's first font", () => {
 		const raw: RawIconTheme = {
 			fonts: [{ id: 'seti', src: [{ path: './seti.woff', format: 'woff' }], size: '150%' }],
 			iconDefinitions: { _r: { fontCharacter: '\\E001', fontColor: '#519aba' } },
@@ -45,7 +45,7 @@ describe('buildIconTheme', () => {
 		});
 	});
 
-	it('spreads a language icon over that language\'s extensions and file names', () => {
+	it("spreads a language icon over that language's extensions and file names", () => {
 		const raw: RawIconTheme = {
 			iconDefinitions: { js: { iconPath: './js.svg' }, node: { iconPath: './node.svg' } },
 			languageIds: { javascript: 'js' },

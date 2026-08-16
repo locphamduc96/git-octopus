@@ -1,7 +1,7 @@
 import type { Commit, Ref } from '@git-octopus/shared';
 
 /** NUL-separated fields, one commit per line. Keep in sync with LOG_FORMAT. */
-export const LOG_FORMAT = '%H%x00%P%x00%an%x00%ae%x00%at%x00%s%x00%D';
+export const LOG_FORMAT = '%H%x00%P%x00%an%x00%ae%x00%at%x00%ct%x00%s%x00%D';
 
 /**
  * Parse `git log` output produced with {@link LOG_FORMAT} into commits.
@@ -11,13 +11,15 @@ export function parseLog(output: string): Commit[] {
 	const listCommits: Commit[] = [];
 	for (const line of output.split('\n')) {
 		if (line === '') continue;
-		const [hash, parents, name, email, at, subject, decoration] = line.split('\0');
+		const [hash, parents, name, email, authoredAt, committedAt, subject, decoration] =
+			line.split('\0');
 		if (!hash) continue;
 		listCommits.push({
 			hash,
 			parents: parents ? parents.split(' ') : [],
 			author: { name: name ?? '', email: email ?? '' },
-			committedAt: Number.parseInt(at ?? '0', 10) || 0,
+			authoredAt: Number.parseInt(authoredAt ?? '0', 10) || 0,
+			committedAt: Number.parseInt(committedAt ?? '0', 10) || 0,
 			subject: subject ?? '',
 			refs: parseRefs(decoration ?? ''),
 		});

@@ -76,17 +76,15 @@ export function buildIconTheme(raw: RawIconTheme, options: BuildIconThemeOptions
 
 	const listFonts = (raw.fonts ?? [])
 		.filter((font) => typeof font.id === 'string')
-		.map(
-			(font): FileIconFont => ({
-				id: font.id as string,
-				listSrc: (font.src ?? [])
-					.filter((src) => typeof src.path === 'string')
-					.map((src) => ({ url: options.resolve(src.path as string), format: src.format })),
-				weight: font.weight,
-				style: font.style,
-				size: font.size,
-			})
-		);
+		.map((font): FileIconFont => ({
+			id: font.id as string,
+			listSrc: (font.src ?? [])
+				.filter((src) => typeof src.path === 'string')
+				.map((src) => ({ url: options.resolve(src.path as string), format: src.format })),
+			weight: font.weight,
+			style: font.style,
+			size: font.size,
+		}));
 
 	// Only the definitions something points at: a theme carries a full second set for light colour
 	// themes, and shipping both would double a payload that already runs to hundreds of entries.
