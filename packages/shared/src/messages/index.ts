@@ -2,13 +2,33 @@
  * Host ↔ webview message protocol.
  * P1: commit graph. P2: commit details, diffs, commit actions. P3: working tree, repos & filters.
  */
-import type { Commit, CommitDetails, FileChange, WorkingTreeStatus } from '../model/index.js';
+import type {
+	Commit,
+	CommitDetails,
+	DiffHunk,
+	FileChange,
+	WorkingTreeStatus,
+} from '../model/index.js';
 
 /** A Git repository discovered in the workspace. */
 export interface RepoInfo {
 	path: string;
 	name: string;
 }
+
+/**
+ * A branch offered in the jump dropdown. `name` is the short form — `main` for a local branch,
+ * `origin/main` for a remote-tracking one — and `hash` is the commit it points at, so the view can
+ * jump straight to a row without re-deriving the tip from the decorations it happens to have.
+ */
+export interface BranchRef {
+	name: string;
+	hash: string;
+	remote: boolean;
+}
+
+/** How `git log` orders the walk. */
+export type CommitOrder = 'date' | 'authorDate' | 'topo';
 
 /** Filters and options applied when loading the graph. */
 export interface GraphFilters {
@@ -20,6 +40,12 @@ export interface GraphFilters {
 	 * are sent to gravatar.com when the images load.
 	 */
 	fetchAvatars?: boolean;
+	/** Defaults to 'date' when omitted. */
+	commitOrder?: CommitOrder;
+	/** These default to true when omitted, matching the original behaviour. */
+	showTags?: boolean;
+	showStashes?: boolean;
+	showUncommitted?: boolean;
 }
 
 export interface LoadCommitsMessage {
@@ -42,6 +68,8 @@ export interface OpenDiffMessage {
 	type: 'openDiff';
 	hash: string;
 	path: string;
+	/** The path before a rename — the left side of the diff reads this path at the parent. */
+	oldPath?: string;
 }
 
 export interface LoadComparisonMessage {
@@ -50,11 +78,41 @@ export interface LoadComparisonMessage {
 	toHash: string;
 }
 
+/**
+ * Ask for one file's diff as hunks, to be drawn inside the view instead of a VS Code diff editor.
+ * Exactly one of `hash`, the `fromHash`/`toHash` pair, or neither (the working tree) is given.
+ */
+export interface LoadFileDiffMessage {
+	type: 'loadFileDiff';
+	/** Echoed back untouched, so a reply that arrives after the user moved on is ignorable. */
+	key: string;
+	path: string;
+	/** The path before a rename, so the hunks show old → new instead of a whole-file add. */
+	oldPath?: string;
+	hash?: string;
+	fromHash?: string;
+	toHash?: string;
+	untracked?: boolean;
+	/** Context lines: small for the changes-only view, larger than any file for the whole-file one. */
+	context: number;
+}
+
+export interface FileDiffMessage {
+	type: 'fileDiff';
+	key: string;
+	path: string;
+	listHunks: DiffHunk[];
+	/** Set when there is nothing to draw — binary, unchanged, or unreadable — and says why. */
+	notice?: string;
+}
+
 export interface OpenCompareDiffMessage {
 	type: 'openCompareDiff';
 	fromHash: string;
 	toHash: string;
 	path: string;
+	/** The path before a rename — the left side of the diff reads this path at `fromHash`. */
+	oldPath?: string;
 }
 
 export type CommitActionId =
@@ -64,8 +122,16 @@ export type CommitActionId =
 	| 'rebase'
 	| 'cherryPick'
 	| 'revert'
-	| 'reset'
+	| 'reword'
+	| 'resetSoft'
+	| 'resetMixed'
+	| 'resetHard'
 	| 'addTag'
+	| 'deleteTag'
+	| 'pushTag'
+	| 'deleteRemoteTag'
+	| 'openOnRemote'
+	| 'copyRemoteUrl'
 	| 'deleteBranch'
 	| 'checkoutBranch'
 	| 'checkoutRemote'
@@ -87,8 +153,70 @@ export interface CommitActionMessage {
 	branches: string[];
 	/** Remote-tracking branch names at this commit, e.g. "origin/main". */
 	remoteBranches: string[];
+	/** Tag names at this commit (for the tag actions). */
+	tags?: string[];
 	/** Stash reference (e.g. "stash@{0}") when the commit is a stash. */
 	stashName?: string;
+}
+
+/**
+ * Squash a contiguous run of commits into one. The webview guarantees the run is a first-parent
+ * chain (no merges, no root); the host re-checks everything that needs repository state.
+ */
+export interface SquashCommitsMessage {
+	type: 'squashCommits';
+	/** Newest → oldest. */
+	hashes: string[];
+	/** Subjects in the same order, used to prefill and record the combined message. */
+	subjects: string[];
+}
+
+/**
+ * Act on a multi-selected run of commits. Cherry-pick and revert accept any merge-free selection;
+ * drop needs the same contiguous first-parent chain as squash.
+ */
+export interface MultiCommitActionMessage {
+	type: 'multiCommitAction';
+	action: 'cherryPick' | 'revert' | 'drop';
+	/** Newest → oldest. */
+	hashes: string[];
+	/** Subjects in the same order, for confirmation prompts. */
+	subjects: string[];
+}
+
+/** Drive an in-progress rebase / merge / cherry-pick / revert forward or abandon it. */
+export interface SequencerActionMessage {
+	type: 'sequencerAction';
+	action: 'continue' | 'abort' | 'skip';
+}
+
+/** What dropping one branch chip onto another can do. */
+export type BranchActionId = 'mergeInto' | 'rebaseOnto' | 'fastForward';
+
+export interface BranchActionMessage {
+	type: 'branchAction';
+	action: BranchActionId;
+	/** The dragged branch: a local name, or a remote-tracking one such as "origin/main". */
+	source: string;
+	/** The branch dropped onto — always local, since Git can only write a local ref. */
+	target: string;
+}
+
+/**
+ * Ask whether `target` can be fast-forwarded to `source`, so the drop menu only offers it when it
+ * would work. `nonce` comes back untouched: a stale reply from an abandoned drag is then ignorable.
+ */
+export interface CheckFastForwardMessage {
+	type: 'checkFastForward';
+	source: string;
+	target: string;
+	nonce: number;
+}
+
+export interface FastForwardCheckMessage {
+	type: 'fastForwardCheck';
+	nonce: number;
+	canFastForward: boolean;
 }
 
 export type WorkingTreeAction =
@@ -99,9 +227,10 @@ export type WorkingTreeAction =
 	| 'discard'
 	| 'stash'
 	| 'commit'
+	| 'amend'
 	| 'undoCommit';
 
-export type RepoActionId = 'fetch' | 'push' | 'pushForce' | 'pull';
+export type RepoActionId = 'fetch' | 'push' | 'pushForce' | 'pull' | 'pullRebase' | 'pullFf';
 
 export interface RepoActionMessage {
 	type: 'repoAction';
@@ -138,6 +267,105 @@ export interface OpenTerminalMessage {
 	type: 'openTerminal';
 }
 
+/**
+ * The view's own preferences, kept by the host so they follow the user between workspaces.
+ *
+ * Deliberately opaque here: what a setting means is the view's business, and the host only stores
+ * the blob and hands it back. The view spreads it over its defaults, so a key added, removed or
+ * renamed on either side degrades to the default instead of breaking the protocol.
+ */
+export interface SaveViewSettingsMessage {
+	type: 'saveViewSettings';
+	settings: Record<string, unknown>;
+}
+
+export interface ViewSettingsMessage {
+	type: 'viewSettings';
+	/** Null the first time this user opens the view, before anything has been saved. */
+	settings: Record<string, unknown> | null;
+}
+
+/** A saved Git identity the user can apply to a repository (e.g. "Work", "Personal"). */
+export interface GitIdentity {
+	label: string;
+	name: string;
+	email: string;
+	/**
+	 * Substring matched against the repository's remote URLs (e.g. "github.com/mycompany"). When it
+	 * matches and the repository uses a different email, the view suggests this identity.
+	 */
+	hostPattern?: string;
+}
+
+/** Ask the host for the active repository's Git identity and the saved identities. */
+export interface LoadIdentityMessage {
+	type: 'loadIdentity';
+}
+
+export interface IdentityActionMessage {
+	type: 'identityAction';
+	/** apply → write `user.name`/`user.email` to the repo's local config; clearOverride → unset both. */
+	action: 'apply' | 'clearOverride';
+	name?: string;
+	email?: string;
+	/**
+	 * Saved identities to persist before applying. Adding an identity and switching to it is one
+	 * user action; sending it as one message keeps the save from racing the reload that follows.
+	 */
+	listIdentities?: GitIdentity[];
+}
+
+export interface SaveIdentitiesMessage {
+	type: 'saveIdentities';
+	listIdentities: GitIdentity[];
+}
+
+/** One local branch, with everything the cleanup dialog needs to judge whether it can go. */
+export interface BranchInventoryEntry {
+	name: string;
+	hash: string;
+	subject: string;
+	/** ISO-8601 committer date of the tip — the branch's age is measured from this. */
+	committedAt: string;
+	/** Reachable from the base revision, so `git branch -d` accepts it. */
+	merged: boolean;
+	/** Had an upstream that no longer exists on the remote. */
+	upstreamGone: boolean;
+	current: boolean;
+}
+
+/** Ask the host for every local branch. Sent once per opening of the cleanup dialog. */
+export interface LoadBranchInventoryMessage {
+	type: 'loadBranchInventory';
+}
+
+export interface CleanupBranchesMessage {
+	type: 'cleanupBranches';
+	listNames: string[];
+	/** Use `-D` instead of `-d`, needed for branches that are not merged into the base. */
+	force: boolean;
+}
+
+export interface BranchInventoryMessage {
+	type: 'branchInventory';
+	listBranches: BranchInventoryEntry[];
+	/** What `merged` was measured against, null when there was nothing to measure against. */
+	mergedBase: string | null;
+}
+
+export interface BranchCleanupOutcome {
+	name: string;
+	/** The tip the branch pointed at, so a mistaken delete can be undone with `git branch`. */
+	hash: string;
+	ok: boolean;
+	reason?: string;
+}
+
+export interface BranchCleanupResultMessage {
+	type: 'branchCleanupResult';
+	listResults: BranchCleanupOutcome[];
+}
+
 export interface CopyTextMessage {
 	type: 'copyText';
 	text: string;
@@ -151,30 +379,70 @@ export type WebviewToHost =
 	| SelectRepoMessage
 	| LoadCommitDetailsMessage
 	| LoadComparisonMessage
+	| LoadFileDiffMessage
 	| OpenDiffMessage
 	| OpenCompareDiffMessage
 	| CommitActionMessage
+	| SquashCommitsMessage
+	| MultiCommitActionMessage
+	| SequencerActionMessage
+	| BranchActionMessage
+	| CheckFastForwardMessage
 	| WorkingTreeActionMessage
 	| RepoActionMessage
 	| OpenWorkingDiffMessage
 	| OpenFileMessage
 	| CopyFilePathMessage
 	| OpenTerminalMessage
-	| CopyTextMessage;
+	| SaveViewSettingsMessage
+	| CopyTextMessage
+	| LoadIdentityMessage
+	| IdentityActionMessage
+	| SaveIdentitiesMessage
+	| LoadBranchInventoryMessage
+	| CleanupBranchesMessage;
+
+/** An operation paused mid-flight (usually on conflicts), waiting to be continued or aborted. */
+export type RepoState = 'rebasing' | 'merging' | 'cherryPicking' | 'reverting';
 
 export interface CommitsMessage {
 	type: 'commits';
 	commits: Commit[];
 	working: WorkingTreeStatus | null;
+	repoState: RepoState | null;
+	/** Whether history continues past the last loaded commit. */
+	hasMore: boolean;
 	repos: RepoInfo[];
 	activeRepo: string | null;
 	repoName: string | null;
-	/** Branch names available in the Branches dropdown (local first, then remote). */
-	listBranches: string[];
+	/** Branches offered in the Branch dropdown (local first, then remote). */
+	listBranches: BranchRef[];
 	currentBranch: string | null;
+	/** The commit HEAD points at — null in an empty repository. */
+	headHash: string | null;
 	/** Commits the current branch is ahead of / behind its upstream. */
 	ahead: number;
 	behind: number;
+}
+
+/**
+ * A working-tree-only update, sent when something changed that history did not: files edited,
+ * staged, or the branch's ahead/behind moving. The graph rows are left exactly as they are.
+ */
+export interface StatusUpdateMessage {
+	type: 'statusUpdate';
+	working: WorkingTreeStatus | null;
+	/** Staged plus unstaged, used to relabel the synthetic uncommitted-changes row. */
+	changeCount: number;
+	ahead: number;
+	behind: number;
+	repoState: RepoState | null;
+	currentBranch: string | null;
+	/**
+	 * The commit HEAD points at. A status update whose HEAD differs from the last full load means
+	 * history changed without a graph reload — the sender upgrades to one instead of posting this.
+	 */
+	headHash: string | null;
 }
 
 export interface CommitDetailsMessage {
@@ -194,8 +462,7 @@ export interface ComparisonMessage {
  * as glyphs in a bundled font (the built-in Seti theme does the latter).
  */
 export type FileIcon =
-	| { kind: 'image'; src: string }
-	| { kind: 'glyph'; char: string; fontId: string; colour?: string };
+	{ kind: 'image'; src: string } | { kind: 'glyph'; char: string; fontId: string; colour?: string };
 
 export interface FileIconFont {
 	id: string;
@@ -229,17 +496,63 @@ export interface FileIconsMessage {
 	theme: FileIconTheme | null;
 }
 
+export interface IdentityMessage {
+	type: 'identity';
+	/** Effective values (the local override when present, otherwise inherited), null when unset. */
+	name: string | null;
+	email: string | null;
+	/** Whether the repository's own local config overrides each field. */
+	hasLocalName: boolean;
+	hasLocalEmail: boolean;
+	/** The global config's identity, sent even while a local override hides it. */
+	globalName: string | null;
+	globalEmail: string | null;
+	listRemoteUrls: string[];
+	listIdentities: GitIdentity[];
+}
+
+/**
+ * The active colour theme's broad kind, so the diff panel can highlight with a matching Shiki
+ * theme. High-contrast themes map onto their base kind. Sent on webview startup and again
+ * whenever the user switches theme.
+ */
+export interface ColorThemeMessage {
+	type: 'colorTheme';
+	kind: 'dark' | 'light';
+}
+
+/** Ask the webview to select a commit and scroll it into view (sent by the sidebar tree). */
+export interface RevealCommitMessage {
+	type: 'revealCommit';
+	hash: string;
+}
+
 export interface ErrorMessage {
 	type: 'error';
 	message: string;
 	repos: RepoInfo[];
 	activeRepo: string | null;
+	/**
+	 * The request type that failed, when known. A failed side query (details, comparison, file
+	 * diff) is then reported inside the panel that asked, instead of replacing the whole graph
+	 * with an error screen.
+	 */
+	source?: WebviewToHost['type'];
 }
 
 /** Messages sent from the extension host to the webview. */
 export type HostToWebview =
 	| CommitsMessage
+	| StatusUpdateMessage
 	| CommitDetailsMessage
 	| ComparisonMessage
+	| FileDiffMessage
+	| ViewSettingsMessage
 	| FileIconsMessage
+	| ColorThemeMessage
+	| IdentityMessage
+	| FastForwardCheckMessage
+	| RevealCommitMessage
+	| BranchInventoryMessage
+	| BranchCleanupResultMessage
 	| ErrorMessage;

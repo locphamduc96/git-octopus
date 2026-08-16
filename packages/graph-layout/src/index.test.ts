@@ -8,6 +8,7 @@ function makeCommit(hash: string, parents: string[]): Commit {
 		parents,
 		author: { name: 'Test', email: 'test@example.com' },
 		committedAt: 0,
+		authoredAt: 0,
 		subject: hash,
 		refs: [],
 	};
@@ -73,9 +74,10 @@ describe('layoutCommits', () => {
 		expect(layoutCommits(listCommits)).toHaveLength(2);
 	});
 
-	it('gives a new branch its own lane instead of a gap left by an unrelated one', () => {
-		// `a` ends at `x` while `b` is still open, leaving column 0 free. `c` must not drop into it,
-		// which would draw two unrelated branches as one continuous line.
+	it('lets a new tip reuse the gap a finished branch released', () => {
+		// `a` ends at `x` while `b` is still open, leaving column 0 free. `c` takes that gap: a tip
+		// has no edge from above and a fresh colour, so it cannot be mistaken for `a` carrying on —
+		// and the graph stays as narrow as the number of concurrent lanes.
 		const listRows = layoutCommits([
 			makeCommit('a', ['x']),
 			makeCommit('b', ['y']),
@@ -87,24 +89,20 @@ describe('layoutCommits', () => {
 		const mapColumn = Object.fromEntries(listRows.map((r) => [r.commit.hash, r.nodeColumn]));
 		expect(mapColumn.a).toBe(0);
 		expect(mapColumn.b).toBe(1);
-		expect(mapColumn.c).not.toBe(mapColumn.a);
-		expect(mapColumn.c).not.toBe(mapColumn.b);
+		expect(mapColumn.c).toBe(0);
+		expect(graphWidth(listRows)).toBe(2);
 	});
 
 	it('reuses a lane once it is free at the right edge, keeping the graph narrow', () => {
 		// Each branch closes before the next opens, so the same column can serve all of them.
-		const listRows = layoutCommits([
-			makeCommit('a', []),
-			makeCommit('b', []),
-			makeCommit('c', []),
-		]);
+		const listRows = layoutCommits([makeCommit('a', []), makeCommit('b', []), makeCommit('c', [])]);
 		expect(listRows.map((r) => r.nodeColumn)).toEqual([0, 0, 0]);
 		expect(graphWidth(listRows)).toBe(1);
 	});
 
-	it('keeps an open branch out of a column a closed branch has already used', () => {
-		// `f1` is a branch that was merged and closed, freeing column 1. `g1` is still open, so it
-		// must not inherit that column — the two would read as one line running down the graph.
+	it('lets an open branch take a column a finished branch released', () => {
+		// `f1` was merged and its lane closed at t3, freeing column 1 — `g1` moves in rather than
+		// widening the graph. Its node has no edge from above, so the two lanes stay distinct.
 		const listRows = layoutCommits([
 			makeCommit('merge', ['t2', 'f1']),
 			makeCommit('t2', ['t3']),
@@ -115,11 +113,11 @@ describe('layoutCommits', () => {
 		]);
 		const mapColumn = mapColumnsByHash(listRows);
 		expect(mapColumn.f1).toBe(1);
-		expect(mapColumn.g1).not.toBe(mapColumn.f1);
-		expect(mapColumn.g1).not.toBe(mapColumn.merge);
+		expect(mapColumn.g1).toBe(1);
+		expect(graphWidth(listRows)).toBe(2);
 	});
 
-	it('gives two open branches separate columns even when the first ends before the second starts', () => {
+	it('reuses one column for open branches whose spans do not overlap', () => {
 		const listRows = layoutCommits([
 			makeBranchTip('t1', ['t2'], 'master'),
 			makeBranchTip('b1', ['t2'], 'feature/a'),
@@ -130,7 +128,26 @@ describe('layoutCommits', () => {
 		const mapColumn = mapColumnsByHash(listRows);
 		expect(mapColumn.t1).toBe(0);
 		expect(mapColumn.b1).toBe(1);
-		expect(mapColumn.c1).toBe(2);
+		// b1's lane closed at t2, so c1 takes column 1 back instead of opening column 2.
+		expect(mapColumn.c1).toBe(1);
+		expect(graphWidth(listRows)).toBe(2);
+	});
+
+	it('does not widen the graph by one column per stale branch', () => {
+		// The pathology this policy exists for: a repo accumulating never-merged, forgotten branches.
+		// Their spans do not overlap, so they all share one column beside the trunk.
+		const listRows = layoutCommits([
+			makeBranchTip('main1', ['t1'], 'main'),
+			makeCommit('t1', ['t2']),
+			makeBranchTip('s1', ['t2'], 'stale/one'),
+			makeCommit('t2', ['t3']),
+			makeBranchTip('s2', ['t3'], 'stale/two'),
+			makeCommit('t3', []),
+		]);
+		const mapColumn = mapColumnsByHash(listRows);
+		expect(mapColumn.s1).toBe(1);
+		expect(mapColumn.s2).toBe(1);
+		expect(graphWidth(listRows)).toBe(2);
 	});
 
 	it('still lets closed branches share a column so the graph stays narrow', () => {
@@ -151,8 +168,8 @@ describe('layoutCommits', () => {
 	it('lets a merged branch take a column an open branch has finished with', () => {
 		// Every branch here runs beside the trunk down to the commit it merges at, so a column only
 		// comes free once that meeting point is passed. `g1` opens after master's lane has met `b1`'s
-		// at m2, so it takes that column back rather than widening the graph. The still-open `o1`
-		// further down keeps a column of its own regardless.
+		// at m2, so it takes that column back rather than widening the graph — and so does the open
+		// `o1` further down, once g1's lane has closed at m3.
 		const listRows = layoutCommits([
 			makeUncommitted(['b1']),
 			makeCommit('m1', ['m2', 'b1']),
@@ -167,8 +184,8 @@ describe('layoutCommits', () => {
 		expect(mapColumn.b1).toBe(0);
 		expect(mapColumn.m1).toBe(1);
 		expect(mapColumn.g1).toBe(1);
-		expect(mapColumn.o1).toBe(2);
-		expect(graphWidth(listRows)).toBe(3);
+		expect(mapColumn.o1).toBe(1);
+		expect(graphWidth(listRows)).toBe(2);
 	});
 
 	it('does not reserve a column for stashes, which are not open branches', () => {
@@ -234,5 +251,50 @@ describe('layoutCommits', () => {
 		const branchLane = listRows[0].listOutputLanes[1];
 		expect(branchLane).toBeDefined();
 		expect(branchLane?.colour).not.toBe(listRows[0].nodeColour);
+	});
+
+	it('keeps one branch identity along a first-parent chain', () => {
+		const listRows = layoutCommits([
+			makeCommit('a', ['b']),
+			makeCommit('b', ['c']),
+			makeCommit('c', []),
+		]);
+		const listBranches = listRows.map((row) => row.nodeBranch);
+		expect(listBranches[0]).toBe(listBranches[1]);
+		expect(listBranches[1]).toBe(listBranches[2]);
+	});
+
+	it('gives a merged-in branch its own identity, distinct even when colours repeat', () => {
+		// M merges B; the lane M opens for B is a different branch line than the trunk.
+		const listRows = layoutCommits([
+			makeCommit('m', ['a', 'b']),
+			makeCommit('a', ['c']),
+			makeCommit('b', ['c']),
+			makeCommit('c', []),
+		]);
+		const trunk = listRows[0].nodeBranch;
+		const branchLane = listRows[0].listOutputLanes[1];
+		expect(branchLane?.branch).not.toBe(trunk);
+		// B's node sits on that lane and carries its identity down to the shared parent.
+		expect(listRows[2].nodeBranch).toBe(branchLane?.branch);
+		// C is on the trunk's first-parent chain.
+		expect(listRows[3].nodeBranch).toBe(trunk);
+	});
+
+	it('never reuses a branch identity for a new lane', () => {
+		// Two short-lived branches, one after the other: colours may repeat, identities must not.
+		const listRows = layoutCommits([
+			makeCommit('m2', ['m1', 's2']),
+			makeCommit('s2', ['m1']),
+			makeCommit('m1', ['m0', 's1']),
+			makeCommit('s1', ['m0']),
+			makeCommit('m0', []),
+		]);
+		const first = listRows[2].listOutputLanes[1]?.branch;
+		const second = listRows[0].listOutputLanes[1]?.branch;
+		expect(first).toBeDefined();
+		expect(second).toBeDefined();
+		expect(second).not.toBe(first);
+		expect(second).not.toBe(listRows[0].nodeBranch);
 	});
 });

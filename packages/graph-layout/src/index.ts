@@ -4,16 +4,6 @@ import type { Commit, GraphLane, GraphRow } from '@git-octopus/shared';
 export const GRAPH_COLOUR_COUNT = 10;
 
 /**
- * A commit that opens a branch still under development: nothing in the graph descends from it (so
- * it was never merged), and a branch — or the working tree — points at it. Tags and stashes do not
- * count: they are dead ends, not lines someone is still committing to.
- */
-function isOpenBranchTip(commit: Commit): boolean {
-	if (commit.isUncommitted) return true;
-	return commit.refs.some((ref) => ref.kind === 'branch' || ref.kind === 'head');
-}
-
-/**
  * Pure graph layout engine.
  *
  * Assigns each commit a column and reports the lanes crossing each row's top and bottom edge, using
@@ -27,15 +17,18 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 	const listRows: GraphRow[] = [];
 	let lanes: (string | null)[] = []; // hash each column currently expects (a line from above)
 	let laneColours: number[] = [];
+	let laneBranches: number[] = [];
 	let nextColour = 0;
-	// How far right any lane has ever reached — the first column no line has ever run through.
-	let usedColumns = 0;
+	// Branch-line identities never repeat (colours do), so hover-highlighting can match on them.
+	let nextBranch = 0;
 
 	const allocColour = (): number => {
 		const colour = nextColour;
 		nextColour = (nextColour + 1) % GRAPH_COLOUR_COUNT;
 		return colour;
 	};
+
+	const allocBranch = (): number => nextBranch++;
 
 	for (const commit of listCommits) {
 		const hash = commit.hash;
@@ -44,23 +37,22 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 		let nodeColumn = lanes.indexOf(hash);
 		const isTip = nodeColumn === -1;
 		if (isTip) {
-			if (isOpenBranchTip(commit)) {
-				// An open branch starts in a column no line has ever run through. A tip has no edge
-				// coming into it from above, so dropping it into a column an earlier branch has
-				// released would read as that branch simply carrying on.
-				nodeColumn = usedColumns;
-			} else {
-				// Everything else — stashes, tags, dangling tips — takes the next column at the right
-				// edge, which is reclaimed once it closes, so the graph stays narrow.
-				nodeColumn = lanes.length;
-			}
+			// A tip has no edge coming into it from above and gets a fresh colour and branch identity,
+			// so it may safely take any free column: a gap a finished branch released, else a new one
+			// at the right edge (reclaimed when its lane closes). Reserving an untouched column per
+			// tip instead would widen the graph by one column for every stale branch in the repo.
+			nodeColumn = lanes.indexOf(null);
+			if (nodeColumn === -1) nodeColumn = lanes.length;
 			while (lanes.length <= nodeColumn) {
 				lanes.push(null);
 				laneColours.push(0);
+				laneBranches.push(0);
 			}
 			laneColours[nodeColumn] = allocColour();
+			laneBranches[nodeColumn] = allocBranch();
 		}
 		const nodeColour = laneColours[nodeColumn];
+		const nodeBranch = laneBranches[nodeColumn];
 
 		// 2. Terminating lanes: every column expecting this commit (children converging into it).
 		const listTerminating: number[] = [];
@@ -71,6 +63,7 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 		// 3. Next-row lane state.
 		const nextLanes = lanes.slice();
 		const nextColours = laneColours.slice();
+		const nextBranches = laneBranches.slice();
 		for (const i of listTerminating) nextLanes[i] = null;
 		if (isTip) nextLanes[nodeColumn] = null;
 
@@ -87,9 +80,11 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 			}
 			let column: number;
 			let colour: number;
+			let branch: number;
 			if (idx === 0) {
 				column = nodeColumn;
 				colour = nodeColour;
+				branch = nodeBranch;
 			} else {
 				// A merge's extra parents also start their own lane, and they may move into any column
 				// an earlier branch has released — the lane hangs off this node's edge, so it reads as
@@ -99,11 +94,14 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 					column = nextLanes.length;
 					nextLanes.push(null);
 					nextColours.push(0);
+					nextBranches.push(0);
 				}
 				colour = allocColour();
+				branch = allocBranch();
 			}
 			nextLanes[column] = parent;
 			nextColours[column] = colour;
+			nextBranches[column] = branch;
 			listParentColumns.push(column);
 		});
 
@@ -113,36 +111,48 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 			commit,
 			nodeColumn,
 			nodeColour,
-			listInputLanes: toLanes(lanes, laneColours),
-			listOutputLanes: toLanes(nextLanes, nextColours),
+			nodeBranch,
+			listInputLanes: toLanes(lanes, laneColours, laneBranches),
+			listOutputLanes: toLanes(nextLanes, nextColours, nextBranches),
 			listParentColumns,
 		});
 
-		if (nextLanes.length > usedColumns) usedColumns = nextLanes.length;
-
 		// Reclaim lanes at the right edge, so the graph does not grow with every branch. Gaps inside
-		// the array stay: only a merge's extra parents may move into them.
+		// the array stay, available to the next tip or merge parent looking for a column.
 		while (nextLanes.length > 0 && nextLanes[nextLanes.length - 1] === null) {
 			nextLanes.pop();
 			nextColours.pop();
+			nextBranches.pop();
 		}
 
 		lanes = nextLanes;
 		laneColours = nextColours;
+		laneBranches = nextBranches;
 	}
 
 	return listRows;
 }
 
-function toLanes(listHashes: (string | null)[], listColours: number[]): (GraphLane | null)[] {
-	return listHashes.map((hash, i) => (hash === null ? null : { hash, colour: listColours[i] }));
+function toLanes(
+	listHashes: (string | null)[],
+	listColours: number[],
+	listBranches: number[]
+): (GraphLane | null)[] {
+	return listHashes.map((hash, i) =>
+		hash === null ? null : { hash, colour: listColours[i], branch: listBranches[i] }
+	);
 }
 
 /** Number of columns the graph occupies — useful for sizing the view. */
 export function graphWidth(listRows: GraphRow[]): number {
 	let width = 0;
 	for (const row of listRows) {
-		width = Math.max(width, row.nodeColumn + 1, lastUsed(row.listInputLanes), lastUsed(row.listOutputLanes));
+		width = Math.max(
+			width,
+			row.nodeColumn + 1,
+			lastUsed(row.listInputLanes),
+			lastUsed(row.listOutputLanes)
+		);
 	}
 	return width;
 }

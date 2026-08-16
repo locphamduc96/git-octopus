@@ -21,6 +21,7 @@ export interface Commit {
 	parents: string[];
 	author: Person;
 	committedAt: number; // epoch seconds
+	authoredAt: number; // epoch seconds
 	subject: string;
 	refs: Ref[];
 	/** True for the synthetic "Uncommitted Changes" node at the top of the graph. */
@@ -30,10 +31,15 @@ export interface Commit {
 /** Sentinel hash used for the synthetic uncommitted-changes node. */
 export const UNCOMMITTED_HASH = '*uncommitted*';
 
-/** A lane crossing a row: the commit it is waiting for, and the colour it is drawn in. */
+/**
+ * A lane crossing a row: the commit it is waiting for, the colour it is drawn in, and the stable
+ * identity of the branch line it belongs to. Colours cycle and repeat; `branch` never does, so it
+ * is what hover-highlighting matches on.
+ */
 export interface GraphLane {
 	hash: string;
 	colour: number;
+	branch: number;
 }
 
 /**
@@ -48,6 +54,8 @@ export interface GraphRow {
 	commit: Commit;
 	nodeColumn: number;
 	nodeColour: number;
+	/** Branch-line identity of the node's own lane — see {@link GraphLane.branch}. */
+	nodeBranch: number;
 	listInputLanes: (GraphLane | null)[];
 	listOutputLanes: (GraphLane | null)[];
 	/**
@@ -67,6 +75,25 @@ export interface FileChange {
 	/** Line counts, absent for binary files and for working-tree entries. */
 	additions?: number;
 	deletions?: number;
+}
+
+/**
+ * One line of a unified diff. Both line numbers are kept so either gutter can be printed: an added
+ * line has no old number, a deleted one has no new number.
+ */
+export interface DiffLine {
+	kind: 'context' | 'add' | 'del';
+	text: string;
+	oldLine: number | null;
+	newLine: number | null;
+}
+
+export interface DiffHunk {
+	oldStart: number;
+	newStart: number;
+	/** The text git prints after the `@@`, usually the enclosing function. */
+	heading: string;
+	listLines: DiffLine[];
 }
 
 export interface CommitDetails {
