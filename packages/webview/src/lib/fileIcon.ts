@@ -35,7 +35,12 @@ export function lookupFolderIcon(
 	const key = (name.split('/').pop() ?? name).toLowerCase();
 
 	const listCandidates = expanded
-		? [theme.mapFolderNamesExpanded[key], theme.folderExpanded, theme.mapFolderNames[key], theme.folder]
+		? [
+				theme.mapFolderNamesExpanded[key],
+				theme.folderExpanded,
+				theme.mapFolderNames[key],
+				theme.folder,
+			]
 		: [theme.mapFolderNames[key], theme.folder];
 
 	for (const id of listCandidates) {

@@ -26,17 +26,133 @@
 	--gg-chip-radius: 4px;
 
 	/*
-	 * Every bar stacked at the top of the two panes uses this height — the control bar and the
-	 * panel header on one row, the column header and the panel toolbar on the next — so the
-	 * horizontal rules run unbroken across both panes.
+	 * Ref chips stay neutral grey so the branch colour means one thing only: which chip is checked
+	 * out. Derived from the foreground so both light and dark themes get the same contrast.
+	 */
+	--gg-chip-border: color-mix(in srgb, var(--gg-fg) 45%, transparent);
+	--gg-chip-bg: color-mix(in srgb, var(--gg-fg) 12%, transparent);
+
+	/*
+	 * Every bar stacked at the top of the two panes uses this height — the control bar and the panel
+	 * header on one row, the column header and the panel toolbar on the next — so the horizontal
+	 * rules run unbroken across both panes.
+	 *
+	 * A bar sets `height: var(--gg-header-h)` with `box-sizing: border-box`, which keeps its own
+	 * divider inside the measurement. The one bar allowed to grow is the control bar, and it grows
+	 * only in whole multiples of this: a stray pixel there takes every rule below it out of line.
 	 */
 	--gg-header-h: 30px;
+
+	/*
+	 * Square hit area of an icon-only control. One size everywhere, so a row of them is evenly
+	 * spaced whatever glyphs it holds — see `IconButton.svelte`, which is how they are built.
+	 */
+	--gg-hit: 22px;
+
+	/*
+	 * Corner of anything a pointer lights up — a row, a menu entry, an icon button. One value, so a
+	 * dropdown entry and the button that opened it are cut to the same shape.
+	 */
+	--gg-radius-item: 4px;
+
+	/*
+	 * Motion budget. Long enough to show where a panel came from, short enough that nobody waits on
+	 * it: anything past ~150ms turns a fast tool into a slow one.
+	 */
+	--gg-motion-fast: 90ms;
+	--gg-motion: 130ms;
+	/* Leaves at speed and eases into place — the shape that reads as "already arrived". */
+	--gg-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 html,
 body,
 #app {
 	height: 100%;
+}
+
+/*
+ * Enter animations, global on purpose: a keyframe belongs to the element that mounts, and the
+ * elements that mount live in half a dozen components. One definition also means one place to
+ * switch every animation off for `prefers-reduced-motion`.
+ *
+ * `backwards`, never `both`: a transform animation that keeps filling leaves its element a
+ * containing block for `position: fixed`, and the dropdowns and context menus inside these panels
+ * are fixed — they would land against the panel instead of the window.
+ */
+.gg-enter-fade {
+	animation: gg-fade var(--gg-motion-fast) var(--gg-ease) backwards;
+}
+.gg-enter-rise {
+	animation: gg-rise var(--gg-motion) var(--gg-ease) backwards;
+}
+.gg-enter-slide {
+	animation: gg-slide var(--gg-motion) var(--gg-ease) backwards;
+}
+@keyframes gg-fade {
+	from {
+		opacity: 0;
+	}
+}
+@keyframes gg-rise {
+	from {
+		opacity: 0;
+		transform: translateY(3px);
+	}
+}
+@keyframes gg-slide {
+	from {
+		opacity: 0;
+		transform: translateX(10px);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.gg-enter-fade,
+	.gg-enter-rise,
+	.gg-enter-slide {
+		animation: none;
+	}
+	/* Zeroing the tokens takes every `transition` built on them out with one rule. */
+	:root {
+		--gg-motion-fast: 0ms;
+		--gg-motion: 0ms;
+	}
+}
+
+/*
+ * Skeleton placeholders. Shared because two panes draw them and they have to look like one surface
+ * waiting on one answer: same grey, and one sweep each rather than a bar-by-bar pulse, which reads
+ * as flicker once there are a few dozen of them.
+ */
+.gg-skeleton-bar {
+	border-radius: 3px;
+	background: color-mix(in srgb, var(--gg-fg) 13%, transparent);
+}
+.gg-shimmer {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background: linear-gradient(
+		90deg,
+		transparent 0%,
+		color-mix(in srgb, var(--gg-fg) 7%, transparent) 50%,
+		transparent 100%
+	);
+	animation: gg-sweep 1.6s ease-in-out infinite;
+}
+@keyframes gg-sweep {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(100%);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.gg-shimmer {
+		animation: none;
+		background: none;
+	}
 }
 
 /* Rendered on document.body by the `tooltip` action, so it cannot be a scoped component style. */
@@ -64,4 +180,13 @@ body {
 	color: var(--gg-fg);
 	font-family: var(--gg-font);
 	font-size: var(--gg-font-size);
+}
+
+/*
+ * The app owns every scrollbar it wants; the body never legitimately scrolls. Without this, any
+ * element translated a few pixels for an animation (the tab crossfade, the enter-rise mount) adds
+ * its offset to the body's scroll range and the whole webview starts nudging up and down.
+ */
+body {
+	overflow: hidden;
 }

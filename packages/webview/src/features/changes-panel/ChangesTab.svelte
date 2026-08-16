@@ -3,6 +3,7 @@
 	import FileRow, { type FileRowAction } from '../../lib/ui/FileRow.svelte';
 	import FileTree from '../../lib/ui/FileTree.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
+	import IconButton from '../../lib/ui/IconButton.svelte';
 	import ConfirmDialog from '../../lib/ui/ConfirmDialog.svelte';
 	import CommitDialog from './CommitDialog.svelte';
 	import { buildFileTree, type FileViewMode } from '../../lib/fileTree';
@@ -34,7 +35,10 @@
 
 	let dialog = $state<Dialog | null>(null);
 
-	const changes = $derived(working ? working.unstaged.filter((f) => f.status !== '?') : []);
+	const conflicts = $derived(working ? working.unstaged.filter((f) => f.status === 'U') : []);
+	const changes = $derived(
+		working ? working.unstaged.filter((f) => f.status !== '?' && f.status !== 'U') : []
+	);
 	const untracked = $derived(working ? working.unstaged.filter((f) => f.status === '?') : []);
 	const staged = $derived<FileChange[]>(working ? working.staged : []);
 
@@ -43,7 +47,11 @@
 		{ id: 'stage', label: 'Stage this file for the next commit', icon: 'add' },
 	];
 	const unstageActions = [
-		{ id: 'unstage', label: 'Unstage this file — keep the change, drop it from the commit', icon: 'remove' },
+		{
+			id: 'unstage',
+			label: 'Unstage this file — keep the change, drop it from the commit',
+			icon: 'remove',
+		},
 	];
 	// The hover buttons carry a full explanation as their tooltip; a menu row needs a short label.
 	const stageMenu = [
@@ -52,9 +60,9 @@
 	];
 	const unstageMenu = [{ id: 'unstage', label: 'Unstage' }];
 
-	function commit(message: string): void {
+	function commit(message: string, amend: boolean): void {
 		dialog = null;
-		onaction('commit', undefined, message);
+		onaction(amend ? 'amend' : 'commit', undefined, message);
 	}
 </script>
 
@@ -75,31 +83,31 @@
 			<Icon name="arrow-up" />
 			Push{ahead > 0 ? ` ${ahead}` : ''}
 		</button>
-		<button
+		<IconButton
+			name="discard"
+			label="Undo last commit"
+			title="Undo last commit — put its changes back as staged, keeping your work"
 			onclick={() => (dialog = 'undo')}
-			use:tooltip={'Undo last commit — put its changes back as staged, keeping your work'}
-		>
-			<Icon name="discard" label="Undo last commit" />
-		</button>
-		<button
-			onclick={() => onaction('stash')}
-			use:tooltip={'Stash — save all uncommitted changes aside and clean the working tree'}
+		/>
+		<IconButton
+			name="archive"
+			label="Stash uncommitted changes"
+			title="Stash — save all uncommitted changes aside and clean the working tree"
 			disabled={changes.length + untracked.length + staged.length === 0}
-		>
-			<Icon name="archive" label="Stash uncommitted changes" />
-		</button>
-		<button
+			onclick={() => onaction('stash')}
+		/>
+		<IconButton
+			name="remove"
+			label="Unstage all"
+			title="Unstage all — move every staged file back out of the next commit"
 			onclick={() => onaction('unstageAll')}
-			use:tooltip={'Unstage all — move every staged file back out of the next commit'}
-		>
-			<Icon name="remove" label="Unstage all" />
-		</button>
-		<button
+		/>
+		<IconButton
+			name="add"
+			label="Stage all"
+			title="Stage all — include every changed and untracked file in the next commit"
 			onclick={() => onaction('stageAll')}
-			use:tooltip={'Stage all — include every changed and untracked file in the next commit'}
-		>
-			<Icon name="add" label="Stage all" />
-		</button>
+		/>
 		<button
 			class="primary"
 			onclick={() => (dialog = 'commit')}
@@ -113,6 +121,9 @@
 	</div>
 
 	<div class="sections">
+		{#if conflicts.length > 0}
+			{@render section('Conflicts', conflicts, stageActions, stageMenu)}
+		{/if}
 		{@render section('Changes', changes, stageActions, stageMenu)}
 		{@render section('Untracked', untracked, stageActions, stageMenu)}
 		{@render section('Staged Changes', staged, unstageActions, unstageMenu)}
@@ -154,11 +165,7 @@
 {/snippet}
 
 {#if dialog === 'commit'}
-	<CommitDialog
-		stagedCount={staged.length}
-		oncommit={commit}
-		oncancel={() => (dialog = null)}
-	/>
+	<CommitDialog stagedCount={staged.length} oncommit={commit} oncancel={() => (dialog = null)} />
 {:else if dialog === 'push'}
 	<ConfirmDialog
 		title="Push to remote"
@@ -211,16 +218,18 @@
 		padding: 0 var(--gg-space-2);
 		border-bottom: 1px solid var(--gg-border);
 	}
+	/* The labelled buttons; the icon-only ones are `IconButton` and bring their own square. */
 	.toolbar button {
 		display: inline-flex;
 		align-items: center;
 		gap: 3px;
+		height: var(--gg-hit);
 		background: transparent;
 		color: var(--gg-fg);
 		border: none;
 		border-radius: 4px;
 		cursor: pointer;
-		padding: 3px 5px;
+		padding: 0 5px;
 	}
 	.toolbar button:hover:not(:disabled) {
 		background: var(--vscode-toolbar-hoverBackground);

@@ -1,4 +1,4 @@
-export type GraphStyle = 'rounded' | 'angular';
+export type GraphStyle = 'rounded' | 'angular' | 'diagonal';
 
 export interface LaneMetrics {
 	/** Distance between lane centres. */
@@ -52,6 +52,13 @@ export function mergeIn(fromColumn: number, nodeColumn: number, m: LaneMetrics):
 	const mid = m.rowHeight / 2;
 	const dir = Math.sign(nodeX - x);
 	if (m.style === 'angular') return `M${x} 0 L${x} ${mid} L${nodeX} ${mid}`;
+	if (m.style === 'diagonal') {
+		const run = diagonalRun(x, nodeX, mid);
+		const turnX = x + dir * run;
+		// The level run only exists when the crossing is wider than the diagonal may be tall.
+		const level = turnX === nodeX ? '' : ` L${nodeX} ${mid}`;
+		return `M${x} 0 L${x} ${mid - run} L${turnX} ${mid}${level}`;
+	}
 	const r = bendRadius(x, nodeX, mid, m);
 	return `M${x} 0 L${x} ${mid - r} Q${x} ${mid} ${x + dir * r} ${mid} L${nodeX} ${mid}`;
 }
@@ -67,6 +74,12 @@ export function branchOut(nodeColumn: number, toColumn: number, m: LaneMetrics):
 	const mid = m.rowHeight / 2;
 	const dir = Math.sign(x - nodeX);
 	if (m.style === 'angular') return `M${nodeX} ${mid} L${x} ${mid} L${x} ${m.rowHeight}`;
+	if (m.style === 'diagonal') {
+		const run = diagonalRun(nodeX, x, mid);
+		const turnX = x - dir * run;
+		const level = turnX === nodeX ? '' : ` L${turnX} ${mid}`;
+		return `M${nodeX} ${mid}${level} L${x} ${mid + run} L${x} ${m.rowHeight}`;
+	}
 	const r = bendRadius(nodeX, x, mid, m);
 	return `M${nodeX} ${mid} L${x - dir * r} ${mid} Q${x} ${mid} ${x} ${mid + r} L${x} ${m.rowHeight}`;
 }
@@ -74,4 +87,15 @@ export function branchOut(nodeColumn: number, toColumn: number, m: LaneMetrics):
 /** Never bend further than the gap being crossed, nor further than the half-row it happens in. */
 function bendRadius(fromX: number, toX: number, half: number, m: LaneMetrics): number {
 	return Math.max(0, Math.min(m.curve, Math.abs(toX - fromX), half));
+}
+
+/**
+ * How much height the diagonal takes: as much as it is wide, which is what makes it 45°, but never
+ * more than the half-row it has to fit in. A path is drawn inside its own row and nowhere else —
+ * that is what lets rows line up without any of them knowing about its neighbours — so a lane
+ * crossing further than the row is tall keeps the 45° and runs level for the rest, rather than
+ * flattening the diagonal out across the whole gap.
+ */
+function diagonalRun(fromX: number, toX: number, half: number): number {
+	return Math.min(Math.abs(toX - fromX), half);
 }

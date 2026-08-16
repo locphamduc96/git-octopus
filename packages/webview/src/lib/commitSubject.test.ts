@@ -87,15 +87,15 @@ describe('parseSubject', () => {
 
 describe('formatSubject', () => {
 	it('puts the type after the ticket', () => {
-		expect(
-			formatSubject({ ticket: 'ZG-1', type: 'feat', scope: null, text: 'add thing' })
-		).toBe('[ZG-1] feat: add thing');
+		expect(formatSubject({ ticket: 'ZG-1', type: 'feat', scope: null, text: 'add thing' })).toBe(
+			'[ZG-1] feat: add thing'
+		);
 	});
 
 	it('keeps the scope with the type', () => {
-		expect(
-			formatSubject({ ticket: null, type: 'fix', scope: 'auth', text: 'refresh token' })
-		).toBe('fix(auth): refresh token');
+		expect(formatSubject({ ticket: null, type: 'fix', scope: 'auth', text: 'refresh token' })).toBe(
+			'fix(auth): refresh token'
+		);
 	});
 
 	it('returns the plain text when there is no prefix', () => {

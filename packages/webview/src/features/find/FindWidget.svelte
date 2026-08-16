@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Icon from '../../lib/ui/Icon.svelte';
+	import IconButton from '../../lib/ui/IconButton.svelte';
 
 	let {
 		query,
@@ -26,9 +26,7 @@
 		}}
 	/>
 	<span class="count">{query === '' ? '' : `${matchCount} matches`}</span>
-	<button onclick={onclose} title="Close (Esc)">
-		<Icon name="close" label="Close find" />
-	</button>
+	<IconButton name="close" label="Close find" title="Close (Esc)" onclick={onclose} />
 </div>
 
 <style>
@@ -55,17 +53,5 @@
 		color: var(--gg-fg-muted);
 		font-size: 0.85em;
 		white-space: nowrap;
-	}
-	button {
-		flex: none;
-		display: inline-flex;
-		align-items: center;
-		background: none;
-		border: none;
-		color: var(--gg-fg-muted);
-		cursor: pointer;
-	}
-	button:hover {
-		color: var(--gg-fg);
 	}
 </style>

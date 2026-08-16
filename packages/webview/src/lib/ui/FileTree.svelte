@@ -100,6 +100,8 @@
 		padding-right: var(--gg-space-2);
 		white-space: nowrap;
 		overflow: hidden;
+		border-radius: var(--gg-radius-item);
+		transition: background-color 60ms var(--gg-ease);
 	}
 	.folder:hover {
 		background: var(--vscode-list-hoverBackground);

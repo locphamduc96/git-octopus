@@ -8,4 +8,6 @@ if (!target) {
 	throw new Error('#app mount target not found');
 }
 
+// Svelte appends rather than replaces, so the boot placeholder in the host HTML has to go first.
+target.replaceChildren();
 mount(App, { target });

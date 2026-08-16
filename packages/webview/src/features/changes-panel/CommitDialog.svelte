@@ -1,11 +1,6 @@
 <script lang="ts">
 	import Modal from '../../lib/ui/Modal.svelte';
-	import {
-		COMMIT_TYPES,
-		formatSubject,
-		parseSubject,
-		typeColour,
-	} from '../../lib/commitSubject';
+	import { COMMIT_TYPES, formatSubject, parseSubject, typeColour } from '../../lib/commitSubject';
 
 	let {
 		stagedCount,
@@ -13,14 +8,16 @@
 		oncancel,
 	}: {
 		stagedCount: number;
-		oncommit: (message: string) => void;
+		oncommit: (message: string, amend: boolean) => void;
 		oncancel: () => void;
 	} = $props();
 
 	let summary = $state('');
 	let description = $state('');
+	let amend = $state(false);
 
-	const canCommit = $derived(summary.trim() !== '');
+	// An amend with no message keeps the previous one, so the summary may stay empty.
+	const canCommit = $derived(amend || summary.trim() !== '');
 	const parsed = $derived(parseSubject(summary));
 
 	/**
@@ -35,7 +32,9 @@
 	function submit(): void {
 		if (!canCommit) return;
 		const body = description.trim();
-		oncommit(body === '' ? summary.trim() : `${summary.trim()}\n\n${body}`);
+		const subject = summary.trim();
+		const message = body === '' || subject === '' ? subject : `${subject}\n\n${body}`;
+		oncommit(message, amend);
 	}
 </script>
 
@@ -71,13 +70,21 @@
 			Description <span class="optional">(optional)</span>
 			<textarea bind:value={description} rows="6" placeholder="Why the change was made"></textarea>
 		</label>
+		<label class="amend">
+			<input type="checkbox" bind:checked={amend} />
+			Amend the last commit — fold the staged files into it{amend && summary.trim() === ''
+				? ' (message kept as is)'
+				: ''}
+		</label>
 		<p class="hint">
-			Optional: pick a type above, or write any subject. A leading <code>[TICKET]</code> is kept in
-			front. Ctrl/Cmd + Enter commits.
+			Optional: pick a type above, or write any subject. A leading <code>[TICKET]</code> is kept in front.
+			Ctrl/Cmd + Enter commits.
 		</p>
 	{/snippet}
 	{#snippet actions()}
-		<button class="confirm" disabled={!canCommit} onclick={submit}>Commit</button>
+		<button class="confirm" disabled={!canCommit} onclick={submit}>
+			{amend ? 'Amend' : 'Commit'}
+		</button>
 		<button class="cancel" onclick={oncancel}>Cancel</button>
 	{/snippet}
 </Modal>
@@ -135,6 +142,12 @@
 	.type.on {
 		background: var(--type-colour);
 		color: var(--vscode-editor-background);
+	}
+	.amend {
+		flex-direction: row;
+		align-items: center;
+		gap: var(--gg-space-2);
+		cursor: pointer;
 	}
 	.hint {
 		margin: 0;

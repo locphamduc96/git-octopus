@@ -74,24 +74,27 @@ export function formatSubject(parts: ParsedSubject): string {
 /**
  * Colour per commit type, so the kind of change is readable at a glance. Drawn as outlined chips,
  * which keeps every hue legible on both light and dark themes.
+ *
+ * Held at 80% brightness, in step with the graph lanes: the badge is a label on a subject, not the
+ * thing being read, and at full strength a wall of them pulls the eye off the text.
  */
 const mapTypeColour: Record<string, string> = {
-	feat: '#3fb950',
-	fix: '#f85149',
-	chore: '#8b949e',
-	refactor: '#a371f7',
-	docs: '#58a6ff',
-	test: '#d29922',
-	style: '#db61a2',
-	perf: '#f0883e',
-	build: '#6e7681',
-	ci: '#6e7681',
-	revert: '#f85149',
+	feat: '#329440',
+	fix: '#c6413a',
+	chore: '#6f767e',
+	refactor: '#825ac6',
+	docs: '#4685cc',
+	test: '#a87a1b',
+	style: '#af4e82',
+	perf: '#c06d32',
+	build: '#585e67',
+	ci: '#585e67',
+	revert: '#c6413a',
 	// Not a conventional-commit type: the graph tags merge commits with a chip of the same kind, and
 	// this hue is the one nothing else claims.
-	merge: '#39c5cf',
+	merge: '#2e9da6',
 };
 
 export function typeColour(type: string): string {
-	return mapTypeColour[type] ?? '#8b949e';
+	return mapTypeColour[type] ?? '#6f767e';
 }

@@ -1,8 +1,12 @@
 <script lang="ts">
-	interface MenuItem {
+	export interface MenuItem {
 		id: string;
 		label: string;
 		separatorBefore?: boolean;
+		/** Shown greyed out and never fires — for actions the current state rules out. */
+		disabled?: boolean;
+		/** Opens as a flyout instead of firing; only the leaves report a selection. */
+		children?: MenuItem[];
 	}
 
 	let {
@@ -18,6 +22,19 @@
 		onselect: (id: string) => void;
 		onclose: () => void;
 	} = $props();
+
+	/** The submenu currently open, and which side of its parent it had room to open on. */
+	let openId = $state<string | null>(null);
+	let flip = $state(false);
+
+	/** A submenu needs about this much room to the right before it has to open leftwards instead. */
+	const SUBMENU_W = 240;
+
+	function openSubmenu(id: string, event: MouseEvent): void {
+		const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+		flip = rect.right + SUBMENU_W > window.innerWidth;
+		openId = id;
+	}
 </script>
 
 <svelte:window
@@ -26,15 +43,43 @@
 	}}
 />
 
-<button class="backdrop" onclick={onclose} oncontextmenu={(e) => e.preventDefault()} aria-label="Close menu"
+<button
+	class="backdrop"
+	onclick={onclose}
+	oncontextmenu={(e) => e.preventDefault()}
+	aria-label="Close menu"
 ></button>
 <ul class="menu" style="left:{x}px; top:{y}px">
 	{#each items as item (item.id)}
 		{#if item.separatorBefore}
 			<li class="sep" role="separator"></li>
 		{/if}
-		<li>
-			<button onclick={() => onselect(item.id)}>{item.label}</button>
+		<li
+			class:parent={item.children !== undefined}
+			onmouseenter={(event) => {
+				if (item.children) openSubmenu(item.id, event);
+				else openId = null;
+			}}
+		>
+			<button
+				class:disabled={item.disabled}
+				onclick={() => (item.children || item.disabled ? undefined : onselect(item.id))}
+			>
+				{item.label}
+				{#if item.children}<span class="chevron">›</span>{/if}
+			</button>
+			{#if item.children && openId === item.id}
+				<ul class="menu submenu" class:flip>
+					{#each item.children as child (child.id)}
+						{#if child.separatorBefore}
+							<li class="sep" role="separator"></li>
+						{/if}
+						<li>
+							<button onclick={() => onselect(child.id)}>{child.label}</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
 		</li>
 	{/each}
 </ul>
@@ -53,7 +98,7 @@
 		position: fixed;
 		z-index: 11;
 		margin: 0;
-		padding: var(--gg-space-1) 0;
+		padding: var(--gg-space-1);
 		list-style: none;
 		min-width: 200px;
 		background: var(--vscode-menu-background, var(--gg-bg));
@@ -62,8 +107,13 @@
 		border-radius: 4px;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 	}
+	.menu li {
+		position: relative;
+	}
 	.menu button {
-		display: block;
+		display: flex;
+		align-items: center;
+		gap: var(--gg-space-3);
 		width: 100%;
 		text-align: left;
 		background: none;
@@ -72,10 +122,34 @@
 		font: inherit;
 		cursor: pointer;
 		padding: var(--gg-space-1) var(--gg-space-3);
+		border-radius: var(--gg-radius-item);
 	}
-	.menu button:hover {
+	.menu button.disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+	.menu button.disabled:hover {
+		background: none;
+		color: inherit;
+	}
+	.menu button:hover,
+	.parent:hover > button {
 		background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
 		color: var(--vscode-menu-selectionForeground, inherit);
+	}
+	.chevron {
+		margin-left: auto;
+		opacity: 0.7;
+	}
+	/* Overlaps the parent by a pixel so the pointer never crosses a gap on its way over. */
+	.submenu {
+		position: absolute;
+		left: calc(100% - 1px);
+		top: calc(var(--gg-space-1) * -1);
+	}
+	.submenu.flip {
+		left: auto;
+		right: calc(100% - 1px);
 	}
 	.sep {
 		height: 1px;

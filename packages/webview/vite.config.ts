@@ -17,6 +17,9 @@ export default defineConfig({
 			output: {
 				entryFileNames: 'webview.js',
 				assetFileNames: 'webview.[ext]',
+				// Lazily imported Shiki grammars/themes; referenced relative to webview.js, so the
+				// hashed names never appear in the host's HTML.
+				chunkFileNames: 'chunks/[name]-[hash].js',
 			},
 		},
 	},

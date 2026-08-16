@@ -48,12 +48,7 @@
 			}
 		: undefined}
 >
-	<button
-		class="open"
-		style="padding-left:{indent}px"
-		onclick={() => onopen(file.path)}
-		use:tooltip={`${file.path} — click to open the diff`}
-	>
+	<button class="open" style="padding-left:{indent}px" onclick={() => onopen(file.path)}>
 		<FileIcon path={file.path} fallback="file" />
 		<span class="path"
 			>{#if dir}<span class="dir">{dir}</span>{/if}<span class="name">{name}</span></span
@@ -90,6 +85,8 @@
 		align-items: center;
 		gap: var(--gg-space-1);
 		padding-right: var(--gg-space-2);
+		border-radius: var(--gg-radius-item);
+		transition: background-color 60ms var(--gg-ease);
 	}
 	.file-row:hover {
 		background: var(--vscode-list-hoverBackground);

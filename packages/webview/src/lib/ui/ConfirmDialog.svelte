@@ -59,6 +59,9 @@
 		border: 1px solid var(--gg-border);
 	}
 	.cancel:hover {
-		background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground));
+		background: var(
+			--vscode-button-secondaryHoverBackground,
+			var(--vscode-toolbar-hoverBackground)
+		);
 	}
 </style>

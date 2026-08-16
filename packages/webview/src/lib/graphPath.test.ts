@@ -28,7 +28,7 @@ describe('lane paths', () => {
 		expect(passThrough(1, M)).toBe('M32 0 L32 34');
 	});
 
-	it('splits the node\'s own lane at the node', () => {
+	it("splits the node's own lane at the node", () => {
 		expect(intoNode(0, M)).toBe('M12 0 L12 17');
 		expect(outOfNode(0, M)).toBe('M12 17 L12 34');
 	});
@@ -65,6 +65,33 @@ describe('lane paths', () => {
 		const angular: LaneMetrics = { ...M, style: 'angular' };
 		expect(mergeIn(1, 0, angular)).toBe('M32 0 L32 17 L12 17');
 		expect(branchOut(0, 1, angular)).toBe('M12 17 L32 17 L32 34');
+	});
+
+	it('cuts the diagonal style across at 45° when the row is tall enough', () => {
+		// Half a spacious row (22) is taller than one column gap (20), so the whole crossing fits in
+		// the diagonal: it drops exactly as far as it travels sideways, with no level run left over.
+		const roomy: LaneMetrics = { ...M, rowHeight: 44, style: 'diagonal' };
+		expect(mergeIn(1, 0, roomy)).toBe('M32 0 L32 2 L12 22');
+		expect(branchOut(0, 1, roomy)).toBe('M12 22 L32 42 L32 44');
+	});
+
+	it('runs a long crossing level and keeps the diagonal at 45°', () => {
+		// Five columns (100px) across half a spacious row (22): the diagonal takes the last 22px and
+		// the other 78 are level, so a lane reaching far sideways still bends at the same angle as a
+		// neighbouring one that only steps over by a column.
+		const roomy: LaneMetrics = { ...M, rowHeight: 44, style: 'diagonal' };
+		expect(mergeIn(5, 0, roomy)).toBe('M112 0 L112 0 L90 22 L12 22');
+		expect(branchOut(0, 5, roomy)).toBe('M12 22 L90 22 L112 44 L112 44');
+	});
+
+	it('keeps the diagonal inside its own row', () => {
+		// A comfortable row leaves 17px for a 20px gap. Every path belongs to one row and nothing may
+		// be drawn outside it, so the diagonal is capped at the half-row and the remaining 3px go into
+		// the level run — the path still meets both edges square.
+		const diagonal: LaneMetrics = { ...M, style: 'diagonal' };
+		expect(mergeIn(1, 0, diagonal)).toBe('M32 0 L32 0 L15 17 L12 17');
+		expect(ys(mergeIn(1, 0, diagonal)).every((y) => y <= 17)).toBe(true);
+		expect(ys(branchOut(0, 1, diagonal)).every((y) => y >= 17)).toBe(true);
 	});
 
 	it('places lanes on a fixed pitch', () => {

@@ -62,12 +62,19 @@
 	}
 </script>
 
-<div class="tab">
+<!--
+	The animation hangs off the class rather than a wrapper: the details are a flat run of siblings
+	inside the scroller, and picking another commit flips `loading` for a moment, which is what makes
+	the class leave and come back — so each commit fades in, not only the first.
+-->
+<div class="tab" class:gg-enter-fade={!loading && details}>
 	{#if loading}
 		<p class="hint">Loading…</p>
 	{:else if !details}
 		<p class="hint">Select a commit to see its details.</p>
 	{:else}
+		<!-- Still a toggle — the unfold button in the panel header is the visible control, but the
+		     line itself staying clickable keeps the bigger target. -->
 		<button
 			class="subject-bar"
 			onclick={() => onmetaOpen(!metaOpen)}
@@ -76,60 +83,67 @@
 				: 'Show the full message, hash, parents and author'}
 			aria-expanded={metaOpen}
 		>
-			<Icon name={metaOpen ? 'chevron-down' : 'chevron-right'} />
 			<span class="lines">
-				<span class="subject" title={subject}>{subject}</span>
-				<span class="byline">
-					<span class="mono">{details.hash.slice(0, 8)}</span>
-					· {details.author.name}
-					· {fmtWhen(details.authoredAt)}
-				</span>
+				<!-- Open means the whole message, so the subject wraps instead of ellipsizing. -->
+				<span class="subject" class:open={metaOpen} title={metaOpen ? undefined : subject}
+					>{subject}</span
+				>
+				<!-- Only while the block below is closed. Open, it says all three again and in full —
+				     the short hash is the first eight characters of the one it prints, and the name and
+				     date are the same characters twice, a few pixels apart. -->
+				{#if !metaOpen}
+					<span class="byline">
+						<span class="mono">{details.hash.slice(0, 8)}</span>
+						· {details.author.name}
+						· {fmtWhen(details.authoredAt)}
+					</span>
+				{/if}
 			</span>
 		</button>
 
 		{#if metaOpen}
 			<dl class="meta">
-			<dt>Commit</dt>
-			<dd>
-				<button class="link mono" onclick={() => oncopy(details.hash)} title="Copy the full hash">
-					{details.hash}
-				</button>
-			</dd>
-
-			{#if details.parents.length > 0}
-				<dt>{details.parents.length > 1 ? 'Parents' : 'Parent'}</dt>
-				<dd class="parents">
-					{#each details.parents as parent (parent)}
-						<button
-							class="link mono"
-							onclick={() => onselectCommit(parent)}
-							title="Show {parent}"
-						>
-							{parent.slice(0, 8)}
-						</button>
-					{/each}
+				<dt><Icon name="git-commit" />Commit</dt>
+				<dd>
+					<button class="link mono" onclick={() => oncopy(details.hash)} title="Copy the full hash">
+						{details.hash}
+					</button>
 				</dd>
-			{/if}
 
-			<dt>Author</dt>
-			<dd class="person" title={personLabel(details.author)}>
-				{#if details.author.avatarUrl}
-					<img class="avatar" src={details.author.avatarUrl} alt="" />
+				{#if details.parents.length > 0}
+					<dt><Icon name="git-merge" />{details.parents.length > 1 ? 'Parents' : 'Parent'}</dt>
+					<dd class="parents">
+						{#each details.parents as parent (parent)}
+							<button
+								class="link mono"
+								onclick={() => onselectCommit(parent)}
+								title="Show {parent}"
+							>
+								{parent.slice(0, 8)}
+							</button>
+						{/each}
+					</dd>
 				{/if}
-				<span class="name">{personLabel(details.author)}</span>
-				<span class="when">{fmtWhen(details.authoredAt)}</span>
-			</dd>
 
-			{#if showCommitter}
-				<dt>Committer</dt>
-				<dd class="person" title={personLabel(details.committer)}>
-					{#if details.committer.avatarUrl}
-						<img class="avatar" src={details.committer.avatarUrl} alt="" />
+				<dt><Icon name="person" />Author</dt>
+				<dd class="person" title={personLabel(details.author)}>
+					{#if details.author.avatarUrl}
+						<img class="avatar" src={details.author.avatarUrl} alt="" />
 					{/if}
-					<span class="name">{personLabel(details.committer)}</span>
-					<span class="when">{fmtWhen(details.committedAt)}</span>
+					<span class="name">{personLabel(details.author)}</span>
+					<span class="when">{fmtWhen(details.authoredAt)}</span>
 				</dd>
-			{/if}
+
+				{#if showCommitter}
+					<dt><Icon name="verified" />Committer</dt>
+					<dd class="person" title={personLabel(details.committer)}>
+						{#if details.committer.avatarUrl}
+							<img class="avatar" src={details.committer.avatarUrl} alt="" />
+						{/if}
+						<span class="name">{personLabel(details.committer)}</span>
+						<span class="when">{fmtWhen(details.committedAt)}</span>
+					</dd>
+				{/if}
 			</dl>
 
 			{#if restOfBody}
@@ -168,7 +182,6 @@
 		width: 100%;
 		padding: var(--gg-space-2);
 		border: none;
-		border-bottom: 1px solid var(--gg-border);
 		background: none;
 		color: inherit;
 		font: inherit;
@@ -177,11 +190,6 @@
 	}
 	.subject-bar:hover {
 		background: var(--vscode-list-hoverBackground);
-	}
-	.subject-bar :global(.codicon) {
-		flex: none;
-		margin-top: 2px;
-		color: var(--gg-fg-muted);
 	}
 	.lines {
 		display: flex;
@@ -196,6 +204,10 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	.subject.open {
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
 	.byline {
 		color: var(--gg-fg-muted);
 		font-size: 0.85em;
@@ -208,13 +220,18 @@
 		grid-template-columns: auto 1fr;
 		gap: 2px var(--gg-space-2);
 		margin: 0;
-		padding: var(--gg-space-2);
-		border-bottom: 1px solid var(--gg-border);
+		padding: 0 var(--gg-space-2) var(--gg-space-2);
 		font-size: 0.9em;
 	}
 	dt {
+		display: flex;
+		align-items: center;
+		gap: var(--gg-space-1);
 		color: var(--gg-fg-muted);
 		white-space: nowrap;
+	}
+	dt :global(.codicon) {
+		font-size: 13px;
 	}
 	dd {
 		margin: 0;
@@ -270,14 +287,18 @@
 		word-break: break-word;
 		font-family: inherit;
 	}
+	/*
+	 * No rules of its own. Whatever sits above — the subject bar, or the meta block when it is open —
+	 * already draws one, and a `border-top` here landed straight underneath it: one line, twice as
+	 * thick. Below it, the muted heading is enough to separate itself from the file list, the way the
+	 * working-tree tab has always done it.
+	 */
 	h3 {
 		display: flex;
 		align-items: center;
 		gap: var(--gg-space-2);
 		margin: 0;
-		padding: var(--gg-space-1) var(--gg-space-2);
-		border-top: 1px solid var(--gg-border);
-		border-bottom: 1px solid var(--gg-border);
+		padding: var(--gg-space-2) var(--gg-space-2) var(--gg-space-1);
 		font-size: 0.85em;
 		font-weight: 600;
 		color: var(--gg-fg-muted);
