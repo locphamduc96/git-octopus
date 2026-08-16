@@ -94,6 +94,12 @@ export class GitOctopusController {
 	private iconTheme: LocatedIconTheme | null = null;
 	/** How much history the webview last asked for — auto-refresh must not shrink it. */
 	private lastLimit = DEFAULT_LIMIT;
+	/**
+	 * What each attached view asked for. One view scrolling deep into history must not be cut
+	 * back to another view's page size when that one loads — every shared answer covers the
+	 * deepest request still on screen.
+	 */
+	private readonly mapWebviewLimit = new Map<vscode.Webview, number>();
 	/** Working-tree state as last reported, so a row appearing or vanishing can be detected. */
 	private lastChangeCount = 0;
 	/** HEAD as of the last full load, so a status refresh can tell when history moved under it. */
@@ -181,6 +187,7 @@ export class GitOctopusController {
 		onDispose(() => {
 			this.listWebviews = this.listWebviews.filter((item) => item !== webview);
 			this.mapWebviewVisible.delete(webview);
+			this.mapWebviewLimit.delete(webview);
 		});
 	}
 
@@ -226,10 +233,17 @@ export class GitOctopusController {
 		} satisfies HostToWebview);
 	}
 
+	/** The deepest history any attached view is standing in — what every shared answer must cover. */
+	private get broadcastLimit(): number {
+		let limit = 0;
+		for (const value of this.mapWebviewLimit.values()) limit = Math.max(limit, value);
+		return limit || this.lastLimit;
+	}
+
 	public async refresh(): Promise<void> {
 		// The webview grows this by scrolling; reloading at the default would silently drop the
 		// history the user has already pulled in.
-		await this.send({ type: 'loadCommits', limit: this.lastLimit, filters: this.filters });
+		await this.send({ type: 'loadCommits', limit: this.broadcastLimit, filters: this.filters });
 	}
 
 	/**
@@ -328,6 +342,7 @@ export class GitOctopusController {
 					this.persist();
 				}
 				this.lastLimit = message.limit;
+				this.mapWebviewLimit.set(webview, message.limit);
 				// This is also the webview telling us it is listening, so the icons and the saved view
 				// settings ride along: a message posted before then would be dropped. Neither is
 				// allowed to stand between the view and its commits, hence the guard.
@@ -350,7 +365,9 @@ export class GitOctopusController {
 				trace(`loadCommits(limit=${message.limit}) — scanning for repositories`);
 				await this.discoverRepos();
 				trace(`found ${this.repos.length} repositories, active = ${this.activeRepo ?? 'none'}`);
-				await this.send(message);
+				// The answer goes to every view, so it is loaded at the deepest limit any of them
+				// needs — a fresh tab's first page must not shrink a panel scrolled 900 commits in.
+				await this.send({ ...message, limit: this.broadcastLimit });
 				trace('commits reply sent');
 				return;
 			case 'selectRepo':
@@ -488,8 +505,10 @@ export class GitOctopusController {
 			case 'loadCommitDetails':
 			case 'loadComparison':
 			case 'loadFileDiff': {
+				const repoForRequest = this.activeRepo;
 				const reply = await routeMessage(message, this.repoContext(), this.filters);
-				if (reply) void webview.postMessage(reply);
+				// Answers computed for a repository the user has since switched away from are dropped.
+				if (reply && this.activeRepo === repoForRequest) void webview.postMessage(reply);
 				return;
 			}
 			default:
@@ -541,8 +560,13 @@ export class GitOctopusController {
 
 	private async send(message: WebviewToHost): Promise<void> {
 		if (this.listWebviews.length === 0) return;
+		const repoForRequest = this.activeRepo;
 		const reply = await routeMessage(message, this.repoContext(), this.filters);
 		if (!reply) return;
+		// The active repository moved while this request was in flight. Its answer describes a
+		// repository nobody is looking at any more — posting it would paint the old repo's graph
+		// over the new one when the slow reply lands last.
+		if (this.activeRepo !== repoForRequest) return;
 		if (reply.type === 'commits') {
 			this.lastChangeCount = reply.working
 				? reply.working.staged.length + reply.working.unstaged.length
