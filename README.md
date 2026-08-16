@@ -32,6 +32,18 @@ tree: stage, unstage, discard, stash, commit, undo commit · diff any file, or c
 with Ctrl/Cmd + click · fetch, pull, push and force-push with confirmation · 20+ Git actions from the
 commit menu · find (Ctrl+F) · several repositories in one workspace.
 
+## Screenshots
+
+Taken against a demo repository; the full set lives in [docs/screenshots](docs/screenshots).
+
+![The commit graph, with the working tree beside it](docs/screenshots/01-graph-overview.png)
+
+![Inline diff with syntax highlighting and the change ruler](docs/screenshots/04-diff-syntax-highlight.png)
+
+![Drag a branch onto another to merge, rebase or fast-forward](docs/screenshots/05-branch-drag-merge.png)
+
+![Clean up stale local branches in one pass](docs/screenshots/06-branch-cleanup.png)
+
 ## Architecture
 
 pnpm monorepo (architecture decisions live in the author's `project-notes/`, outside this repo):
@@ -59,3 +71,9 @@ Then press <kbd>F5</kbd> in VS Code to launch the Extension Development Host.
 ## License
 
 [MIT](LICENSE) © 2026 locpham
+
+Third-party assets:
+
+- [VS Code Codicons](https://github.com/microsoft/vscode-codicons) — icon font, CC BY 4.0 © Microsoft.
+- [GitHub Octicons](https://github.com/primer/octicons) — the branch, remote and checked-out glyphs
+  drawn in the ref chips, MIT © GitHub Inc.
