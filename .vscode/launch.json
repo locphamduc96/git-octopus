@@ -1,16 +1,16 @@
 {
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Run Git Octopus Extension",
-      "type": "extensionHost",
-      "request": "launch",
-      "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}/packages/extension",
-        "${workspaceFolder}"
-      ],
-      "outFiles": ["${workspaceFolder}/packages/extension/dist/**/*.js"],
-      "preLaunchTask": "build"
-    }
-  ]
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Run Git Octopus Extension",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}/packages/extension",
+				"${workspaceFolder}"
+			],
+			"outFiles": ["${workspaceFolder}/packages/extension/dist/**/*.js"],
+			"preLaunchTask": "build"
+		}
+	]
 }

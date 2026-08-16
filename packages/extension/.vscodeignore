@@ -3,5 +3,6 @@ esbuild.mjs
 tsconfig.json
 **/*.map
 **/*.ts
-!dist/**
 .vscode/**
+media/icon.svg
+media/render-icon.py
