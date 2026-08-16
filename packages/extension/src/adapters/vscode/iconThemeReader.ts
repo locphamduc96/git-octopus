@@ -49,15 +49,11 @@ export async function locateIconTheme(): Promise<LocatedIconTheme | null> {
 }
 
 /** Flatten a located theme into lookup tables whose URIs `webview` is allowed to load. */
-export function buildForWebview(
-	located: LocatedIconTheme,
-	webview: vscode.Webview
-): FileIconTheme {
+export function buildForWebview(located: LocatedIconTheme, webview: vscode.Webview): FileIconTheme {
 	const kind = vscode.window.activeColorTheme.kind;
 	return buildIconTheme(located.raw, {
 		resolve: (path) => webview.asWebviewUri(vscode.Uri.joinPath(located.dir, path)).toString(),
-		light:
-			kind === vscode.ColorThemeKind.Light || kind === vscode.ColorThemeKind.HighContrastLight,
+		light: kind === vscode.ColorThemeKind.Light || kind === vscode.ColorThemeKind.HighContrastLight,
 		...collectLanguages(),
 	});
 }

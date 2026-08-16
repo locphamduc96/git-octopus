@@ -54,6 +54,15 @@ export class WorkingTreeService {
 				}
 				return this.runGit(['commit', '-m', messageText], cwd, 'Committed.');
 			}
+			case 'amend': {
+				// An empty message keeps the previous one rather than blocking the amend.
+				const amendText = (message.message ?? '').trim();
+				const args =
+					amendText === ''
+						? ['commit', '--amend', '--no-edit']
+						: ['commit', '--amend', '-m', amendText];
+				return this.runGit(args, cwd, 'Amended the last commit.');
+			}
 			default:
 				return false;
 		}

@@ -1,12 +1,14 @@
 import type { Commit, GraphFilters, HostToWebview, RepoInfo } from '@git-octopus/shared';
 import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
+import { pathExists } from '../../adapters/fs/pathExists.js';
 import {
 	getAheadBehind,
-	getBranches,
+	getBranchEntries,
 	getCommits,
 	getCurrentBranch,
 	getHeadHash,
+	getRepoState,
 	getStashes,
 	getStatus,
 	type StashEntry,
@@ -40,24 +42,37 @@ export async function loadCommits(
 		};
 	}
 	try {
-		const listStashes = await getStashes(ctx.executor, ctx.cwd);
-		const [commits, working, headHash, listBranches, currentBranch, aheadBehind] =
-			await Promise.all([
-				getCommits(
-					ctx.executor,
-					ctx.cwd,
-					limit,
-					filters,
-					listStashes.map((stash) => stash.hash)
-				),
-				getStatus(ctx.executor, ctx.cwd),
-				getHeadHash(ctx.executor, ctx.cwd),
-				getBranches(ctx.executor, ctx.cwd),
-				getCurrentBranch(ctx.executor, ctx.cwd),
-				getAheadBehind(ctx.executor, ctx.cwd),
-			]);
+		const listStashes =
+			(filters.showStashes ?? true) ? await getStashes(ctx.executor, ctx.cwd) : [];
+		// One commit past the limit answers "is there more?" without a second log walk.
+		const [
+			listRaw,
+			working,
+			headHash,
+			listLocal,
+			listRemote,
+			currentBranch,
+			aheadBehind,
+			repoState,
+		] = await Promise.all([
+			getCommits(
+				ctx.executor,
+				ctx.cwd,
+				limit + 1,
+				filters,
+				listStashes.map((stash) => stash.hash)
+			),
+			getStatus(ctx.executor, ctx.cwd),
+			getHeadHash(ctx.executor, ctx.cwd),
+			getBranchEntries(ctx.executor, ctx.cwd, 'refs/heads'),
+			getBranchEntries(ctx.executor, ctx.cwd, 'refs/remotes'),
+			getCurrentBranch(ctx.executor, ctx.cwd),
+			getAheadBehind(ctx.executor, ctx.cwd),
+			getRepoState(ctx.executor, ctx.cwd, pathExists),
+		]);
 
-		const listHistory = applyStashes(commits, listStashes);
+		const hasMore = listRaw.length > limit;
+		const listHistory = applyStashes(listRaw.slice(0, limit), listStashes);
 		if (filters.fetchAvatars && ctx.avatarUrl) {
 			for (const commit of listHistory) {
 				if (commit.author.email !== '') {
@@ -66,19 +81,27 @@ export async function loadCommits(
 			}
 		}
 		const changeCount = working.staged.length + working.unstaged.length;
+		// `working` is still sent either way — the changes panel needs it even when the graph
+		// does not show the synthetic node.
 		const listCommits =
-			changeCount > 0
+			changeCount > 0 && (filters.showUncommitted ?? true)
 				? [makeUncommittedNode(headHash, changeCount), ...listHistory]
 				: listHistory;
 		return {
 			type: 'commits',
 			commits: listCommits,
 			working: changeCount > 0 ? working : null,
+			repoState,
+			hasMore,
 			repos: ctx.repos,
 			activeRepo: ctx.cwd,
 			repoName: ctx.repoName,
-			listBranches,
+			listBranches: [
+				...listLocal.map((entry) => ({ name: entry.name, hash: entry.hash, remote: false })),
+				...listRemote.map((entry) => ({ name: entry.name, hash: entry.hash, remote: true })),
+			],
 			currentBranch,
+			headHash,
 			ahead: aheadBehind.ahead,
 			behind: aheadBehind.behind,
 		};
@@ -114,17 +137,17 @@ function applyStashes(listCommits: Commit[], listStashes: StashEntry[]): Commit[
 	}
 
 	// Keep a snapshot commit if some ref points at it, so nothing referenced ever disappears.
-	return listCommits.filter(
-		(commit) => !setSnapshots.has(commit.hash) || commit.refs.length > 0
-	);
+	return listCommits.filter((commit) => !setSnapshots.has(commit.hash) || commit.refs.length > 0);
 }
 
 function makeUncommittedNode(headHash: string | null, changeCount: number): Commit {
+	const now = Math.floor(Date.now() / 1000);
 	return {
 		hash: UNCOMMITTED_HASH,
 		parents: headHash ? [headHash] : [],
 		author: { name: '', email: '' },
-		committedAt: Math.floor(Date.now() / 1000),
+		committedAt: now,
+		authoredAt: now,
 		subject: `Uncommitted Changes (${changeCount})`,
 		refs: [],
 		isUncommitted: true,

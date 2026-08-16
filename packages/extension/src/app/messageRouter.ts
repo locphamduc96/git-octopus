@@ -2,6 +2,7 @@ import type { GraphFilters, HostToWebview, WebviewToHost } from '@git-octopus/sh
 import { loadCommits, type RepoContext } from './useCases/loadCommits.js';
 import { loadCommitDetails } from './useCases/loadCommitDetails.js';
 import { loadComparison } from './useCases/loadComparison.js';
+import { loadFileDiff } from './useCases/loadFileDiff.js';
 
 /**
  * Map an inbound webview message to an optional reply, dispatching to use-cases.
@@ -19,6 +20,8 @@ export function routeMessage(
 			return loadCommitDetails(ctx, message.hash, filters.fetchAvatars);
 		case 'loadComparison':
 			return loadComparison(ctx, message.fromHash, message.toHash);
+		case 'loadFileDiff':
+			return loadFileDiff(ctx, message);
 		default:
 			return Promise.resolve(undefined);
 	}

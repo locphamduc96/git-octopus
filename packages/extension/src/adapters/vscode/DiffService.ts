@@ -13,7 +13,11 @@ export class DiffService implements vscode.TextDocumentContentProvider {
 	public constructor(private readonly executor: GitExecutor) {}
 
 	public async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
-		const { rev, path: filePath, cwd } = JSON.parse(uri.query) as {
+		const {
+			rev,
+			path: filePath,
+			cwd,
+		} = JSON.parse(uri.query) as {
 			rev: string;
 			path: string;
 			cwd: string;
@@ -21,8 +25,15 @@ export class DiffService implements vscode.TextDocumentContentProvider {
 		return getFileAtRev(this.executor, cwd, rev, filePath);
 	}
 
-	public async openDiff(hash: string, filePath: string, cwd: string): Promise<void> {
-		const left = this.buildUri(`${hash}^`, filePath, cwd);
+	public async openDiff(
+		hash: string,
+		filePath: string,
+		cwd: string,
+		oldPath?: string
+	): Promise<void> {
+		// A renamed file lives under its old path at the parent — reading the new path there would
+		// show the whole file as added instead of the change.
+		const left = this.buildUri(`${hash}^`, oldPath ?? filePath, cwd);
 		const right = this.buildUri(hash, filePath, cwd);
 		const title = `${path.basename(filePath)} (${hash.slice(0, 7)})`;
 		await vscode.commands.executeCommand('vscode.diff', left, right, title);
@@ -33,9 +44,10 @@ export class DiffService implements vscode.TextDocumentContentProvider {
 		fromHash: string,
 		toHash: string,
 		filePath: string,
-		cwd: string
+		cwd: string,
+		oldPath?: string
 	): Promise<void> {
-		const left = this.buildUri(fromHash, filePath, cwd);
+		const left = this.buildUri(fromHash, oldPath ?? filePath, cwd);
 		const right = this.buildUri(toHash, filePath, cwd);
 		const title = `${path.basename(filePath)} (${fromHash.slice(0, 7)} ↔ ${toHash.slice(0, 7)})`;
 		await vscode.commands.executeCommand('vscode.diff', left, right, title);
@@ -55,9 +67,7 @@ export class DiffService implements vscode.TextDocumentContentProvider {
 
 	/** Open the file itself: the copy on disk, or a read-only view of it at `rev`. */
 	public async openFile(filePath: string, cwd: string, rev?: string): Promise<void> {
-		const uri = rev
-			? this.buildUri(rev, filePath, cwd)
-			: vscode.Uri.file(path.join(cwd, filePath));
+		const uri = rev ? this.buildUri(rev, filePath, cwd) : vscode.Uri.file(path.join(cwd, filePath));
 		await vscode.commands.executeCommand('vscode.open', uri);
 	}
 
