@@ -1,12 +1,35 @@
 import * as vscode from 'vscode';
 import type { RepoActionMessage, SequencerActionMessage } from '@git-octopus/shared';
-import type { GitExecutor } from '../../core/git/GitExecutor.js';
+import type { GitAuthRequest, GitExecutor } from '../../core/git/GitExecutor.js';
+import { friendlyGitError } from '../../core/git/friendlyGitError.js';
 import { getRepoState } from '../../core/git/gitService.js';
+import { redactSecrets } from '../../core/git/redactSecrets.js';
+import { parseRemoteHosts } from '../../core/git/remoteHosts.js';
 import { pathExists } from '../fs/pathExists.js';
+
+/** One redacted, classified line for a network failure — never the raw text. */
+function networkError(err: unknown): string {
+	const raw = redactSecrets(err instanceof Error ? err.message : String(err));
+	return friendlyGitError(raw) ?? raw;
+}
 
 /** Runs repository-wide network actions (fetch / push) with progress and error reporting. */
 export class RepoActionService {
 	public constructor(private readonly executor: GitExecutor) {}
+
+	/**
+	 * The auth context a network command declares before it may prompt: the hosts come from the
+	 * repository's own remotes, resolved here — before the spawn — never from prompt text.
+	 */
+	private async authFor(operation: string, cwd: string): Promise<GitAuthRequest> {
+		let listHosts: string[] = [];
+		try {
+			listHosts = parseRemoteHosts(await this.executor.run(['remote', '-v'], cwd));
+		} catch {
+			// No remotes readable: the command itself will say so; auth context stays empty.
+		}
+		return { operation, listHosts };
+	}
 
 	/** Returns true when the repository changed and the graph should refresh. */
 	public async run(message: RepoActionMessage, cwd: string): Promise<boolean> {
@@ -47,22 +70,23 @@ export class RepoActionService {
 		return vscode.window.withProgress(
 			{ location: vscode.ProgressLocation.Notification, title: mapTitle[message.action] },
 			async () => {
+				const auth = await this.authFor(message.action, cwd);
 				try {
-					await this.executor.run(mapArgs[message.action], cwd);
+					await this.executor.run(mapArgs[message.action], cwd, undefined, auth);
 					vscode.window.showInformationMessage(`Git Octopus: ${mapDone[message.action]}`);
 					return true;
 				} catch (err) {
-					const detail = err instanceof Error ? err.message : String(err);
+					const detail = redactSecrets(err instanceof Error ? err.message : String(err));
 					if (message.action === 'push' && detail.includes('no upstream branch')) {
-						return this.publish(cwd, detail);
+						return this.publish(cwd, detail, auth);
 					}
 					if (
 						message.action === 'push' &&
 						(detail.includes('non-fast-forward') || detail.includes('fetch first'))
 					) {
-						return this.offerForcePush(cwd, detail);
+						return this.offerForcePush(cwd, detail, auth);
 					}
-					vscode.window.showErrorMessage(`Git Octopus: ${detail}`);
+					vscode.window.showErrorMessage(`Git Octopus: ${friendlyGitError(detail) ?? detail}`);
 					return false;
 				}
 			}
@@ -118,7 +142,11 @@ export class RepoActionService {
 	 * still refuses if the remote grew commits this repository has not seen, so someone else's work
 	 * cannot be silently overwritten.
 	 */
-	private async offerForcePush(cwd: string, detail: string): Promise<boolean> {
+	private async offerForcePush(
+		cwd: string,
+		detail: string,
+		auth: GitAuthRequest
+	): Promise<boolean> {
 		const pick = await vscode.window.showWarningMessage(
 			'Push was rejected: the remote branch has diverged — usually because history was ' +
 				'rewritten locally (squash, rebase, amend). Force push (with lease) to overwrite it?',
@@ -130,13 +158,11 @@ export class RepoActionService {
 			return false;
 		}
 		try {
-			await this.executor.run(['push', '--force-with-lease'], cwd);
+			await this.executor.run(['push', '--force-with-lease'], cwd, undefined, auth);
 			vscode.window.showInformationMessage('Git Octopus: force pushed to remote.');
 			return true;
 		} catch (err) {
-			vscode.window.showErrorMessage(
-				`Git Octopus: ${err instanceof Error ? err.message : String(err)}`
-			);
+			vscode.window.showErrorMessage(`Git Octopus: ${networkError(err)}`);
 			return false;
 		}
 	}
@@ -145,7 +171,7 @@ export class RepoActionService {
 	 * A branch that has never been pushed has no upstream, so plain `git push` refuses. That is the
 	 * one push failure with an obvious next step, so offer it rather than just reporting the error.
 	 */
-	private async publish(cwd: string, detail: string): Promise<boolean> {
+	private async publish(cwd: string, detail: string, auth: GitAuthRequest): Promise<boolean> {
 		let branch: string;
 		try {
 			branch = (await this.executor.run(['symbolic-ref', '--short', 'HEAD'], cwd)).trim();
@@ -160,13 +186,11 @@ export class RepoActionService {
 		);
 		if (pick !== 'Publish') return false;
 		try {
-			await this.executor.run(['push', '--set-upstream', 'origin', branch], cwd);
+			await this.executor.run(['push', '--set-upstream', 'origin', branch], cwd, undefined, auth);
 			vscode.window.showInformationMessage(`Git Octopus: published ${branch} to origin.`);
 			return true;
 		} catch (err) {
-			vscode.window.showErrorMessage(
-				`Git Octopus: ${err instanceof Error ? err.message : String(err)}`
-			);
+			vscode.window.showErrorMessage(`Git Octopus: ${networkError(err)}`);
 			return false;
 		}
 	}

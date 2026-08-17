@@ -5,8 +5,11 @@ import type {
 	MultiCommitActionMessage,
 	SquashCommitsMessage,
 } from '@git-octopus/shared';
-import type { GitExecutor } from '../../core/git/GitExecutor.js';
+import type { GitAuthRequest, GitExecutor } from '../../core/git/GitExecutor.js';
+import { friendlyGitError } from '../../core/git/friendlyGitError.js';
+import { redactSecrets } from '../../core/git/redactSecrets.js';
 import { remoteCommitUrl } from '../../core/git/remoteUrl.js';
+import { parseRemoteHosts } from '../../core/git/remoteHosts.js';
 import { isFirstParentRun } from '../../core/git/rewriteGuards.js';
 
 /**
@@ -112,7 +115,8 @@ export class CommitActionService {
 				return this.runGit(
 					['fetch', remoteName, refspec],
 					cwd,
-					`Fetched ${remote} into ${branchName}.`
+					`Fetched ${remote} into ${branchName}.`,
+					await this.authFor('fetch', cwd)
 				);
 			}
 			case 'deleteRemoteBranch': {
@@ -123,7 +127,12 @@ export class CommitActionService {
 				const branchName = remote.slice(slash + 1);
 				if (!(await this.confirm(`Delete ${remote} from the remote? This cannot be undone.`)))
 					return false;
-				return this.runGit(['push', remoteName, '--delete', branchName], cwd, `Deleted ${remote}.`);
+				return this.runGit(
+					['push', remoteName, '--delete', branchName],
+					cwd,
+					`Deleted ${remote}.`,
+					await this.authFor('push', cwd)
+				);
 			}
 			case 'rebase': {
 				const onto = mergeableRef(message);
@@ -204,7 +213,8 @@ export class CommitActionService {
 				return this.runGit(
 					['push', 'origin', `refs/tags/${tag}`],
 					cwd,
-					`Pushed tag ${tag} to origin.`
+					`Pushed tag ${tag} to origin.`,
+					await this.authFor('push', cwd)
 				);
 			}
 			case 'deleteRemoteTag': {
@@ -215,7 +225,8 @@ export class CommitActionService {
 				return this.runGit(
 					['push', 'origin', '--delete', `refs/tags/${tag}`],
 					cwd,
-					`Deleted tag ${tag} from origin.`
+					`Deleted tag ${tag} from origin.`,
+					await this.authFor('push', cwd)
 				);
 			}
 			case 'revert':
@@ -619,16 +630,31 @@ export class CommitActionService {
 		return pick === 'Yes';
 	}
 
-	private async runGit(args: string[], cwd: string, successMessage: string): Promise<boolean> {
+	private async runGit(
+		args: string[],
+		cwd: string,
+		successMessage: string,
+		auth?: GitAuthRequest
+	): Promise<boolean> {
 		try {
-			await this.executor.run(args, cwd);
+			await this.executor.run(args, cwd, undefined, auth);
 			vscode.window.showInformationMessage(`Git Octopus: ${successMessage}`);
 			return true;
 		} catch (err) {
-			vscode.window.showErrorMessage(
-				`Git Octopus: ${err instanceof Error ? err.message : String(err)}`
-			);
+			const raw = redactSecrets(err instanceof Error ? err.message : String(err));
+			vscode.window.showErrorMessage(`Git Octopus: ${friendlyGitError(raw) ?? raw}`);
 			return false;
 		}
+	}
+
+	/** Auth context for a remote-touching action: hosts resolved from this repo's remotes. */
+	private async authFor(operation: string, cwd: string): Promise<GitAuthRequest> {
+		let listHosts: string[] = [];
+		try {
+			listHosts = parseRemoteHosts(await this.executor.run(['remote', '-v'], cwd));
+		} catch {
+			// No remotes readable — the network command itself will report the real problem.
+		}
+		return { operation, listHosts };
 	}
 }

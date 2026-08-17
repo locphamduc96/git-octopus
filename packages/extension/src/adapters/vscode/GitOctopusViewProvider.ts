@@ -20,6 +20,7 @@ import { routeMessage } from '../../app/messageRouter.js';
 import type { RepoContext } from '../../app/useCases/loadCommits.js';
 import { loadStatus } from '../../app/useCases/loadStatus.js';
 import { decideRefresh, needsFullReload, type RefreshKind } from '../../core/refreshPolicy.js';
+import { redactSecrets } from '../../core/git/redactSecrets.js';
 import { findRepos } from '../fs/repoScanner.js';
 import type { DiffService } from './DiffService.js';
 import type { CommitActionService } from './CommitActionService.js';
@@ -322,8 +323,14 @@ export class GitOctopusController {
 		try {
 			await this.routeFromWebview(message, webview);
 		} catch (error) {
-			const detail = error instanceof Error ? error.message : String(error);
-			trace(`${message.type} FAILED: ${error instanceof Error ? (error.stack ?? detail) : detail}`);
+			// Redacted before anything is traced or shown: git errors carry the remote URL, and a
+			// remote URL can carry credentials.
+			const detail = redactSecrets(error instanceof Error ? error.message : String(error));
+			trace(
+				`${message.type} FAILED: ${
+					error instanceof Error ? redactSecrets(error.stack ?? detail) : detail
+				}`
+			);
 			vscode.window.showErrorMessage(`Git Octopus: ${message.type} failed — ${detail}`);
 			void webview.postMessage({
 				type: 'error',

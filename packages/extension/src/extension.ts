@@ -12,9 +12,30 @@ import { WorkingTreeService } from './adapters/vscode/WorkingTreeService.js';
 import { RepoActionService } from './adapters/vscode/RepoActionService.js';
 import { RepoTreeProvider, type RepoNode } from './adapters/vscode/RepoTreeProvider.js';
 import { RepoWatcher } from './adapters/vscode/RepoWatcher.js';
+import { AskpassServer } from './adapters/askpass/askpassServer.js';
 
-export function activate(context: vscode.ExtensionContext): void {
-	const executor = new GitProcessExecutor();
+/**
+ * The askpass bridge, or undefined when it must stay out of the way: on Windows (not supported
+ * in v1), when the user already runs their own askpass (delegate, never override), or when
+ * setup fails — in which case the extension degrades to the fail-fast behaviour it had before.
+ */
+async function startAskpass(context: vscode.ExtensionContext): Promise<AskpassServer | undefined> {
+	if (process.platform === 'win32') return undefined;
+	if (process.env.GIT_ASKPASS || process.env.SSH_ASKPASS) return undefined;
+	try {
+		const askpass = new AskpassServer(context.extensionUri.fsPath);
+		await askpass.start();
+		context.subscriptions.push(askpass);
+		return askpass;
+	} catch {
+		return undefined;
+	}
+}
+
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+	// Awaited before the executor exists: a git command must never race the socket into being.
+	const askpass = await startAskpass(context);
+	const executor = new GitProcessExecutor(askpass);
 	const diff = new DiffService(executor);
 	const actions = new CommitActionService(executor);
 	const controller = new GitOctopusController(
@@ -76,6 +97,22 @@ export function activate(context: vscode.ExtensionContext): void {
 			new GitOctopusViewProvider(controller)
 		),
 		vscode.window.registerTreeDataProvider('git-octopus.repoTree', tree),
+		// An activity-bar icon can only open its own sidebar, never the bottom panel. This stub view
+		// is what the icon opens: the moment it shows, it hands the sidebar back to the Explorer and
+		// forwards to the panel, so the file tree stays visible.
+		vscode.window.registerWebviewViewProvider('git-octopus.launcher', {
+			resolveWebviewView(view: vscode.WebviewView): void {
+				view.webview.html = '<!DOCTYPE html><html><body>Opening Git Octopus…</body></html>';
+				const openPanel = async (): Promise<void> => {
+					await vscode.commands.executeCommand('workbench.view.explorer');
+					await vscode.commands.executeCommand('git-octopus.view.focus');
+				};
+				view.onDidChangeVisibility(() => {
+					if (view.visible) void openPanel();
+				});
+				void openPanel();
+			},
+		}),
 		vscode.commands.registerCommand(
 			'git-octopus.revealCommit',
 			(hash: string) => void controller.revealCommit(hash)
