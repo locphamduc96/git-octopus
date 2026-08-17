@@ -26,6 +26,18 @@ export class BranchCleanupService {
 			}
 			// Read the tip before deleting: it is what lets the user put a branch back afterwards.
 			const hash = await this.tipOf(name, cwd);
+			// A tip that moved since the dialog listed it means the user would be deleting commits
+			// they never saw. Refuse that branch; the result table tells them to rescan.
+			const expected = message.mapExpectedTips?.[name];
+			if (expected !== undefined && expected !== hash) {
+				listResults.push({
+					name,
+					hash,
+					ok: false,
+					reason: 'the branch has moved since the list was loaded — rescan and pick again',
+				});
+				continue;
+			}
 			try {
 				await this.executor.run(['branch', flag, '--', name], cwd);
 				listResults.push({ name, hash, ok: true });
@@ -56,7 +68,9 @@ export class BranchCleanupService {
 
 	private async tipOf(name: string, cwd: string): Promise<string> {
 		try {
-			return (await this.executor.run(['rev-parse', name], cwd)).trim();
+			// The full ref, not the short name: `rev-parse release` prefers a tag of the same name
+			// over the branch, and this hash is what the user is told to restore the branch from.
+			return (await this.executor.run(['rev-parse', '--verify', `refs/heads/${name}`], cwd)).trim();
 		} catch {
 			return '';
 		}

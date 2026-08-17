@@ -283,8 +283,11 @@ export class GitOctopusController {
 
 	/** The working tree only — no history walk, no graph re-layout. */
 	private async refreshStatus(): Promise<void> {
+		const repoForRequest = this.activeRepo;
 		const reply = await loadStatus(this.repoContext());
 		if (reply.type !== 'statusUpdate') return;
+		// Same rule as send(): an answer about a repository the user switched away from is dropped.
+		if (this.activeRepo !== repoForRequest) return;
 		const previous = { changeCount: this.lastChangeCount, headHash: this.lastHeadHash };
 		this.lastChangeCount = reply.changeCount;
 		if (needsFullReload(previous, { changeCount: reply.changeCount, headHash: reply.headHash })) {
@@ -332,6 +335,19 @@ export class GitOctopusController {
 		}
 	}
 
+	/**
+	 * An action stamped with the repository its menu or dialog was built over must still match the
+	 * repository everything acts on now. When they differ, the view the action came from was
+	 * looking at something that is no longer there — running it would mutate the wrong repo.
+	 */
+	private repoMismatch(message: { repoPath?: string }): boolean {
+		if (message.repoPath === undefined || message.repoPath === this.activeRepo) return false;
+		vscode.window.showWarningMessage(
+			'Git Octopus: the active repository changed while this action was open — nothing was run. Refresh and try again.'
+		);
+		return true;
+	}
+
 	private async routeFromWebview(message: WebviewToHost, webview: vscode.Webview): Promise<void> {
 		const cwd = this.activeRepo;
 
@@ -371,6 +387,9 @@ export class GitOctopusController {
 				trace('commits reply sent');
 				return;
 			case 'selectRepo':
+				// Only a repository this controller discovered may become active: everything else
+				// runs `git` with this value as its working directory.
+				if (!this.repos.some((repo) => repo.path === message.path)) return;
 				this.activeRepo = message.path;
 				this.filters = { ...this.filters, branch: null };
 				this.persist();
@@ -414,7 +433,7 @@ export class GitOctopusController {
 				await this.sendBranchInventory(webview);
 				return;
 			case 'cleanupBranches': {
-				if (!cwd) return;
+				if (!cwd || this.repoMismatch(message)) return;
 				const { listResults, changed } = await this.branchCleanup.run(message, cwd);
 				void webview.postMessage({
 					type: 'branchCleanupResult',
@@ -471,18 +490,23 @@ export class GitOctopusController {
 				}
 				return;
 			case 'commitAction':
+				if (this.repoMismatch(message)) return;
 				if (cwd && (await this.actions.run(message, cwd))) await this.refresh();
 				return;
 			case 'squashCommits':
+				if (this.repoMismatch(message)) return;
 				if (cwd && (await this.actions.squash(message, cwd))) await this.refresh();
 				return;
 			case 'multiCommitAction':
+				if (this.repoMismatch(message)) return;
 				if (cwd && (await this.actions.runMulti(message, cwd))) await this.refresh();
 				return;
 			case 'sequencerAction':
+				if (this.repoMismatch(message)) return;
 				if (cwd && (await this.repoActions.runSequencer(message, cwd))) await this.refresh();
 				return;
 			case 'branchAction':
+				if (this.repoMismatch(message)) return;
 				if (cwd && (await this.actions.runBranchAction(message, cwd))) await this.refresh();
 				return;
 			case 'checkFastForward':
@@ -495,9 +519,11 @@ export class GitOctopusController {
 				} satisfies HostToWebview);
 				return;
 			case 'workingTreeAction':
+				if (this.repoMismatch(message)) return;
 				if (cwd && (await this.workingTree.run(message, cwd))) await this.refresh();
 				return;
 			case 'repoAction':
+				if (this.repoMismatch(message)) return;
 				if (cwd && (await this.repoActions.run(message, cwd))) await this.refresh();
 				return;
 			// Per-view queries: the answer belongs to the panel that asked. Broadcasting it would

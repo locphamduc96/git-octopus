@@ -89,6 +89,9 @@ export async function loadCommits(
 				: listHistory;
 		return {
 			type: 'commits',
+			// Echo what the walk was run with, so a view can recognise and drop a stale answer.
+			limit,
+			filters,
 			commits: listCommits,
 			working: changeCount > 0 ? working : null,
 			repoState,

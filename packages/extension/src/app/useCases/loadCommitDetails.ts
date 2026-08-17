@@ -14,6 +14,7 @@ export async function loadCommitDetails(
 			message: 'No Git repository is open in this workspace.',
 			repos: ctx.repos,
 			activeRepo: null,
+			source: 'loadCommitDetails',
 		};
 	}
 	try {
@@ -31,6 +32,7 @@ export async function loadCommitDetails(
 			message: err instanceof Error ? err.message : String(err),
 			repos: ctx.repos,
 			activeRepo: ctx.cwd,
+			source: 'loadCommitDetails',
 		};
 	}
 }

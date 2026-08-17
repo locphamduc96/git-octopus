@@ -3,6 +3,7 @@
 	import { fly } from 'svelte/transition';
 	import type {
 		BranchActionId,
+		GraphFilters,
 		BranchCleanupOutcome,
 		BranchInventoryEntry,
 		BranchRef,
@@ -224,6 +225,26 @@
 			showStashes: settings.showStashes,
 			showUncommitted: settings.showUncommitted,
 		};
+	}
+
+	/**
+	 * Whether a commits reply was walked with what this view is asking for now. Loads run
+	 * concurrently on the host, so a reply carrying old filters — or less history than the view
+	 * has — can land after the one that superseded it, and must not repaint the graph.
+	 */
+	function commitsReplyMatches(reply: { limit?: number; filters?: GraphFilters }): boolean {
+		if (reply.limit !== undefined && reply.limit < graphLimit) return false;
+		const echoed = reply.filters;
+		if (!echoed) return true;
+		const wanted = hostFilters();
+		return (
+			echoed.showRemoteBranches === wanted.showRemoteBranches &&
+			(echoed.fetchAvatars ?? false) === wanted.fetchAvatars &&
+			(echoed.commitOrder ?? 'date') === wanted.commitOrder &&
+			(echoed.showTags ?? true) === wanted.showTags &&
+			(echoed.showStashes ?? true) === wanted.showStashes &&
+			(echoed.showUncommitted ?? true) === wanted.showUncommitted
+		);
 	}
 
 	let repoIdentity = $state<RepoIdentityState | null>(null);
@@ -463,6 +484,7 @@
 		const off = onHostMessage((message: HostToWebview) => {
 			switch (message.type) {
 				case 'commits': {
+					if (!commitsReplyMatches(message)) break;
 					const wasFullLoad = status === 'loading';
 					rows = layoutCommits(message.commits);
 					repoState = message.repoState;
@@ -886,14 +908,20 @@
 		const hashes = listCommits.map((commit) => commit.hash);
 		const subjects = listCommits.map((commit) => commit.subject);
 		if (action === 'squash') {
-			postToHost({ type: 'squashCommits', hashes, subjects });
+			postToHost({ type: 'squashCommits', repoPath: activeRepo ?? undefined, hashes, subjects });
 		} else {
-			postToHost({ type: 'multiCommitAction', action, hashes, subjects });
+			postToHost({
+				type: 'multiCommitAction',
+				repoPath: activeRepo ?? undefined,
+				action,
+				hashes,
+				subjects,
+			});
 		}
 	}
 
 	function runSequencer(action: SequencerActionMessage['action']): void {
-		postToHost({ type: 'sequencerAction', action });
+		postToHost({ type: 'sequencerAction', repoPath: activeRepo ?? undefined, action });
 	}
 
 	let pendingCheckout = $state<{ local: string | null; remote: string | null } | null>(null);
@@ -916,6 +944,7 @@
 		lastPickedBranch = local ?? (remote ? remote.slice(remote.indexOf('/') + 1) : null);
 		postToHost({
 			type: 'commitAction',
+			repoPath: activeRepo ?? undefined,
 			action: 'checkoutBranch',
 			hash: '',
 			subject: '',
@@ -955,11 +984,17 @@
 	}
 
 	function workingAction(action: WorkingTreeAction, path?: string, message?: string): void {
-		postToHost({ type: 'workingTreeAction', action, path, message });
+		postToHost({
+			type: 'workingTreeAction',
+			repoPath: activeRepo ?? undefined,
+			action,
+			path,
+			message,
+		});
 	}
 
 	function runBranchAction(action: BranchActionId, source: string, target: string): void {
-		postToHost({ type: 'branchAction', action, source, target });
+		postToHost({ type: 'branchAction', repoPath: activeRepo ?? undefined, action, source, target });
 	}
 
 	function checkFastForward(source: string, target: string, nonce: number): void {
@@ -970,6 +1005,7 @@
 		const stashRef = commit.refs.find((ref) => ref.kind === 'stash');
 		postToHost({
 			type: 'commitAction',
+			repoPath: activeRepo ?? undefined,
 			action,
 			hash: commit.hash,
 			subject: commit.subject,
@@ -1052,7 +1088,19 @@
 			mergedBase={cleanupInventory?.mergedBase ?? null}
 			loading={cleanupInventory === null}
 			listResults={cleanupResults}
-			ondelete={(listNames, force) => postToHost({ type: 'cleanupBranches', listNames, force })}
+			ondelete={(listNames, force) =>
+				postToHost({
+					type: 'cleanupBranches',
+					repoPath: activeRepo ?? undefined,
+					listNames,
+					// The tips as this dialog showed them: the host refuses a branch that moved since.
+					mapExpectedTips: Object.fromEntries(
+						(cleanupInventory?.listBranches ?? [])
+							.filter((branch) => listNames.includes(branch.name))
+							.map((branch) => [branch.name, branch.hash])
+					),
+					force,
+				})}
 			onclose={() => (cleanupOpen = false)}
 		/>
 	{/if}
@@ -1092,11 +1140,11 @@
 					onrefresh={load}
 					onterminal={() => postToHost({ type: 'openTerminal' })}
 					onfind={() => (findOpen = true)}
-					onfetch={() => postToHost({ type: 'repoAction', action: 'fetch' })}
-					onpull={() => postToHost({ type: 'repoAction', action: 'pull' })}
-					onpullOption={(action) => postToHost({ type: 'repoAction', action })}
-					onpush={() => postToHost({ type: 'repoAction', action: 'push' })}
-					onpushForce={() => postToHost({ type: 'repoAction', action: 'pushForce' })}
+					onfetch={() => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action: 'fetch' })}
+					onpull={() => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action: 'pull' })}
+					onpullOption={(action) => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action })}
+					onpush={() => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action: 'push' })}
+					onpushForce={() => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action: 'pushForce' })}
 					onsequencer={runSequencer}
 					onsettings={() => (settingsOpen = true)}
 					{identityLabel}
@@ -1223,8 +1271,8 @@
 				{ahead}
 				{behind}
 				{comparison}
-				onpush={() => postToHost({ type: 'repoAction', action: 'push' })}
-				onpushForce={() => postToHost({ type: 'repoAction', action: 'pushForce' })}
+				onpush={() => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action: 'push' })}
+				onpushForce={() => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action: 'pushForce' })}
 				{fileView}
 				{metaOpen}
 				onmetaOpen={(open) => (metaOpen = open)}
