@@ -144,18 +144,30 @@ export class CommitActionService {
 				const text = input.trim();
 				const head = (await this.executor.run(['rev-parse', 'HEAD'], cwd)).trim();
 				if (head === message.hash) {
-					return this.runGit(['commit', '--amend', '-m', text], cwd, `Reworded ${short}.`);
+					// `--only` with no paths: amend the message and nothing else. Without it, whatever
+					// the user happens to have staged would be swept into the reworded commit.
+					return this.runGit(
+						['commit', '--amend', '--only', '-m', text],
+						cwd,
+						`Reworded ${short}.`
+					);
 				}
 				const branch = await this.guardRewrite(message.hash, cwd);
 				if (!branch) return false;
 				if (!(await this.confirm(`Reword ${short}? History on ${branch} will be rewritten.`)))
 					return false;
+				// The prompt can sit open while the repository moves on — prove the guards again at
+				// the moment of action, not just at the moment of asking.
+				if ((await this.guardRewrite(message.hash, cwd)) !== branch) {
+					this.staleSelectionError();
+					return false;
+				}
 				return this.rewriteBelow(
 					cwd,
 					branch,
 					message.hash,
 					message.hash,
-					[['commit', '--amend', '-m', text]],
+					[['commit', '--amend', '--only', '-m', text]],
 					`Reworded ${short}.`
 				);
 			}
@@ -332,6 +344,15 @@ export class CommitActionService {
 			))
 		)
 			return false;
+		// The message box and confirm can sit open for minutes — re-prove branch, guards and the
+		// exact run right before the rewrite, against whatever the repository has become since.
+		if (
+			(await this.guardRewrite(newest, cwd)) !== branch ||
+			!(await this.verifyFirstParentRun(listHashes, cwd))
+		) {
+			this.staleSelectionError();
+			return false;
+		}
 
 		// The original subjects go into the body, oldest first, so nothing is lost to the rewrite.
 		const body = message.subjects.slice().reverse().join('\n');
@@ -386,6 +407,14 @@ export class CommitActionService {
 					))
 				)
 					return false;
+				// Same re-proof as squash: the confirm dialog is a window the repository can move in.
+				if (
+					(await this.guardRewrite(newest, cwd)) !== branch ||
+					!(await this.verifyFirstParentRun(message.hashes, cwd))
+				) {
+					this.staleSelectionError();
+					return false;
+				}
 				return this.rewriteBelow(
 					cwd,
 					branch,
