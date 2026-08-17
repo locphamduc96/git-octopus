@@ -55,6 +55,8 @@ export function activate(context: vscode.ExtensionContext): void {
 		if (!cwd) return;
 		const message: CommitActionMessage = {
 			type: 'commitAction',
+			// Built host-side over the repository it will run on — the stamp is true by construction.
+			repoPath: cwd,
 			action: 'checkout',
 			hash: '',
 			subject: '',

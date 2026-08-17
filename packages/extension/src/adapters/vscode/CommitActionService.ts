@@ -144,30 +144,33 @@ export class CommitActionService {
 				const text = input.trim();
 				const head = (await this.executor.run(['rev-parse', 'HEAD'], cwd)).trim();
 				if (head === message.hash) {
-					// `--only` with no paths: amend the message and nothing else. Without it, whatever
+					// `--only` with no paths: amend the message and nothing else — without it, whatever
 					// the user happens to have staged would be swept into the reworded commit.
+					// `--allow-empty` because a deliberately empty commit is still allowed a new message.
 					return this.runGit(
-						['commit', '--amend', '--only', '-m', text],
+						['commit', '--amend', '--only', '--allow-empty', '-m', text],
 						cwd,
 						`Reworded ${short}.`
 					);
 				}
-				const branch = await this.guardRewrite(message.hash, cwd);
-				if (!branch) return false;
-				if (!(await this.confirm(`Reword ${short}? History on ${branch} will be rewritten.`)))
+				const guard = await this.guardRewrite(message.hash, cwd);
+				if (!guard) return false;
+				if (
+					!(await this.confirm(`Reword ${short}? History on ${guard.branch} will be rewritten.`))
+				)
 					return false;
 				// The prompt can sit open while the repository moves on — prove the guards again at
-				// the moment of action, not just at the moment of asking.
-				if ((await this.guardRewrite(message.hash, cwd)) !== branch) {
+				// the moment of action, on the same branch at the same tip.
+				if (!this.guardUnchanged(guard, await this.guardRewrite(message.hash, cwd))) {
 					this.staleSelectionError();
 					return false;
 				}
 				return this.rewriteBelow(
 					cwd,
-					branch,
+					guard.branch,
 					message.hash,
 					message.hash,
-					[['commit', '--amend', '--only', '-m', text]],
+					[['commit', '--amend', '--only', '--allow-empty', '-m', text]],
 					`Reworded ${short}.`
 				);
 			}
@@ -325,8 +328,8 @@ export class CommitActionService {
 		const oldest = listHashes[listHashes.length - 1];
 		const count = listHashes.length;
 
-		const branch = await this.guardRewrite(newest, cwd);
-		if (!branch) return false;
+		const guard = await this.guardRewrite(newest, cwd);
+		if (!guard) return false;
 		if (!(await this.verifyFirstParentRun(listHashes, cwd))) {
 			this.staleSelectionError();
 			return false;
@@ -340,14 +343,14 @@ export class CommitActionService {
 		if (!subject?.trim()) return false;
 		if (
 			!(await this.confirm(
-				`Squash ${count} commits into one? History on ${branch} will be rewritten.`
+				`Squash ${count} commits into one? History on ${guard.branch} will be rewritten.`
 			))
 		)
 			return false;
-		// The message box and confirm can sit open for minutes — re-prove branch, guards and the
+		// The message box and confirm can sit open for minutes — re-prove branch, tip and the
 		// exact run right before the rewrite, against whatever the repository has become since.
 		if (
-			(await this.guardRewrite(newest, cwd)) !== branch ||
+			!this.guardUnchanged(guard, await this.guardRewrite(newest, cwd)) ||
 			!(await this.verifyFirstParentRun(listHashes, cwd))
 		) {
 			this.staleSelectionError();
@@ -358,14 +361,14 @@ export class CommitActionService {
 		const body = message.subjects.slice().reverse().join('\n');
 		return this.rewriteBelow(
 			cwd,
-			branch,
+			guard.branch,
 			newest,
 			newest,
 			[
 				['reset', '--soft', `${oldest}^`],
 				['commit', '-m', subject.trim(), '-m', body],
 			],
-			`Squashed ${count} commits on ${branch}.`
+			`Squashed ${count} commits on ${guard.branch}.`
 		);
 	}
 
@@ -395,21 +398,21 @@ export class CommitActionService {
 				return true;
 			}
 			case 'drop': {
-				const branch = await this.guardRewrite(newest, cwd);
-				if (!branch) return false;
+				const guard = await this.guardRewrite(newest, cwd);
+				if (!guard) return false;
 				if (!(await this.verifyFirstParentRun(message.hashes, cwd))) {
 					this.staleSelectionError();
 					return false;
 				}
 				if (
 					!(await this.confirm(
-						`Drop ${count} commits? Their changes are lost and history on ${branch} is rewritten.`
+						`Drop ${count} commits? Their changes are lost and history on ${guard.branch} is rewritten.`
 					))
 				)
 					return false;
 				// Same re-proof as squash: the confirm dialog is a window the repository can move in.
 				if (
-					(await this.guardRewrite(newest, cwd)) !== branch ||
+					!this.guardUnchanged(guard, await this.guardRewrite(newest, cwd)) ||
 					!(await this.verifyFirstParentRun(message.hashes, cwd))
 				) {
 					this.staleSelectionError();
@@ -417,11 +420,11 @@ export class CommitActionService {
 				}
 				return this.rewriteBelow(
 					cwd,
-					branch,
+					guard.branch,
 					`${oldest}^`,
 					newest,
 					[],
-					`Dropped ${count} commits on ${branch}.`
+					`Dropped ${count} commits on ${guard.branch}.`
 				);
 			}
 			default:
@@ -441,10 +444,16 @@ export class CommitActionService {
 	}
 
 	/**
-	 * Shared guards for every history rewrite below HEAD. Returns the branch to rewrite, or null
-	 * (with the reason already shown) when the rewrite must not run.
+	 * Shared guards for every history rewrite below HEAD. Returns the branch to rewrite and the
+	 * commit HEAD stood at when the guards held, or null (with the reason already shown) when the
+	 * rewrite must not run. Callers re-run this after their prompts close and require the same
+	 * branch AND the same head: a tip that advanced — even linearly — carries commits the user
+	 * never saw in the selection they confirmed.
 	 */
-	private async guardRewrite(newest: string, cwd: string): Promise<string | null> {
+	private async guardRewrite(
+		newest: string,
+		cwd: string
+	): Promise<{ branch: string; head: string } | null> {
 		const branch = await this.currentBranch(cwd);
 		if (!branch) {
 			vscode.window.showErrorMessage('Git Octopus: cannot rewrite history while HEAD is detached.');
@@ -477,7 +486,16 @@ export class CommitActionService {
 			);
 			return null;
 		}
-		return branch;
+		const head = (await this.executor.run(['rev-parse', 'HEAD'], cwd)).trim();
+		return { branch, head };
+	}
+
+	/** Whether a re-run of the guards proves the same branch at the same tip as `first`. */
+	private guardUnchanged(
+		first: { branch: string; head: string },
+		again: { branch: string; head: string } | null
+	): boolean {
+		return again !== null && again.branch === first.branch && again.head === first.head;
 	}
 
 	/**

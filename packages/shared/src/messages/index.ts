@@ -147,11 +147,11 @@ export type CommitActionId =
 export interface CommitActionMessage {
 	type: 'commitAction';
 	/**
-	 * The repository this action was created against. The host refuses the action when it no
-	 * longer matches the active repository — a menu or dialog built over one repo must not run
-	 * over another that was switched to while it sat open.
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository. A menu or dialog built over one
+	 * repo must not run over another that was switched to while it sat open.
 	 */
-	repoPath?: string;
+	repoPath: string;
 	action: CommitActionId;
 	hash: string;
 	subject: string;
@@ -172,11 +172,11 @@ export interface CommitActionMessage {
 export interface SquashCommitsMessage {
 	type: 'squashCommits';
 	/**
-	 * The repository this action was created against. The host refuses the action when it no
-	 * longer matches the active repository — a menu or dialog built over one repo must not run
-	 * over another that was switched to while it sat open.
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository. A menu or dialog built over one
+	 * repo must not run over another that was switched to while it sat open.
 	 */
-	repoPath?: string;
+	repoPath: string;
 	/** Newest → oldest. */
 	hashes: string[];
 	/** Subjects in the same order, used to prefill and record the combined message. */
@@ -190,11 +190,11 @@ export interface SquashCommitsMessage {
 export interface MultiCommitActionMessage {
 	type: 'multiCommitAction';
 	/**
-	 * The repository this action was created against. The host refuses the action when it no
-	 * longer matches the active repository — a menu or dialog built over one repo must not run
-	 * over another that was switched to while it sat open.
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository. A menu or dialog built over one
+	 * repo must not run over another that was switched to while it sat open.
 	 */
-	repoPath?: string;
+	repoPath: string;
 	action: 'cherryPick' | 'revert' | 'drop';
 	/** Newest → oldest. */
 	hashes: string[];
@@ -206,11 +206,11 @@ export interface MultiCommitActionMessage {
 export interface SequencerActionMessage {
 	type: 'sequencerAction';
 	/**
-	 * The repository this action was created against. The host refuses the action when it no
-	 * longer matches the active repository — a menu or dialog built over one repo must not run
-	 * over another that was switched to while it sat open.
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository. A menu or dialog built over one
+	 * repo must not run over another that was switched to while it sat open.
 	 */
-	repoPath?: string;
+	repoPath: string;
 	action: 'continue' | 'abort' | 'skip';
 }
 
@@ -220,11 +220,11 @@ export type BranchActionId = 'mergeInto' | 'rebaseOnto' | 'fastForward';
 export interface BranchActionMessage {
 	type: 'branchAction';
 	/**
-	 * The repository this action was created against. The host refuses the action when it no
-	 * longer matches the active repository — a menu or dialog built over one repo must not run
-	 * over another that was switched to while it sat open.
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository. A menu or dialog built over one
+	 * repo must not run over another that was switched to while it sat open.
 	 */
-	repoPath?: string;
+	repoPath: string;
 	action: BranchActionId;
 	/** The dragged branch: a local name, or a remote-tracking one such as "origin/main". */
 	source: string;
@@ -265,22 +265,22 @@ export type RepoActionId = 'fetch' | 'push' | 'pushForce' | 'pull' | 'pullRebase
 export interface RepoActionMessage {
 	type: 'repoAction';
 	/**
-	 * The repository this action was created against. The host refuses the action when it no
-	 * longer matches the active repository — a menu or dialog built over one repo must not run
-	 * over another that was switched to while it sat open.
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository. A menu or dialog built over one
+	 * repo must not run over another that was switched to while it sat open.
 	 */
-	repoPath?: string;
+	repoPath: string;
 	action: RepoActionId;
 }
 
 export interface WorkingTreeActionMessage {
 	type: 'workingTreeAction';
 	/**
-	 * The repository this action was created against. The host refuses the action when it no
-	 * longer matches the active repository — a menu or dialog built over one repo must not run
-	 * over another that was switched to while it sat open.
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository. A menu or dialog built over one
+	 * repo must not run over another that was switched to while it sat open.
 	 */
-	repoPath?: string;
+	repoPath: string;
 	action: WorkingTreeAction;
 	path?: string;
 	message?: string;
@@ -384,17 +384,18 @@ export interface LoadBranchInventoryMessage {
 export interface CleanupBranchesMessage {
 	type: 'cleanupBranches';
 	/**
-	 * The repository this action was created against. The host refuses the action when it no
-	 * longer matches the active repository — a menu or dialog built over one repo must not run
-	 * over another that was switched to while it sat open.
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository. A menu or dialog built over one
+	 * repo must not run over another that was switched to while it sat open.
 	 */
-	repoPath?: string;
+	repoPath: string;
 	listNames: string[];
 	/**
-	 * The tip each listed branch pointed at when the dialog showed it. A branch whose tip has
-	 * moved since is refused: the user would be deleting commits they never saw in the list.
+	 * The tip each listed branch pointed at when the dialog showed it — required, one entry per
+	 * name. A branch missing here, or whose tip has moved since, is refused: the user would be
+	 * deleting commits they never saw in the list.
 	 */
-	mapExpectedTips?: Record<string, string>;
+	mapExpectedTips: Record<string, string>;
 	/** Use `-D` instead of `-d`, needed for branches that are not merged into the base. */
 	force: boolean;
 }

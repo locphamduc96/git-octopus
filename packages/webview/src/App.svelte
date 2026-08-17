@@ -485,6 +485,22 @@
 			switch (message.type) {
 				case 'commits': {
 					if (!commitsReplyMatches(message)) break;
+					// Another view switched the controller to a different repository. Everything built
+					// over the old one — the keyed graph (menus, drag state), dialogs, selection, the
+					// open diff — closes now, so no stale payload can be stamped with the new repo.
+					if (activeRepo !== null && message.activeRepo !== activeRepo) {
+						cleanupOpen = false;
+						cleanupInventory = null;
+						cleanupResults = null;
+						pendingCheckout = null;
+						diffTarget = null;
+						selectedHash = null;
+						listSelected = [];
+						rangeEnd = null;
+						details = null;
+						detailsLoading = false;
+						comparison = { fromHash: null, toHash: null, files: [], loading: false };
+					}
 					const wasFullLoad = status === 'loading';
 					rows = layoutCommits(message.commits);
 					repoState = message.repoState;
@@ -547,10 +563,7 @@
 				}
 				case 'comparison': {
 					// Same guard: only the comparison currently on screen may take the answer.
-					if (
-						message.fromHash !== comparison.fromHash ||
-						message.toHash !== comparison.toHash
-					)
+					if (message.fromHash !== comparison.fromHash || message.toHash !== comparison.toHash)
 						break;
 					comparison = {
 						fromHash: message.fromHash,
@@ -908,11 +921,11 @@
 		const hashes = listCommits.map((commit) => commit.hash);
 		const subjects = listCommits.map((commit) => commit.subject);
 		if (action === 'squash') {
-			postToHost({ type: 'squashCommits', repoPath: activeRepo ?? undefined, hashes, subjects });
+			postToHost({ type: 'squashCommits', repoPath: activeRepo ?? '', hashes, subjects });
 		} else {
 			postToHost({
 				type: 'multiCommitAction',
-				repoPath: activeRepo ?? undefined,
+				repoPath: activeRepo ?? '',
 				action,
 				hashes,
 				subjects,
@@ -921,7 +934,7 @@
 	}
 
 	function runSequencer(action: SequencerActionMessage['action']): void {
-		postToHost({ type: 'sequencerAction', repoPath: activeRepo ?? undefined, action });
+		postToHost({ type: 'sequencerAction', repoPath: activeRepo ?? '', action });
 	}
 
 	let pendingCheckout = $state<{ local: string | null; remote: string | null } | null>(null);
@@ -944,7 +957,7 @@
 		lastPickedBranch = local ?? (remote ? remote.slice(remote.indexOf('/') + 1) : null);
 		postToHost({
 			type: 'commitAction',
-			repoPath: activeRepo ?? undefined,
+			repoPath: activeRepo ?? '',
 			action: 'checkoutBranch',
 			hash: '',
 			subject: '',
@@ -986,7 +999,7 @@
 	function workingAction(action: WorkingTreeAction, path?: string, message?: string): void {
 		postToHost({
 			type: 'workingTreeAction',
-			repoPath: activeRepo ?? undefined,
+			repoPath: activeRepo ?? '',
 			action,
 			path,
 			message,
@@ -994,7 +1007,7 @@
 	}
 
 	function runBranchAction(action: BranchActionId, source: string, target: string): void {
-		postToHost({ type: 'branchAction', repoPath: activeRepo ?? undefined, action, source, target });
+		postToHost({ type: 'branchAction', repoPath: activeRepo ?? '', action, source, target });
 	}
 
 	function checkFastForward(source: string, target: string, nonce: number): void {
@@ -1005,7 +1018,7 @@
 		const stashRef = commit.refs.find((ref) => ref.kind === 'stash');
 		postToHost({
 			type: 'commitAction',
-			repoPath: activeRepo ?? undefined,
+			repoPath: activeRepo ?? '',
 			action,
 			hash: commit.hash,
 			subject: commit.subject,
@@ -1091,7 +1104,7 @@
 			ondelete={(listNames, force) =>
 				postToHost({
 					type: 'cleanupBranches',
-					repoPath: activeRepo ?? undefined,
+					repoPath: activeRepo ?? '',
 					listNames,
 					// The tips as this dialog showed them: the host refuses a branch that moved since.
 					mapExpectedTips: Object.fromEntries(
@@ -1140,11 +1153,16 @@
 					onrefresh={load}
 					onterminal={() => postToHost({ type: 'openTerminal' })}
 					onfind={() => (findOpen = true)}
-					onfetch={() => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action: 'fetch' })}
-					onpull={() => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action: 'pull' })}
-					onpullOption={(action) => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action })}
-					onpush={() => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action: 'push' })}
-					onpushForce={() => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action: 'pushForce' })}
+					onfetch={() =>
+						postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'fetch' })}
+					onpull={() =>
+						postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'pull' })}
+					onpullOption={(action) =>
+						postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action })}
+					onpush={() =>
+						postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'push' })}
+					onpushForce={() =>
+						postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'pushForce' })}
 					onsequencer={runSequencer}
 					onsettings={() => (settingsOpen = true)}
 					{identityLabel}
@@ -1191,38 +1209,42 @@
 					<!-- The skeleton it replaces is already this shape, so the graph only has to fade up
 					     into place — no crossfade, which would need both in the layout at once. -->
 					<div class="graph-slot gg-enter-rise">
-						<GraphView
-							rows={visibleRows}
-							{selectedHash}
-							listSelectedHashes={listSelected}
-							{currentBranch}
-							lastPicked={lastPickedBranch}
-							{columns}
-							{widths}
-							{scrollTarget}
-							compareHash={comparison.toHash}
-							dateFormat={settings.dateFormat}
-							dateType={settings.dateType}
-							graphStyle={settings.graphStyle}
-							rowDensity={settings.rowDensity}
-							highlightHover={settings.highlightBranchOnHover}
-							muteMerges={settings.muteMergeCommits}
-							showTicketBadge={settings.showTicketBadge}
-							showTypeBadge={settings.showTypeBadge}
-							{fastForward}
-							{hasMore}
-							onselect={select}
-							onselectRange={selectRangeTo}
-							oncompare={compareWith}
-							oncheckoutBranch={checkoutBranch}
-							onaction={runAction}
-							onmulti={runMulti}
-							onloadMore={loadMore}
-							onbranchAction={runBranchAction}
-							oncheckFastForward={checkFastForward}
-							ontoggleColumn={toggleColumn}
-							onresizeColumn={resizeColumn}
-						/>
+						<!-- Keyed by repository: a repo switch remounts the graph, closing its context
+						     menus and drag state — stale UI must not survive into another repo. -->
+						{#key activeRepo}
+							<GraphView
+								rows={visibleRows}
+								{selectedHash}
+								listSelectedHashes={listSelected}
+								{currentBranch}
+								lastPicked={lastPickedBranch}
+								{columns}
+								{widths}
+								{scrollTarget}
+								compareHash={comparison.toHash}
+								dateFormat={settings.dateFormat}
+								dateType={settings.dateType}
+								graphStyle={settings.graphStyle}
+								rowDensity={settings.rowDensity}
+								highlightHover={settings.highlightBranchOnHover}
+								muteMerges={settings.muteMergeCommits}
+								showTicketBadge={settings.showTicketBadge}
+								showTypeBadge={settings.showTypeBadge}
+								{fastForward}
+								{hasMore}
+								onselect={select}
+								onselectRange={selectRangeTo}
+								oncompare={compareWith}
+								oncheckoutBranch={checkoutBranch}
+								onaction={runAction}
+								onmulti={runMulti}
+								onloadMore={loadMore}
+								onbranchAction={runBranchAction}
+								oncheckFastForward={checkFastForward}
+								ontoggleColumn={toggleColumn}
+								onresizeColumn={resizeColumn}
+							/>
+						{/key}
 					</div>
 				{/if}
 			</div>
@@ -1271,8 +1293,10 @@
 				{ahead}
 				{behind}
 				{comparison}
-				onpush={() => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action: 'push' })}
-				onpushForce={() => postToHost({ type: 'repoAction', repoPath: activeRepo ?? undefined, action: 'pushForce' })}
+				onpush={() =>
+					postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'push' })}
+				onpushForce={() =>
+					postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'pushForce' })}
 				{fileView}
 				{metaOpen}
 				onmetaOpen={(open) => (metaOpen = open)}

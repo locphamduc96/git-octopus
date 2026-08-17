@@ -341,7 +341,9 @@ export class GitOctopusController {
 	 * looking at something that is no longer there — running it would mutate the wrong repo.
 	 */
 	private repoMismatch(message: { repoPath?: string }): boolean {
-		if (message.repoPath === undefined || message.repoPath === this.activeRepo) return false;
+		// A missing stamp counts as a mismatch: the protocol requires it, so only a caller that
+		// is not our webview code would ever omit it.
+		if (message.repoPath === this.activeRepo) return false;
 		vscode.window.showWarningMessage(
 			'Git Octopus: the active repository changed while this action was open — nothing was run. Refresh and try again.'
 		);

@@ -26,10 +26,11 @@ export class BranchCleanupService {
 			}
 			// Read the tip before deleting: it is what lets the user put a branch back afterwards.
 			const hash = await this.tipOf(name, cwd);
-			// A tip that moved since the dialog listed it means the user would be deleting commits
-			// they never saw. Refuse that branch; the result table tells them to rescan.
-			const expected = message.mapExpectedTips?.[name];
-			if (expected !== undefined && expected !== hash) {
+			// Every deletion must be pinned to the tip the dialog showed. A name without a pin was
+			// never offered by the dialog; a tip that moved since means the user would be deleting
+			// commits they never saw. Both are refused; the result table tells them to rescan.
+			const expected = (message.mapExpectedTips as Record<string, string> | undefined)?.[name];
+			if (expected === undefined || expected !== hash) {
 				listResults.push({
 					name,
 					hash,
