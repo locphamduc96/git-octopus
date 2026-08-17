@@ -13,6 +13,7 @@ import { RepoActionService } from './adapters/vscode/RepoActionService.js';
 import { RepoTreeProvider, type RepoNode } from './adapters/vscode/RepoTreeProvider.js';
 import { RepoWatcher } from './adapters/vscode/RepoWatcher.js';
 import { AskpassServer } from './adapters/askpass/askpassServer.js';
+import { nativePrompt } from './adapters/vscode/nativePrompt.js';
 
 /**
  * The askpass bridge, or undefined when it must stay out of the way: on Windows (not supported
@@ -85,7 +86,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			remoteBranches: [],
 			...partial,
 		};
-		if (await actions.run(message, cwd)) await controller.refresh();
+		if (await actions.run(message, cwd, nativePrompt)) await controller.refresh();
 	};
 
 	context.subscriptions.push(

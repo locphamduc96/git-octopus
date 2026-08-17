@@ -5,6 +5,7 @@ import type {
 	MultiCommitActionMessage,
 	SquashCommitsMessage,
 } from '@git-octopus/shared';
+import type { UserPrompt } from '../../app/ports/userPrompt.js';
 import type { GitAuthRequest, GitExecutor } from '../../core/git/GitExecutor.js';
 import { friendlyGitError } from '../../core/git/friendlyGitError.js';
 import { redactSecrets } from '../../core/git/redactSecrets.js';
@@ -31,7 +32,11 @@ export class CommitActionService {
 	public constructor(private readonly executor: GitExecutor) {}
 
 	/** Returns true when the repository changed and the graph should refresh. */
-	public async run(message: CommitActionMessage, cwd: string): Promise<boolean> {
+	public async run(
+		message: CommitActionMessage,
+		cwd: string,
+		prompt: UserPrompt
+	): Promise<boolean> {
 		const short = message.hash.slice(0, 7);
 		switch (message.action) {
 			case 'copyHash':
@@ -43,32 +48,38 @@ export class CommitActionService {
 				vscode.window.showInformationMessage('Git Octopus: subject copied.');
 				return false;
 			case 'checkout':
-				if (!(await this.confirm(`Checkout commit ${short}? HEAD will be detached.`))) return false;
+				if (!(await this.confirm(prompt, `Checkout commit ${short}? HEAD will be detached.`))) return false;
 				return this.runGit(['checkout', message.hash], cwd, `Checked out ${short}.`);
 			case 'createBranch': {
-				const name = await this.askName(`Name for the new branch at ${short}`);
+				const name = await this.askName(prompt, `Name for the new branch at ${short}`);
 				if (!name) return false;
 				return this.runGit(['branch', name, message.hash], cwd, `Created branch ${name}.`);
 			}
 			case 'addTag': {
-				const name = await this.askName(`Name for the new tag at ${short}`);
+				const name = await this.askName(prompt, `Name for the new tag at ${short}`);
 				if (!name) return false;
 				return this.runGit(['tag', name, message.hash], cwd, `Created tag ${name}.`);
 			}
 			case 'merge': {
-				const options = await vscode.window.showQuickPick(
-					[
-						{ label: 'No fast-forward', description: 'Always create a merge commit', picked: true },
-						{ label: 'Squash commits', description: 'Combine into a single change' },
-						{ label: 'No commit', description: 'Stage the merge without committing' },
+				const listOptions = await prompt.pickOptions({
+					title: `Merge ${short} — choose options`,
+					multi: true,
+					listOptions: [
+						{
+							id: 'no-ff',
+							label: 'No fast-forward',
+							description: 'Always create a merge commit',
+							picked: true,
+						},
+						{ id: 'squash', label: 'Squash commits', description: 'Combine into a single change' },
+						{ id: 'no-commit', label: 'No commit', description: 'Stage the merge without committing' },
 					],
-					{ canPickMany: true, placeHolder: `Merge ${short} — choose options` }
-				);
-				if (!options) return false;
+				});
+				if (!listOptions) return false;
 				const args = ['merge', mergeableRef(message)];
-				if (options.some((option) => option.label === 'Squash commits')) args.push('--squash');
-				else if (options.some((option) => option.label === 'No fast-forward')) args.push('--no-ff');
-				if (options.some((option) => option.label === 'No commit')) args.push('--no-commit');
+				if (listOptions.includes('squash')) args.push('--squash');
+				else if (listOptions.includes('no-ff')) args.push('--no-ff');
+				if (listOptions.includes('no-commit')) args.push('--no-commit');
 				return this.runGit(args, cwd, `Merged ${short}.`);
 			}
 			case 'checkoutBranch': {
@@ -85,7 +96,7 @@ export class CommitActionService {
 				);
 			}
 			case 'checkoutRemote': {
-				const remote = await this.pickOne(message.remoteBranches, 'Checkout which remote branch?');
+				const remote = await this.pickOne(prompt, message.remoteBranches, 'Checkout which remote branch?');
 				if (!remote) return false;
 				const local = remote.slice(remote.indexOf('/') + 1);
 				return this.runGit(
@@ -96,6 +107,7 @@ export class CommitActionService {
 			}
 			case 'fetchIntoLocal': {
 				const remote = await this.pickOne(
+					prompt,
 					message.remoteBranches,
 					'Fetch which remote branch into its local branch?'
 				);
@@ -103,15 +115,15 @@ export class CommitActionService {
 				const slash = remote.indexOf('/');
 				const remoteName = remote.slice(0, slash);
 				const branchName = remote.slice(slash + 1);
-				const force = await vscode.window.showQuickPick(
-					[
-						{ label: 'Fetch', description: 'Fast-forward only', value: false },
-						{ label: 'Force Fetch', description: 'Reset the local branch', value: true },
+				const listMode = await prompt.pickOptions({
+					title: `Fetch ${remote} into ${branchName}`,
+					listOptions: [
+						{ id: 'fetch', label: 'Fetch', description: 'Fast-forward only' },
+						{ id: 'force', label: 'Force Fetch', description: 'Reset the local branch' },
 					],
-					{ placeHolder: `Fetch ${remote} into ${branchName}` }
-				);
-				if (!force) return false;
-				const refspec = `${force.value ? '+' : ''}${branchName}:${branchName}`;
+				});
+				if (!listMode) return false;
+				const refspec = `${listMode.includes('force') ? '+' : ''}${branchName}:${branchName}`;
 				return this.runGit(
 					['fetch', remoteName, refspec],
 					cwd,
@@ -120,12 +132,12 @@ export class CommitActionService {
 				);
 			}
 			case 'deleteRemoteBranch': {
-				const remote = await this.pickOne(message.remoteBranches, 'Delete which remote branch?');
+				const remote = await this.pickOne(prompt, message.remoteBranches, 'Delete which remote branch?');
 				if (!remote) return false;
 				const slash = remote.indexOf('/');
 				const remoteName = remote.slice(0, slash);
 				const branchName = remote.slice(slash + 1);
-				if (!(await this.confirm(`Delete ${remote} from the remote? This cannot be undone.`)))
+				if (!(await this.confirm(prompt, `Delete ${remote} from the remote? This cannot be undone.`)))
 					return false;
 				return this.runGit(
 					['push', remoteName, '--delete', branchName],
@@ -136,18 +148,20 @@ export class CommitActionService {
 			}
 			case 'rebase': {
 				const onto = mergeableRef(message);
-				if (!(await this.confirm(`Rebase the current branch onto ${onto}?`))) return false;
+				if (!(await this.confirm(prompt, `Rebase the current branch onto ${onto}?`))) return false;
 				return this.runGit(['rebase', onto], cwd, `Rebased onto ${onto}.`);
 			}
 			case 'cherryPick':
-				if (!(await this.confirm(`Cherry pick commit ${short} onto the current branch?`)))
+				if (!(await this.confirm(prompt, `Cherry pick commit ${short} onto the current branch?`)))
 					return false;
 				return this.runGit(['cherry-pick', message.hash], cwd, `Cherry picked ${short}.`);
 			case 'reword': {
-				const input = await vscode.window.showInputBox({
-					prompt: `New message for commit ${short}`,
+				const input = await prompt.inputText({
+					title: `Reword ${short}`,
+					prompt: 'New message for the commit — first line is the subject.',
 					value: message.subject,
-					validateInput: (value) => (value.trim() === '' ? 'A message is required.' : undefined),
+					multiline: true,
+					required: true,
 				});
 				if (!input?.trim()) return false;
 				const text = input.trim();
@@ -165,7 +179,7 @@ export class CommitActionService {
 				const guard = await this.guardRewrite(message.hash, cwd);
 				if (!guard) return false;
 				if (
-					!(await this.confirm(`Reword ${short}? History on ${guard.branch} will be rewritten.`))
+					!(await this.confirm(prompt, `Reword ${short}? History on ${guard.branch} will be rewritten.`))
 				)
 					return false;
 				// The prompt can sit open while the repository moves on — prove the guards again at
@@ -201,14 +215,14 @@ export class CommitActionService {
 				return false;
 			}
 			case 'deleteTag': {
-				const tag = await this.pickOne(message.tags ?? [], 'Delete which tag?');
+				const tag = await this.pickOne(prompt, message.tags ?? [], 'Delete which tag?');
 				if (!tag) return false;
-				if (!(await this.confirm(`Delete tag ${tag}? This only removes the local tag.`)))
+				if (!(await this.confirm(prompt, `Delete tag ${tag}? This only removes the local tag.`)))
 					return false;
 				return this.runGit(['tag', '-d', tag], cwd, `Deleted tag ${tag}.`);
 			}
 			case 'pushTag': {
-				const tag = await this.pickOne(message.tags ?? [], 'Push which tag to origin?');
+				const tag = await this.pickOne(prompt, message.tags ?? [], 'Push which tag to origin?');
 				if (!tag) return false;
 				return this.runGit(
 					['push', 'origin', `refs/tags/${tag}`],
@@ -218,9 +232,9 @@ export class CommitActionService {
 				);
 			}
 			case 'deleteRemoteTag': {
-				const tag = await this.pickOne(message.tags ?? [], 'Delete which tag from origin?');
+				const tag = await this.pickOne(prompt, message.tags ?? [], 'Delete which tag from origin?');
 				if (!tag) return false;
-				if (!(await this.confirm(`Delete tag ${tag} from origin? This cannot be undone.`)))
+				if (!(await this.confirm(prompt, `Delete tag ${tag} from origin? This cannot be undone.`)))
 					return false;
 				return this.runGit(
 					['push', 'origin', '--delete', `refs/tags/${tag}`],
@@ -230,7 +244,7 @@ export class CommitActionService {
 				);
 			}
 			case 'revert':
-				if (!(await this.confirm(`Revert commit ${short}?`))) return false;
+				if (!(await this.confirm(prompt, `Revert commit ${short}?`))) return false;
 				return this.runGit(['revert', '--no-edit', message.hash], cwd, `Reverted ${short}.`);
 			case 'resetSoft':
 				return this.runGit(['reset', '--soft', message.hash], cwd, `Reset to ${short} (soft).`);
@@ -238,7 +252,7 @@ export class CommitActionService {
 				return this.runGit(['reset', '--mixed', message.hash], cwd, `Reset to ${short} (mixed).`);
 			case 'resetHard': {
 				// The only reset that throws work away, so it is the only one that asks first.
-				if (!(await this.confirm(`Hard reset to ${short}? All uncommitted changes are lost.`)))
+				if (!(await this.confirm(prompt, `Hard reset to ${short}? All uncommitted changes are lost.`)))
 					return false;
 				return this.runGit(['reset', '--hard', message.hash], cwd, `Reset to ${short} (hard).`);
 			}
@@ -246,14 +260,9 @@ export class CommitActionService {
 			case 'stashPop':
 			case 'stashDrop':
 			case 'stashBranch':
-				return this.runStashAction(message, cwd);
+				return this.runStashAction(message, cwd, prompt);
 			case 'deleteBranch': {
-				const branch =
-					message.branches.length === 1
-						? message.branches[0]
-						: await vscode.window.showQuickPick(message.branches, {
-								placeHolder: 'Delete which branch?',
-							});
+				const branch = await this.pickOne(prompt, message.branches, 'Delete which branch?');
 				if (!branch) return false;
 				return this.runGit(['branch', '-d', branch], cwd, `Deleted branch ${branch}.`);
 			}
@@ -267,36 +276,46 @@ export class CommitActionService {
 	 * checked out, so two of the three actions check the needed branch out first and leave the user
 	 * standing there — the same trade the drag gesture implies elsewhere.
 	 */
-	public async runBranchAction(message: BranchActionMessage, cwd: string): Promise<boolean> {
+	public async runBranchAction(
+		message: BranchActionMessage,
+		cwd: string,
+		prompt: UserPrompt
+	): Promise<boolean> {
 		const { source, target } = message;
 		const current = await this.currentBranch(cwd);
 		switch (message.action) {
 			case 'mergeInto': {
-				const options = await vscode.window.showQuickPick(
-					[
-						{ label: 'No fast-forward', description: 'Always create a merge commit', picked: true },
-						{ label: 'Squash commits', description: 'Combine into a single change' },
-						{ label: 'No commit', description: 'Stage the merge without committing' },
+				const listOptions = await prompt.pickOptions({
+					title: `Merge ${source} into ${target} — choose options`,
+					multi: true,
+					listOptions: [
+						{
+							id: 'no-ff',
+							label: 'No fast-forward',
+							description: 'Always create a merge commit',
+							picked: true,
+						},
+						{ id: 'squash', label: 'Squash commits', description: 'Combine into a single change' },
+						{ id: 'no-commit', label: 'No commit', description: 'Stage the merge without committing' },
 					],
-					{ canPickMany: true, placeHolder: `Merge ${source} into ${target} — choose options` }
-				);
-				if (!options) return false;
+				});
+				if (!listOptions) return false;
 				if (target !== current) {
 					if (
-						!(await this.confirm(`Merge ${source} into ${target}? ${target} will be checked out.`))
+						!(await this.confirm(prompt, `Merge ${source} into ${target}? ${target} will be checked out.`))
 					)
 						return false;
 					if (!(await this.runGit(['checkout', target], cwd, `Checked out ${target}.`)))
 						return false;
 				}
 				const args = ['merge', source];
-				if (options.some((option) => option.label === 'Squash commits')) args.push('--squash');
-				else if (options.some((option) => option.label === 'No fast-forward')) args.push('--no-ff');
-				if (options.some((option) => option.label === 'No commit')) args.push('--no-commit');
+				if (listOptions.includes('squash')) args.push('--squash');
+				else if (listOptions.includes('no-ff')) args.push('--no-ff');
+				if (listOptions.includes('no-commit')) args.push('--no-commit');
 				return this.runGit(args, cwd, `Merged ${source} into ${target}.`);
 			}
 			case 'rebaseOnto': {
-				if (!(await this.confirm(`Rebase ${source} onto ${target}?`))) return false;
+				if (!(await this.confirm(prompt, `Rebase ${source} onto ${target}?`))) return false;
 				if (source !== current) {
 					if (!(await this.runGit(['checkout', source], cwd, `Checked out ${source}.`)))
 						return false;
@@ -332,7 +351,11 @@ export class CommitActionService {
 	 * above the run and moves the branch. The branch ref itself is only touched by that last step,
 	 * so any earlier failure leaves it exactly where it was.
 	 */
-	public async squash(message: SquashCommitsMessage, cwd: string): Promise<boolean> {
+	public async squash(
+		message: SquashCommitsMessage,
+		cwd: string,
+		prompt: UserPrompt
+	): Promise<boolean> {
 		const listHashes = message.hashes;
 		if (listHashes.length < 2) return false;
 		const newest = listHashes[0];
@@ -346,14 +369,17 @@ export class CommitActionService {
 			return false;
 		}
 
-		const subject = await vscode.window.showInputBox({
-			prompt: `Message for the squashed commit (${count} commits)`,
+		const subject = await prompt.inputText({
+			title: `Squash ${count} commits`,
+			prompt: 'Message for the squashed commit — the original subjects are kept in the body.',
 			value: message.subjects[message.subjects.length - 1] ?? '',
-			validateInput: (input) => (input.trim() === '' ? 'A message is required.' : undefined),
+			multiline: true,
+			required: true,
 		});
 		if (!subject?.trim()) return false;
 		if (
 			!(await this.confirm(
+					prompt,
 				`Squash ${count} commits into one? History on ${guard.branch} will be rewritten.`
 			))
 		)
@@ -384,14 +410,18 @@ export class CommitActionService {
 	}
 
 	/** Act on a multi-selected run of commits (newest → oldest). */
-	public async runMulti(message: MultiCommitActionMessage, cwd: string): Promise<boolean> {
+	public async runMulti(
+		message: MultiCommitActionMessage,
+		cwd: string,
+		prompt: UserPrompt
+	): Promise<boolean> {
 		const count = message.hashes.length;
 		if (count === 0) return false;
 		const newest = message.hashes[0];
 		const oldest = message.hashes[count - 1];
 		switch (message.action) {
 			case 'cherryPick': {
-				if (!(await this.confirm(`Cherry pick ${count} commits onto the current branch?`)))
+				if (!(await this.confirm(prompt, `Cherry pick ${count} commits onto the current branch?`)))
 					return false;
 				// Oldest first, so the picks apply in their original order.
 				const listOldFirst = [...message.hashes].reverse();
@@ -400,7 +430,7 @@ export class CommitActionService {
 				return true;
 			}
 			case 'revert': {
-				if (!(await this.confirm(`Revert ${count} commits?`))) return false;
+				if (!(await this.confirm(prompt, `Revert ${count} commits?`))) return false;
 				await this.runGit(
 					['revert', '--no-edit', ...message.hashes],
 					cwd,
@@ -417,6 +447,7 @@ export class CommitActionService {
 				}
 				if (
 					!(await this.confirm(
+					prompt,
 						`Drop ${count} commits? Their changes are lost and history on ${guard.branch} is rewritten.`
 					))
 				)
@@ -588,21 +619,25 @@ export class CommitActionService {
 		}
 	}
 
-	private async runStashAction(message: CommitActionMessage, cwd: string): Promise<boolean> {
+	private async runStashAction(
+		message: CommitActionMessage,
+		cwd: string,
+		prompt: UserPrompt
+	): Promise<boolean> {
 		const stash = message.stashName;
 		if (!stash) return false;
 		switch (message.action) {
 			case 'stashApply':
-				if (!(await this.confirm(`Apply ${stash} to the working tree?`))) return false;
+				if (!(await this.confirm(prompt, `Apply ${stash} to the working tree?`))) return false;
 				return this.runGit(['stash', 'apply', stash], cwd, `Applied ${stash}.`);
 			case 'stashPop':
-				if (!(await this.confirm(`Pop ${stash} into the working tree?`))) return false;
+				if (!(await this.confirm(prompt, `Pop ${stash} into the working tree?`))) return false;
 				return this.runGit(['stash', 'pop', stash], cwd, `Popped ${stash}.`);
 			case 'stashDrop':
-				if (!(await this.confirm(`Drop ${stash}? This cannot be undone.`))) return false;
+				if (!(await this.confirm(prompt, `Drop ${stash}? This cannot be undone.`))) return false;
 				return this.runGit(['stash', 'drop', stash], cwd, `Dropped ${stash}.`);
 			case 'stashBranch': {
-				const name = await this.askName(`Name for the new branch from ${stash}`);
+				const name = await this.askName(prompt, `Name for the new branch from ${stash}`);
 				if (!name) return false;
 				return this.runGit(['stash', 'branch', name, stash], cwd, `Created branch ${name}.`);
 			}
@@ -611,23 +646,32 @@ export class CommitActionService {
 		}
 	}
 
-	private async pickOne(listChoices: string[], placeHolder: string): Promise<string | undefined> {
+	private async pickOne(
+		prompt: UserPrompt,
+		listChoices: string[],
+		title: string
+	): Promise<string | undefined> {
 		if (listChoices.length === 0) return undefined;
 		if (listChoices.length === 1) return listChoices[0];
-		return vscode.window.showQuickPick(listChoices, { placeHolder });
+		const listSelected = await prompt.pickOptions({
+			title,
+			listOptions: listChoices.map((choice) => ({ id: choice, label: choice })),
+		});
+		return listSelected?.[0];
 	}
 
-	private async askName(prompt: string): Promise<string | undefined> {
-		const value = await vscode.window.showInputBox({
-			prompt,
-			validateInput: (input) => (input.trim() === '' ? 'A name is required.' : undefined),
-		});
+	private async askName(prompt: UserPrompt, title: string): Promise<string | undefined> {
+		const value = await prompt.inputText({ title, required: true });
 		return value?.trim() || undefined;
 	}
 
-	private async confirm(prompt: string): Promise<boolean> {
-		const pick = await vscode.window.showWarningMessage(prompt, { modal: true }, 'Yes');
-		return pick === 'Yes';
+	private confirm(
+		prompt: UserPrompt,
+		message: string,
+		confirmLabel = 'Yes',
+		danger = false
+	): Promise<boolean> {
+		return prompt.confirm({ title: 'Git Octopus', message, confirmLabel, danger });
 	}
 
 	private async runGit(

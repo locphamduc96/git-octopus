@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { RepoActionMessage, SequencerActionMessage } from '@git-octopus/shared';
+import type { UserPrompt } from '../../app/ports/userPrompt.js';
 import type { GitAuthRequest, GitExecutor } from '../../core/git/GitExecutor.js';
 import { friendlyGitError } from '../../core/git/friendlyGitError.js';
 import { getRepoState } from '../../core/git/gitService.js';
@@ -32,14 +33,15 @@ export class RepoActionService {
 	}
 
 	/** Returns true when the repository changed and the graph should refresh. */
-	public async run(message: RepoActionMessage, cwd: string): Promise<boolean> {
+	public async run(message: RepoActionMessage, cwd: string, prompt: UserPrompt): Promise<boolean> {
 		if (message.action === 'pushForce') {
-			const pick = await vscode.window.showWarningMessage(
-				'Force push (with lease)? This rewrites the remote branch.',
-				{ modal: true },
-				'Force Push'
-			);
-			if (pick !== 'Force Push') return false;
+			const confirmed = await prompt.confirm({
+				title: 'Git Octopus',
+				message: 'Force push (with lease)? This rewrites the remote branch.',
+				confirmLabel: 'Force Push',
+				danger: true,
+			});
+			if (!confirmed) return false;
 		}
 
 		const mapArgs: Record<RepoActionMessage['action'], string[]> = {
@@ -78,13 +80,13 @@ export class RepoActionService {
 				} catch (err) {
 					const detail = redactSecrets(err instanceof Error ? err.message : String(err));
 					if (message.action === 'push' && detail.includes('no upstream branch')) {
-						return this.publish(cwd, detail, auth);
+						return this.publish(cwd, detail, auth, prompt);
 					}
 					if (
 						message.action === 'push' &&
 						(detail.includes('non-fast-forward') || detail.includes('fetch first'))
 					) {
-						return this.offerForcePush(cwd, detail, auth);
+						return this.offerForcePush(cwd, detail, auth, prompt);
 					}
 					vscode.window.showErrorMessage(`Git Octopus: ${friendlyGitError(detail) ?? detail}`);
 					return false;
@@ -97,7 +99,11 @@ export class RepoActionService {
 	 * Drive the paused operation (rebase / merge / cherry-pick / revert) the banner reported.
 	 * Always returns true: whatever happened, the graph should re-read the repository state.
 	 */
-	public async runSequencer(message: SequencerActionMessage, cwd: string): Promise<boolean> {
+	public async runSequencer(
+		message: SequencerActionMessage,
+		cwd: string,
+		prompt: UserPrompt
+	): Promise<boolean> {
 		const state = await getRepoState(this.executor, cwd, pathExists);
 		if (!state) return true; // Stale banner — the refresh will clear it.
 		const mapCommand = {
@@ -109,19 +115,20 @@ export class RepoActionService {
 		const command = mapCommand[state];
 		if (message.action === 'skip' && state === 'merging') return true;
 		if (message.action === 'abort') {
-			const pick = await vscode.window.showWarningMessage(
-				`Abort the ${command} in progress? The repository goes back to where it was before it started.`,
-				{ modal: true },
-				'Abort'
-			);
-			if (pick !== 'Abort') return false;
+			const confirmed = await prompt.confirm({
+				title: 'Git Octopus',
+				message: `Abort the ${command} in progress? The repository goes back to where it was before it started.`,
+				confirmLabel: 'Abort',
+				danger: true,
+			});
+			if (!confirmed) return false;
 		} else if (message.action === 'skip') {
-			const pick = await vscode.window.showWarningMessage(
-				`Skip the current commit? Its changes are left out of the ${command}.`,
-				{ modal: true },
-				'Skip'
-			);
-			if (pick !== 'Skip') return false;
+			const confirmed = await prompt.confirm({
+				title: 'Git Octopus',
+				message: `Skip the current commit? Its changes are left out of the ${command}.`,
+				confirmLabel: 'Skip',
+			});
+			if (!confirmed) return false;
 		}
 		try {
 			// `core.editor=true` accepts git's prepared commit message instead of opening an editor
@@ -145,15 +152,18 @@ export class RepoActionService {
 	private async offerForcePush(
 		cwd: string,
 		detail: string,
-		auth: GitAuthRequest
+		auth: GitAuthRequest,
+		prompt: UserPrompt
 	): Promise<boolean> {
-		const pick = await vscode.window.showWarningMessage(
-			'Push was rejected: the remote branch has diverged — usually because history was ' +
+		const confirmed = await prompt.confirm({
+			title: 'Git Octopus',
+			message:
+				'Push was rejected: the remote branch has diverged — usually because history was ' +
 				'rewritten locally (squash, rebase, amend). Force push (with lease) to overwrite it?',
-			{ modal: true },
-			'Force Push'
-		);
-		if (pick !== 'Force Push') {
+			confirmLabel: 'Force Push',
+			danger: true,
+		});
+		if (!confirmed) {
 			vscode.window.showErrorMessage(`Git Octopus: ${detail}`);
 			return false;
 		}
@@ -171,7 +181,12 @@ export class RepoActionService {
 	 * A branch that has never been pushed has no upstream, so plain `git push` refuses. That is the
 	 * one push failure with an obvious next step, so offer it rather than just reporting the error.
 	 */
-	private async publish(cwd: string, detail: string, auth: GitAuthRequest): Promise<boolean> {
+	private async publish(
+		cwd: string,
+		detail: string,
+		auth: GitAuthRequest,
+		prompt: UserPrompt
+	): Promise<boolean> {
 		let branch: string;
 		try {
 			branch = (await this.executor.run(['symbolic-ref', '--short', 'HEAD'], cwd)).trim();
@@ -179,12 +194,12 @@ export class RepoActionService {
 			vscode.window.showErrorMessage(`Git Octopus: ${detail}`);
 			return false;
 		}
-		const pick = await vscode.window.showWarningMessage(
-			`${branch} has no upstream branch. Publish it to origin?`,
-			{ modal: true },
-			'Publish'
-		);
-		if (pick !== 'Publish') return false;
+		const confirmed = await prompt.confirm({
+			title: 'Git Octopus',
+			message: `${branch} has no upstream branch. Publish it to origin?`,
+			confirmLabel: 'Publish',
+		});
+		if (!confirmed) return false;
 		try {
 			await this.executor.run(['push', '--set-upstream', 'origin', branch], cwd, undefined, auth);
 			vscode.window.showInformationMessage(`Git Octopus: published ${branch} to origin.`);

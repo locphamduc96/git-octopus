@@ -15,6 +15,7 @@
 		GraphRow,
 		HostToWebview,
 		RepoInfo,
+		UiRequestMessage,
 		RepoState,
 		SequencerActionMessage,
 		WorkingTreeAction,
@@ -52,6 +53,8 @@
 	import Splitter from './lib/ui/Splitter.svelte';
 	import { motionMs } from './lib/ui/motion';
 	import ConfirmDialog from './lib/ui/ConfirmDialog.svelte';
+	import OptionsDialog from './lib/ui/OptionsDialog.svelte';
+	import TextInputDialog from './lib/ui/TextInputDialog.svelte';
 
 	/**
 	 * A glyph-based icon theme (Seti, the VS Code default) ships its icons inside a font, which has
@@ -129,7 +132,7 @@
 		dateType: 'commit',
 		graphStyle: 'rounded',
 		rowDensity: 'comfortable',
-		diffTarget: 'editor',
+		diffTarget: 'panel',
 		diffMode: 'compact',
 		fetchAvatars: false,
 		highlightBranchOnHover: true,
@@ -250,6 +253,28 @@
 	let repoIdentity = $state<RepoIdentityState | null>(null);
 	let listIdentities = $state<GitIdentity[]>([]);
 	let addingIdentity = $state(false);
+
+	/**
+	 * Questions the host asks this view to render (feature-040). One dialog at a time — the
+	 * rest wait in arrival order; each is answered exactly once by its requestId.
+	 */
+	let uiRequest = $state<UiRequestMessage | null>(null);
+	let listUiQueue: UiRequestMessage[] = [];
+
+	function replyUi(reply: {
+		requestId: string;
+		confirmed?: boolean;
+		listSelected?: string[];
+		text?: string;
+		cancelled?: boolean;
+	}): void {
+		postToHost({ type: 'uiReply', ...reply });
+		uiRequest = listUiQueue.shift() ?? null;
+	}
+
+	function cancelUi(): void {
+		if (uiRequest) replyUi({ requestId: uiRequest.requestId, cancelled: true });
+	}
 
 	let cleanupOpen = $state(false);
 	let cleanupInventory = $state<{
@@ -493,6 +518,15 @@
 						cleanupInventory = null;
 						cleanupResults = null;
 						pendingCheckout = null;
+						// Questions asked over the old repository die with it.
+						for (const item of listUiQueue) {
+							postToHost({ type: 'uiReply', requestId: item.requestId, cancelled: true });
+						}
+						listUiQueue = [];
+						if (uiRequest) {
+							postToHost({ type: 'uiReply', requestId: uiRequest.requestId, cancelled: true });
+							uiRequest = null;
+						}
 						diffTarget = null;
 						selectedHash = null;
 						listSelected = [];
@@ -632,6 +666,20 @@
 				}
 				case 'branchCleanupResult': {
 					cleanupResults = message.listResults;
+					break;
+				}
+				case 'uiRequest': {
+					if (uiRequest) listUiQueue.push(message);
+					else uiRequest = message;
+					break;
+				}
+				case 'uiDismiss': {
+					// Withdrawn by the host (timeout). No reply — the host already resolved it.
+					if (uiRequest?.requestId === message.requestId) {
+						uiRequest = listUiQueue.shift() ?? null;
+					} else {
+						listUiQueue = listUiQueue.filter((item) => item.requestId !== message.requestId);
+					}
 					break;
 				}
 				case 'error': {
@@ -1048,6 +1096,38 @@
 <svelte:window onkeydown={onKeydown} />
 
 <div class="app">
+	{#if uiRequest}
+		{@const request = uiRequest}
+		{#if request.payload.kind === 'confirm'}
+			<ConfirmDialog
+				title={request.payload.title}
+				message={request.payload.message}
+				confirmLabel={request.payload.confirmLabel ?? 'Yes'}
+				danger={request.payload.danger ?? false}
+				onconfirm={() => replyUi({ requestId: request.requestId, confirmed: true })}
+				oncancel={cancelUi}
+			/>
+		{:else if request.payload.kind === 'pick'}
+			<OptionsDialog
+				title={request.payload.title}
+				listOptions={request.payload.listOptions}
+				multi={request.payload.multi ?? false}
+				onsubmit={(listSelected) => replyUi({ requestId: request.requestId, listSelected })}
+				oncancel={cancelUi}
+			/>
+		{:else}
+			<TextInputDialog
+				title={request.payload.title}
+				prompt={request.payload.prompt}
+				value={request.payload.value}
+				multiline={request.payload.multiline ?? false}
+				required={request.payload.required ?? false}
+				onsubmit={(text) => replyUi({ requestId: request.requestId, text })}
+				oncancel={cancelUi}
+			/>
+		{/if}
+	{/if}
+
 	{#if pendingCheckout}
 		<ConfirmDialog
 			title="Check out branch"

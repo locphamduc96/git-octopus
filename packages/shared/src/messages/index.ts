@@ -427,6 +427,60 @@ export interface CopyTextMessage {
 	label: string;
 }
 
+
+/**
+ * A question the host asks the webview to render with the product's own dialogs (see
+ * feature-040). Payloads are declarative data; the webview answers with `uiReply` carrying the
+ * same single-use `requestId`, or the host withdraws the question with `uiDismiss`.
+ */
+export type UiRequestPayload =
+	| {
+			kind: 'confirm';
+			title: string;
+			message: string;
+			confirmLabel?: string;
+			danger?: boolean;
+	  }
+	| {
+			kind: 'pick';
+			title: string;
+			listOptions: { id: string; label: string; description?: string; picked?: boolean }[];
+			multi?: boolean;
+	  }
+	| {
+			kind: 'text';
+			title: string;
+			prompt?: string;
+			value?: string;
+			multiline?: boolean;
+			required?: boolean;
+	  };
+
+export interface UiRequestMessage {
+	type: 'uiRequest';
+	/** Random, single-use; a reply must echo it exactly and is accepted once. */
+	requestId: string;
+	payload: UiRequestPayload;
+}
+
+export interface UiReplyMessage {
+	type: 'uiReply';
+	requestId: string;
+	/** For kind 'confirm'. */
+	confirmed?: boolean;
+	/** For kind 'pick': selected option ids. */
+	listSelected?: string[];
+	/** For kind 'text'. */
+	text?: string;
+	/** Dismissed without an answer (Esc, close, repo switch). */
+	cancelled?: boolean;
+}
+
+export interface UiDismissMessage {
+	type: 'uiDismiss';
+	requestId: string;
+}
+
 /** Messages sent from the webview to the extension host. */
 export type WebviewToHost =
 	| LoadCommitsMessage
@@ -454,7 +508,8 @@ export type WebviewToHost =
 	| IdentityActionMessage
 	| SaveIdentitiesMessage
 	| LoadBranchInventoryMessage
-	| CleanupBranchesMessage;
+	| CleanupBranchesMessage
+	| UiReplyMessage;
 
 /** An operation paused mid-flight (usually on conflicts), waiting to be continued or aborted. */
 export type RepoState = 'rebasing' | 'merging' | 'cherryPicking' | 'reverting';
@@ -612,4 +667,6 @@ export type HostToWebview =
 	| RevealCommitMessage
 	| BranchInventoryMessage
 	| BranchCleanupResultMessage
+	| UiRequestMessage
+	| UiDismissMessage
 	| ErrorMessage;

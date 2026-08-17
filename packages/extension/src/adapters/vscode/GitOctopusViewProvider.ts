@@ -21,6 +21,9 @@ import type { RepoContext } from '../../app/useCases/loadCommits.js';
 import { loadStatus } from '../../app/useCases/loadStatus.js';
 import { decideRefresh, needsFullReload, type RefreshKind } from '../../core/refreshPolicy.js';
 import { redactSecrets } from '../../core/git/redactSecrets.js';
+import type { UserPrompt } from '../../app/ports/userPrompt.js';
+import { nativePrompt } from './nativePrompt.js';
+import { WebviewPromptBroker } from './webviewPrompt.js';
 import { findRepos } from '../fs/repoScanner.js';
 import type { DiffService } from './DiffService.js';
 import type { CommitActionService } from './CommitActionService.js';
@@ -107,6 +110,8 @@ export class GitOctopusController {
 	private lastHeadHash: string | null = null;
 	/** Per-webview visibility — the Panel view and any editor tabs each report their own. */
 	private readonly mapWebviewVisible = new Map<vscode.Webview, boolean>();
+	/** One prompt broker per attached webview — questions go back to the view that acted. */
+	private readonly mapWebviewPrompt = new Map<vscode.Webview, WebviewPromptBroker>();
 	/** Heaviest refresh skipped while hidden, run when the view is shown again. */
 	private missed: RefreshKind | null = null;
 	private refreshing = false;
@@ -181,6 +186,10 @@ export class GitOctopusController {
 
 		trace('webview attached');
 		this.listWebviews.push(webview);
+		this.mapWebviewPrompt.set(
+			webview,
+			new WebviewPromptBroker((message) => void webview.postMessage(message))
+		);
 		// Attached means visible until its container reports otherwise — an editor tab opens on
 		// screen, and the Panel view corrects this immediately after resolving.
 		this.mapWebviewVisible.set(webview, true);
@@ -189,6 +198,8 @@ export class GitOctopusController {
 			this.listWebviews = this.listWebviews.filter((item) => item !== webview);
 			this.mapWebviewVisible.delete(webview);
 			this.mapWebviewLimit.delete(webview);
+			this.mapWebviewPrompt.get(webview)?.cancelAll();
+			this.mapWebviewPrompt.delete(webview);
 		});
 	}
 
@@ -357,8 +368,14 @@ export class GitOctopusController {
 		return true;
 	}
 
+	/** The product's own dialogs in the webview that acted; native UI if it vanished. */
+	private promptFor(webview: vscode.Webview): UserPrompt {
+		return this.mapWebviewPrompt.get(webview) ?? nativePrompt;
+	}
+
 	private async routeFromWebview(message: WebviewToHost, webview: vscode.Webview): Promise<void> {
 		const cwd = this.activeRepo;
+		const prompt = this.promptFor(webview);
 
 		switch (message.type) {
 			case 'loadCommits':
@@ -441,6 +458,10 @@ export class GitOctopusController {
 			case 'loadBranchInventory':
 				await this.sendBranchInventory(webview);
 				return;
+			case 'uiReply':
+				// Answers are only ever accepted from the webview the question was sent to.
+				this.mapWebviewPrompt.get(webview)?.handleReply(message);
+				return;
 			case 'cleanupBranches': {
 				if (!cwd || this.repoMismatch(message)) return;
 				const { listResults, changed } = await this.branchCleanup.run(message, cwd);
@@ -500,23 +521,23 @@ export class GitOctopusController {
 				return;
 			case 'commitAction':
 				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.actions.run(message, cwd))) await this.refresh();
+				if (cwd && (await this.actions.run(message, cwd, prompt))) await this.refresh();
 				return;
 			case 'squashCommits':
 				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.actions.squash(message, cwd))) await this.refresh();
+				if (cwd && (await this.actions.squash(message, cwd, prompt))) await this.refresh();
 				return;
 			case 'multiCommitAction':
 				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.actions.runMulti(message, cwd))) await this.refresh();
+				if (cwd && (await this.actions.runMulti(message, cwd, prompt))) await this.refresh();
 				return;
 			case 'sequencerAction':
 				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.repoActions.runSequencer(message, cwd))) await this.refresh();
+				if (cwd && (await this.repoActions.runSequencer(message, cwd, prompt))) await this.refresh();
 				return;
 			case 'branchAction':
 				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.actions.runBranchAction(message, cwd))) await this.refresh();
+				if (cwd && (await this.actions.runBranchAction(message, cwd, prompt))) await this.refresh();
 				return;
 			case 'checkFastForward':
 				await webview.postMessage({
@@ -529,11 +550,11 @@ export class GitOctopusController {
 				return;
 			case 'workingTreeAction':
 				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.workingTree.run(message, cwd))) await this.refresh();
+				if (cwd && (await this.workingTree.run(message, cwd, prompt))) await this.refresh();
 				return;
 			case 'repoAction':
 				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.repoActions.run(message, cwd))) await this.refresh();
+				if (cwd && (await this.repoActions.run(message, cwd, prompt))) await this.refresh();
 				return;
 			// Per-view queries: the answer belongs to the panel that asked. Broadcasting it would
 			// overwrite the other panels' selection with this one's.
