@@ -5,6 +5,8 @@
 		separatorBefore?: boolean;
 		/** Shown greyed out and never fires — for actions the current state rules out. */
 		disabled?: boolean;
+		/** Marks a toggle that is currently on; the tick is drawn against the menu's right edge. */
+		checked?: boolean;
 		/** Opens as a flyout instead of firing; only the leaves report a selection. */
 		children?: MenuItem[];
 	}
@@ -50,8 +52,10 @@
 	aria-label="Close menu"
 ></button>
 <ul class="menu" style="left:{x}px; top:{y}px">
-	{#each items as item (item.id)}
-		{#if item.separatorBefore}
+	{#each items as item, index (item.id)}
+		<!-- A separator before the first item would be a rule with nothing above it: the flag says
+		     "start a group here", and the menu edge already does that. -->
+		{#if item.separatorBefore && index > 0}
 			<li class="sep" role="separator"></li>
 		{/if}
 		<li
@@ -67,15 +71,22 @@
 			>
 				{item.label}
 				{#if item.children}<span class="chevron">›</span>{/if}
+				{#if item.checked}<span class="check">✓</span>{/if}
 			</button>
 			{#if item.children && openId === item.id}
 				<ul class="menu submenu" class:flip>
-					{#each item.children as child (child.id)}
-						{#if child.separatorBefore}
+					{#each item.children as child, childIndex (child.id)}
+						{#if child.separatorBefore && childIndex > 0}
 							<li class="sep" role="separator"></li>
 						{/if}
 						<li>
-							<button onclick={() => onselect(child.id)}>{child.label}</button>
+							<button
+								class:disabled={child.disabled}
+								onclick={() => (child.disabled ? undefined : onselect(child.id))}
+							>
+								{child.label}
+								{#if child.checked}<span class="check">✓</span>{/if}
+							</button>
 						</li>
 					{/each}
 				</ul>
@@ -140,6 +151,11 @@
 	.chevron {
 		margin-left: auto;
 		opacity: 0.7;
+	}
+	/* Pushed to the right edge, so a column of toggles reads down its ticks rather than its labels. */
+	.check {
+		margin-left: auto;
+		opacity: 0.8;
 	}
 	/* Overlaps the parent by a pixel so the pointer never crosses a gap on its way over. */
 	.submenu {

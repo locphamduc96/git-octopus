@@ -3,15 +3,20 @@ import type {
 	BranchActionMessage,
 	CommitActionMessage,
 	MultiCommitActionMessage,
+	RemoteBranchRef,
 	SquashCommitsMessage,
 } from '@git-octopus/shared';
+import { remoteRefLabel, remoteRefPath } from '@git-octopus/shared';
 import type { UserPrompt } from '../../app/ports/userPrompt.js';
 import type { GitAuthRequest, GitExecutor } from '../../core/git/GitExecutor.js';
 import { friendlyGitError } from '../../core/git/friendlyGitError.js';
 import { redactSecrets } from '../../core/git/redactSecrets.js';
 import { remoteCommitUrl } from '../../core/git/remoteUrl.js';
 import { parseRemoteHosts } from '../../core/git/remoteHosts.js';
-import { isFirstParentRun } from '../../core/git/rewriteGuards.js';
+import { LIST_MERGE_OPTIONS, mergeArgs } from '../../core/git/mergePlan.js';
+import { parseAheadBehind, planCheckout } from '../../core/git/checkoutPlan.js';
+import { listCandidateRemotes } from '../../core/git/remoteOwnership.js';
+import { HistoryRewriter } from './HistoryRewriter.js';
 
 /**
  * What to name a commit when merging or rebasing onto it.
@@ -21,7 +26,42 @@ import { isFirstParentRun } from '../../core/git/rewriteGuards.js';
  * `Merge branch 'feature/x'`.
  */
 function mergeableRef(message: CommitActionMessage): string {
-	return message.branches[0] ?? message.remoteBranches[0] ?? message.hash;
+	const remote = message.remoteBranches[0];
+	return message.branches[0] ?? (remote ? remoteRefPath(remote) : message.hash);
+}
+
+/**
+ * Separates a command's options from its positional arguments (git 2.24+).
+ *
+ * Needed wherever a name git let the user choose lands in argv: a remote may be called `-evil`,
+ * which every option parser would otherwise read as flags.
+ */
+const END_OF_OPTIONS = '--end-of-options';
+
+/**
+ * The slice of the view's settings the host acts on. Only what is read here is named, so a new
+ * setting the webview adds cannot quietly change what an action does.
+ */
+export interface HostViewSettings {
+	autoFastForwardOnCheckout?: boolean;
+}
+
+/** Reads the saved view settings, or null when the user has never saved any. */
+export type ViewSettingsReader = () => HostViewSettings | null;
+
+/**
+ * Dig the view settings out of the blob the webview persists.
+ *
+ * What is stored is the whole preferences object — `{ settings, columns, fileView, metaOpen }` —
+ * so the settings sit one level in. Reading the outer object as if it were the settings answers
+ * `undefined` for every flag, which for a boolean defaulting to on means the user cannot turn it
+ * off.
+ */
+export function readHostViewSettings(stored: unknown): HostViewSettings | null {
+	if (typeof stored !== 'object' || stored === null) return null;
+	const settings = (stored as { settings?: unknown }).settings;
+	if (typeof settings !== 'object' || settings === null) return null;
+	return settings as HostViewSettings;
 }
 
 /**
@@ -29,7 +69,19 @@ function mergeableRef(message: CommitActionMessage): string {
  * UI (prompts, clipboard, notifications) and mutates the repository.
  */
 export class CommitActionService {
-	public constructor(private readonly executor: GitExecutor) {}
+	/** Guards and engine for squash / drop / reword — see {@link HistoryRewriter}. */
+	private readonly rewriter: HistoryRewriter;
+
+	public constructor(
+		private readonly executor: GitExecutor,
+		/**
+		 * The saved **view settings** — not the whole preferences blob they are stored inside.
+		 * Read per run, never cached, so a setting changed mid-session takes effect at once.
+		 */
+		private readonly readViewSettings: ViewSettingsReader = () => null
+	) {
+		this.rewriter = new HistoryRewriter(executor);
+	}
 
 	/** Returns true when the repository changed and the graph should refresh. */
 	public async run(
@@ -47,13 +99,32 @@ export class CommitActionService {
 				await vscode.env.clipboard.writeText(message.subject);
 				vscode.window.showInformationMessage('Git Octopus: subject copied.');
 				return false;
+			case 'copyRefName': {
+				// Sent only from a ref-scoped menu, so each list holds at most the one ref that was
+				// pointed at. Local name first: it is what the chip reads as when a branch has both.
+				const remote = message.remoteBranches[0];
+				const name =
+					message.branches[0] ?? message.tags?.[0] ?? (remote ? remoteRefLabel(remote) : undefined);
+				if (!name) return false;
+				await vscode.env.clipboard.writeText(name);
+				vscode.window.showInformationMessage(`Git Octopus: ${name} copied.`);
+				return false;
+			}
 			case 'checkout':
-				if (!(await this.confirm(prompt, `Checkout commit ${short}? HEAD will be detached.`))) return false;
+				if (!(await this.confirm(prompt, `Checkout commit ${short}? HEAD will be detached.`)))
+					return false;
 				return this.runGit(['checkout', message.hash], cwd, `Checked out ${short}.`);
 			case 'createBranch': {
 				const name = await this.askName(prompt, `Name for the new branch at ${short}`);
 				if (!name) return false;
-				return this.runGit(['branch', name, message.hash], cwd, `Created branch ${name}.`);
+				// Checked out, not merely created. Naming a branch is how a user says where they are
+				// about to work; leaving them standing on the old one makes every use of this two
+				// steps, and the second one easy to forget.
+				return this.runGit(
+					['checkout', '-b', name, message.hash],
+					cwd,
+					`Created and checked out ${name}.`
+				);
 			}
 			case 'addTag': {
 				const name = await this.askName(prompt, `Name for the new tag at ${short}`);
@@ -64,85 +135,74 @@ export class CommitActionService {
 				const listOptions = await prompt.pickOptions({
 					title: `Merge ${short} — choose options`,
 					multi: true,
-					listOptions: [
-						{
-							id: 'no-ff',
-							label: 'No fast-forward',
-							description: 'Always create a merge commit',
-							picked: true,
-						},
-						{ id: 'squash', label: 'Squash commits', description: 'Combine into a single change' },
-						{ id: 'no-commit', label: 'No commit', description: 'Stage the merge without committing' },
-					],
+					listOptions: LIST_MERGE_OPTIONS,
 				});
 				if (!listOptions) return false;
-				const args = ['merge', mergeableRef(message)];
-				if (listOptions.includes('squash')) args.push('--squash');
-				else if (listOptions.includes('no-ff')) args.push('--no-ff');
-				if (listOptions.includes('no-commit')) args.push('--no-commit');
-				return this.runGit(args, cwd, `Merged ${short}.`);
+				return this.runGit(mergeArgs(mergeableRef(message), listOptions), cwd, `Merged ${short}.`);
 			}
 			case 'checkoutBranch': {
 				const local = message.branches[0];
 				if (local) return this.runGit(['checkout', local], cwd, `Checked out ${local}.`);
-				// Remote-only branch: create a local branch that tracks it.
 				const remote = message.remoteBranches[0];
-				if (!remote) return false;
-				const name = remote.slice(remote.indexOf('/') + 1);
-				return this.runGit(
-					['checkout', '-b', name, '--track', remote],
-					cwd,
-					`Checked out ${name}.`
-				);
+				if (!remote || !(await this.ownsRefUnambiguously(remote, cwd))) return false;
+				return this.checkoutFromRemote(remote, cwd);
 			}
+			case 'checkoutPrevious':
+				return this.checkoutPrevious(message, cwd);
 			case 'checkoutRemote': {
-				const remote = await this.pickOne(prompt, message.remoteBranches, 'Checkout which remote branch?');
-				if (!remote) return false;
-				const local = remote.slice(remote.indexOf('/') + 1);
-				return this.runGit(
-					['checkout', '-b', local, '--track', remote],
-					cwd,
-					`Checked out ${local}.`
+				const remote = await this.pickRemote(
+					prompt,
+					message.remoteBranches,
+					'Checkout which remote branch?'
 				);
+				if (!remote || !(await this.ownsRefUnambiguously(remote, cwd))) return false;
+				return this.checkoutFromRemote(remote, cwd);
 			}
 			case 'fetchIntoLocal': {
-				const remote = await this.pickOne(
+				const remote = await this.pickRemote(
 					prompt,
 					message.remoteBranches,
 					'Fetch which remote branch into its local branch?'
 				);
-				if (!remote) return false;
-				const slash = remote.indexOf('/');
-				const remoteName = remote.slice(0, slash);
-				const branchName = remote.slice(slash + 1);
+				if (!remote || !(await this.ownsRefUnambiguously(remote, cwd))) return false;
+				const label = remoteRefLabel(remote);
 				const listMode = await prompt.pickOptions({
-					title: `Fetch ${remote} into ${branchName}`,
+					title: `Fetch ${label} into ${remote.branch}`,
 					listOptions: [
 						{ id: 'fetch', label: 'Fetch', description: 'Fast-forward only' },
 						{ id: 'force', label: 'Force Fetch', description: 'Reset the local branch' },
 					],
 				});
 				if (!listMode) return false;
-				const refspec = `${listMode.includes('force') ? '+' : ''}${branchName}:${branchName}`;
+				const refspec = `${listMode.includes('force') ? '+' : ''}${remote.branch}:${remote.branch}`;
 				return this.runGit(
-					['fetch', remoteName, refspec],
+					// The remote's name is a positional argument, and git allows one starting with `-`.
+					// `--end-of-options` is what stops `-evil` from being read as a bundle of flags;
+					// it has to sit after this command's own options and before the positionals.
+					['fetch', END_OF_OPTIONS, remote.remote, refspec],
 					cwd,
-					`Fetched ${remote} into ${branchName}.`,
+					`Fetched ${label} into ${remote.branch}.`,
 					await this.authFor('fetch', cwd)
 				);
 			}
 			case 'deleteRemoteBranch': {
-				const remote = await this.pickOne(prompt, message.remoteBranches, 'Delete which remote branch?');
-				if (!remote) return false;
-				const slash = remote.indexOf('/');
-				const remoteName = remote.slice(0, slash);
-				const branchName = remote.slice(slash + 1);
-				if (!(await this.confirm(prompt, `Delete ${remote} from the remote? This cannot be undone.`)))
+				const remote = await this.pickRemote(
+					prompt,
+					message.remoteBranches,
+					'Delete which remote branch?'
+				);
+				if (!remote || !(await this.ownsRefUnambiguously(remote, cwd))) return false;
+				const label = remoteRefLabel(remote);
+				if (!(await this.proveRefStillAt(`refs/remotes/${label}`, label, message.hash, cwd)))
+					return false;
+				if (
+					!(await this.confirm(prompt, `Delete ${label} from the remote? This cannot be undone.`))
+				)
 					return false;
 				return this.runGit(
-					['push', remoteName, '--delete', branchName],
+					['push', '--delete', END_OF_OPTIONS, remote.remote, remote.branch],
 					cwd,
-					`Deleted ${remote}.`,
+					`Deleted ${label}.`,
 					await this.authFor('push', cwd)
 				);
 			}
@@ -176,19 +236,24 @@ export class CommitActionService {
 						`Reworded ${short}.`
 					);
 				}
-				const guard = await this.guardRewrite(message.hash, cwd);
+				const guard = await this.rewriter.guardRewrite(message.hash, cwd);
 				if (!guard) return false;
 				if (
-					!(await this.confirm(prompt, `Reword ${short}? History on ${guard.branch} will be rewritten.`))
+					!(await this.confirm(
+						prompt,
+						`Reword ${short}? History on ${guard.branch} will be rewritten.`
+					))
 				)
 					return false;
 				// The prompt can sit open while the repository moves on — prove the guards again at
 				// the moment of action, on the same branch at the same tip.
-				if (!this.guardUnchanged(guard, await this.guardRewrite(message.hash, cwd))) {
-					this.staleSelectionError();
+				if (
+					!this.rewriter.guardUnchanged(guard, await this.rewriter.guardRewrite(message.hash, cwd))
+				) {
+					this.rewriter.staleSelectionError();
 					return false;
 				}
-				return this.rewriteBelow(
+				return this.rewriter.rewriteBelow(
 					cwd,
 					guard.branch,
 					message.hash,
@@ -217,6 +282,8 @@ export class CommitActionService {
 			case 'deleteTag': {
 				const tag = await this.pickOne(prompt, message.tags ?? [], 'Delete which tag?');
 				if (!tag) return false;
+				if (!(await this.proveRefStillAt(`refs/tags/${tag}`, `tag ${tag}`, message.hash, cwd)))
+					return false;
 				if (!(await this.confirm(prompt, `Delete tag ${tag}? This only removes the local tag.`)))
 					return false;
 				return this.runGit(['tag', '-d', tag], cwd, `Deleted tag ${tag}.`);
@@ -224,6 +291,8 @@ export class CommitActionService {
 			case 'pushTag': {
 				const tag = await this.pickOne(prompt, message.tags ?? [], 'Push which tag to origin?');
 				if (!tag) return false;
+				if (!(await this.proveRefStillAt(`refs/tags/${tag}`, `tag ${tag}`, message.hash, cwd)))
+					return false;
 				return this.runGit(
 					['push', 'origin', `refs/tags/${tag}`],
 					cwd,
@@ -234,6 +303,10 @@ export class CommitActionService {
 			case 'deleteRemoteTag': {
 				const tag = await this.pickOne(prompt, message.tags ?? [], 'Delete which tag from origin?');
 				if (!tag) return false;
+				// The remote tag has no local ref of its own; the local one is what the menu drew and
+				// what its label was taken from, so that is what has to still be true.
+				if (!(await this.proveRefStillAt(`refs/tags/${tag}`, `tag ${tag}`, message.hash, cwd)))
+					return false;
 				if (!(await this.confirm(prompt, `Delete tag ${tag} from origin? This cannot be undone.`)))
 					return false;
 				return this.runGit(
@@ -252,7 +325,9 @@ export class CommitActionService {
 				return this.runGit(['reset', '--mixed', message.hash], cwd, `Reset to ${short} (mixed).`);
 			case 'resetHard': {
 				// The only reset that throws work away, so it is the only one that asks first.
-				if (!(await this.confirm(prompt, `Hard reset to ${short}? All uncommitted changes are lost.`)))
+				if (
+					!(await this.confirm(prompt, `Hard reset to ${short}? All uncommitted changes are lost.`))
+				)
 					return false;
 				return this.runGit(['reset', '--hard', message.hash], cwd, `Reset to ${short} (hard).`);
 			}
@@ -264,6 +339,15 @@ export class CommitActionService {
 			case 'deleteBranch': {
 				const branch = await this.pickOne(prompt, message.branches, 'Delete which branch?');
 				if (!branch) return false;
+				if (
+					!(await this.proveRefStillAt(
+						`refs/heads/${branch}`,
+						`branch ${branch}`,
+						message.hash,
+						cwd
+					))
+				)
+					return false;
 				return this.runGit(['branch', '-d', branch], cwd, `Deleted branch ${branch}.`);
 			}
 			default:
@@ -282,37 +366,29 @@ export class CommitActionService {
 		prompt: UserPrompt
 	): Promise<boolean> {
 		const { source, target } = message;
-		const current = await this.currentBranch(cwd);
+		// What the user is asked about is the name they dragged; what git runs is the ref path.
+		const sourceLabel = message.sourceLabel || source;
+		const current = await this.rewriter.currentBranch(cwd);
 		switch (message.action) {
 			case 'mergeInto': {
 				const listOptions = await prompt.pickOptions({
-					title: `Merge ${source} into ${target} — choose options`,
+					title: `Merge ${sourceLabel} into ${target} — choose options`,
 					multi: true,
-					listOptions: [
-						{
-							id: 'no-ff',
-							label: 'No fast-forward',
-							description: 'Always create a merge commit',
-							picked: true,
-						},
-						{ id: 'squash', label: 'Squash commits', description: 'Combine into a single change' },
-						{ id: 'no-commit', label: 'No commit', description: 'Stage the merge without committing' },
-					],
+					listOptions: LIST_MERGE_OPTIONS,
 				});
 				if (!listOptions) return false;
 				if (target !== current) {
 					if (
-						!(await this.confirm(prompt, `Merge ${source} into ${target}? ${target} will be checked out.`))
+						!(await this.confirm(
+							prompt,
+							`Merge ${sourceLabel} into ${target}? ${target} will be checked out.`
+						))
 					)
 						return false;
 					if (!(await this.runGit(['checkout', target], cwd, `Checked out ${target}.`)))
 						return false;
 				}
-				const args = ['merge', source];
-				if (listOptions.includes('squash')) args.push('--squash');
-				else if (listOptions.includes('no-ff')) args.push('--no-ff');
-				if (listOptions.includes('no-commit')) args.push('--no-commit');
-				return this.runGit(args, cwd, `Merged ${source} into ${target}.`);
+				return this.runGit(mergeArgs(source, listOptions), cwd, `Merged ${source} into ${target}.`);
 			}
 			case 'rebaseOnto': {
 				if (!(await this.confirm(prompt, `Rebase ${source} onto ${target}?`))) return false;
@@ -362,10 +438,10 @@ export class CommitActionService {
 		const oldest = listHashes[listHashes.length - 1];
 		const count = listHashes.length;
 
-		const guard = await this.guardRewrite(newest, cwd);
+		const guard = await this.rewriter.guardRewrite(newest, cwd);
 		if (!guard) return false;
-		if (!(await this.verifyFirstParentRun(listHashes, cwd))) {
-			this.staleSelectionError();
+		if (!(await this.rewriter.verifyFirstParentRun(listHashes, cwd))) {
+			this.rewriter.staleSelectionError();
 			return false;
 		}
 
@@ -379,7 +455,7 @@ export class CommitActionService {
 		if (!subject?.trim()) return false;
 		if (
 			!(await this.confirm(
-					prompt,
+				prompt,
 				`Squash ${count} commits into one? History on ${guard.branch} will be rewritten.`
 			))
 		)
@@ -387,16 +463,16 @@ export class CommitActionService {
 		// The message box and confirm can sit open for minutes — re-prove branch, tip and the
 		// exact run right before the rewrite, against whatever the repository has become since.
 		if (
-			!this.guardUnchanged(guard, await this.guardRewrite(newest, cwd)) ||
-			!(await this.verifyFirstParentRun(listHashes, cwd))
+			!this.rewriter.guardUnchanged(guard, await this.rewriter.guardRewrite(newest, cwd)) ||
+			!(await this.rewriter.verifyFirstParentRun(listHashes, cwd))
 		) {
-			this.staleSelectionError();
+			this.rewriter.staleSelectionError();
 			return false;
 		}
 
 		// The original subjects go into the body, oldest first, so nothing is lost to the rewrite.
 		const body = message.subjects.slice().reverse().join('\n');
-		return this.rewriteBelow(
+		return this.rewriter.rewriteBelow(
 			cwd,
 			guard.branch,
 			newest,
@@ -439,28 +515,28 @@ export class CommitActionService {
 				return true;
 			}
 			case 'drop': {
-				const guard = await this.guardRewrite(newest, cwd);
+				const guard = await this.rewriter.guardRewrite(newest, cwd);
 				if (!guard) return false;
-				if (!(await this.verifyFirstParentRun(message.hashes, cwd))) {
-					this.staleSelectionError();
+				if (!(await this.rewriter.verifyFirstParentRun(message.hashes, cwd))) {
+					this.rewriter.staleSelectionError();
 					return false;
 				}
 				if (
 					!(await this.confirm(
-					prompt,
+						prompt,
 						`Drop ${count} commits? Their changes are lost and history on ${guard.branch} is rewritten.`
 					))
 				)
 					return false;
 				// Same re-proof as squash: the confirm dialog is a window the repository can move in.
 				if (
-					!this.guardUnchanged(guard, await this.guardRewrite(newest, cwd)) ||
-					!(await this.verifyFirstParentRun(message.hashes, cwd))
+					!this.rewriter.guardUnchanged(guard, await this.rewriter.guardRewrite(newest, cwd)) ||
+					!(await this.rewriter.verifyFirstParentRun(message.hashes, cwd))
 				) {
-					this.staleSelectionError();
+					this.rewriter.staleSelectionError();
 					return false;
 				}
-				return this.rewriteBelow(
+				return this.rewriter.rewriteBelow(
 					cwd,
 					guard.branch,
 					`${oldest}^`,
@@ -472,113 +548,6 @@ export class CommitActionService {
 			default:
 				return false;
 		}
-	}
-
-	/** See {@link isFirstParentRun} — the host's re-proof of a squash/drop selection. */
-	private verifyFirstParentRun(listHashes: string[], cwd: string): Promise<boolean> {
-		return isFirstParentRun(this.executor, listHashes, cwd);
-	}
-
-	private staleSelectionError(): void {
-		vscode.window.showErrorMessage(
-			'Git Octopus: the selection no longer matches the repository history — refresh the graph and try again.'
-		);
-	}
-
-	/**
-	 * Shared guards for every history rewrite below HEAD. Returns the branch to rewrite and the
-	 * commit HEAD stood at when the guards held, or null (with the reason already shown) when the
-	 * rewrite must not run. Callers re-run this after their prompts close and require the same
-	 * branch AND the same head: a tip that advanced — even linearly — carries commits the user
-	 * never saw in the selection they confirmed.
-	 */
-	private async guardRewrite(
-		newest: string,
-		cwd: string
-	): Promise<{ branch: string; head: string } | null> {
-		const branch = await this.currentBranch(cwd);
-		if (!branch) {
-			vscode.window.showErrorMessage('Git Octopus: cannot rewrite history while HEAD is detached.');
-			return null;
-		}
-		if (!(await this.canFastForward('HEAD', newest, cwd))) {
-			vscode.window.showErrorMessage(
-				`Git Octopus: the selected commits are not on ${branch} — check their branch out first.`
-			);
-			return null;
-		}
-		// Replaying a merge with plain rebase silently flattens it; refuse rather than rewrite topology.
-		const merges = (
-			await this.executor.run(['rev-list', '--merges', `${newest}..HEAD`], cwd)
-		).trim();
-		if (merges !== '') {
-			vscode.window.showErrorMessage(
-				'Git Octopus: there are merge commits above the selection — rewriting would flatten them.'
-			);
-			return null;
-		}
-		// A rewrite ends in a rebase, and rebase refuses a dirty tree; staged changes would also be
-		// swept into any commit the rewrite makes.
-		const dirty = (
-			await this.executor.run(['status', '--porcelain', '--untracked-files=no'], cwd)
-		).trim();
-		if (dirty !== '') {
-			vscode.window.showErrorMessage(
-				'Git Octopus: commit or stash your changes before rewriting history.'
-			);
-			return null;
-		}
-		const head = (await this.executor.run(['rev-parse', 'HEAD'], cwd)).trim();
-		return { branch, head };
-	}
-
-	/** Whether a re-run of the guards proves the same branch at the same tip as `first`. */
-	private guardUnchanged(
-		first: { branch: string; head: string },
-		again: { branch: string; head: string } | null
-	): boolean {
-		return again !== null && again.branch === first.branch && again.head === first.head;
-	}
-
-	/**
-	 * The engine behind squash / drop / reword: detach at `detachAt`, run `listSteps` to shape the
-	 * new tip, then replay everything above `oldTip` onto it and point the branch there.
-	 *
-	 * The branch ref is only touched by that final rebase, so any earlier failure leaves it exactly
-	 * where it was; a failure inside the rebase is aborted and the branch checked out again.
-	 */
-	private async rewriteBelow(
-		cwd: string,
-		branch: string,
-		detachAt: string,
-		oldTip: string,
-		listSteps: string[][],
-		successMessage: string
-	): Promise<boolean> {
-		try {
-			await this.executor.run(['checkout', '--detach', detachAt], cwd);
-			for (const args of listSteps) await this.executor.run(args, cwd);
-			const newTip = (await this.executor.run(['rev-parse', 'HEAD'], cwd)).trim();
-			await this.executor.run(['rebase', '--onto', newTip, oldTip, branch], cwd);
-			vscode.window.showInformationMessage(`Git Octopus: ${successMessage}`);
-		} catch (err) {
-			try {
-				await this.executor.run(['rebase', '--abort'], cwd);
-			} catch {
-				// No rebase in progress — the failure came earlier.
-			}
-			try {
-				await this.executor.run(['checkout', branch], cwd);
-			} catch {
-				// Leave HEAD as it stands; the error below tells the user where things stopped.
-			}
-			vscode.window.showErrorMessage(
-				`Git Octopus: rewrite failed — ${err instanceof Error ? err.message : String(err)} ` +
-					`Branch ${branch} was not changed.`
-			);
-		}
-		// HEAD moved either way, so the graph needs a refresh even after a failure.
-		return true;
 	}
 
 	/** The web URL of a commit on the `origin` remote (or the first remote), if recognisable. */
@@ -599,24 +568,178 @@ export class CommitActionService {
 		return remoteUrl ? remoteCommitUrl(remoteUrl, hash) : null;
 	}
 
-	/** Whether `target` is an ancestor of `source`, i.e. whether it can be fast-forwarded to it. */
-	public async canFastForward(source: string, target: string, cwd: string): Promise<boolean> {
-		try {
-			await this.executor.run(['merge-base', '--is-ancestor', target, source], cwd);
-			return true;
-		} catch {
+	/**
+	 * Check out the branch behind a remote ref, whether or not a local one already exists.
+	 *
+	 * The view only knows about branches drawn on the commit it is asking from, so it cannot tell a
+	 * remote-only branch from one whose local copy has fallen behind and sits on an earlier row.
+	 * Git is asked here instead, and a branch that has only fallen behind is brought up to date in
+	 * the same step — checking it out and leaving it stale was never what the double-click meant.
+	 */
+	private async checkoutFromRemote(remote: RemoteBranchRef, cwd: string): Promise<boolean> {
+		const name = remote.branch;
+		// Never the `origin/main` short form in argv: a remote may be called `-evil`, and the ref
+		// path can never be read as an option. It is also the only form that stays unambiguous
+		// when the remote's own name contains a slash.
+		const refPath = remoteRefPath(remote);
+		const label = remoteRefLabel(remote);
+		const plan = planCheckout({
+			localExists: await this.branchExists(name, cwd),
+			...(await this.aheadBehind(name, refPath, cwd)),
+			dirty: await this.isDirty(cwd),
+			autoFastForward: this.autoFastForwardEnabled(),
+		});
+
+		if (plan.kind === 'createTracking') {
+			return this.runGit(['checkout', '-b', name, '--track', refPath], cwd, `Checked out ${name}.`);
+		}
+		if (plan.kind === 'checkoutOnly') {
+			const note = plan.note ? ` — ${plan.note}` : '';
+			return this.runGit(['checkout', name], cwd, `Checked out ${name}${note}.`);
+		}
+		if (!(await this.runGit(['checkout', name], cwd, `Checked out ${name}.`))) return false;
+		return this.runGit(
+			['merge', '--ff-only', refPath],
+			cwd,
+			`Fast-forwarded ${name} ${plan.count} commit${plan.count === 1 ? '' : 's'} to ${label}.`
+		);
+	}
+
+	/**
+	 * The user's **Fast-forward on checkout** setting, read fresh for every checkout.
+	 *
+	 * The stored blob is the whole preferences object the view saves — settings, columns, and the
+	 * rest — so the flag lives one level in. Reading it from the top level silently answered
+	 * `undefined` for a setting the user had turned off.
+	 */
+	private autoFastForwardEnabled(): boolean {
+		return this.readViewSettings()?.autoFastForwardOnCheckout !== false;
+	}
+
+	/**
+	 * Return to the branch the detached-HEAD banner named.
+	 *
+	 * `git checkout -` resolves `@{-1}` when it runs, not when the button was drawn, so a banner
+	 * left open across a checkout made elsewhere would send the user somewhere its label never
+	 * mentioned. Both halves of what it claimed are proved again here, immediately before acting;
+	 * either having moved means the view is stale, and a refresh says more than a surprise.
+	 */
+	private async checkoutPrevious(message: CommitActionMessage, cwd: string): Promise<boolean> {
+		const expected = message.expected;
+		if (!expected) {
+			vscode.window.showErrorMessage('Git Octopus: nothing recorded to go back to.');
 			return false;
+		}
+		const [head, branch, previous] = await Promise.all([
+			this.readGit(['rev-parse', 'HEAD'], cwd),
+			// Empty output means HEAD is detached, which is the state the banner was drawn for.
+			this.readGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], cwd, [1]),
+			this.readGit(['rev-parse', '--abbrev-ref', '@{-1}'], cwd),
+		]);
+		if (head !== expected.headHash || branch !== '' || previous !== expected.previousBranch) {
+			vscode.window.showErrorMessage(
+				`Git Octopus: the repository moved since that was shown — refusing to check out ${expected.previousBranch}.`
+			);
+			// Truthy so the caller refreshes: the view is what is wrong here, not the repository.
+			return true;
+		}
+		return this.runGit(
+			['checkout', END_OF_OPTIONS, expected.previousBranch],
+			cwd,
+			`Checked out ${expected.previousBranch}.`
+		);
+	}
+
+	/**
+	 * Whether this ref path belongs to exactly one configured remote — checked against git, not
+	 * against the split the view sent.
+	 *
+	 * Remote names may contain slashes, so `refs/remotes/team/origin/main` can be `team/origin`'s
+	 * `main` or `team`'s branch called `origin/main`. Both remotes' default refspecs write that one
+	 * ref, so whichever fetched last owns it and the name alone cannot say which. Acting anyway
+	 * would fetch from, or delete on, a remote the user did not point at.
+	 */
+	private async ownsRefUnambiguously(remote: RemoteBranchRef, cwd: string): Promise<boolean> {
+		const listRemotes = await this.listRemoteNames(cwd);
+		const listCandidates = listCandidateRemotes(remoteRefPath(remote), listRemotes);
+		if (listCandidates.length <= 1) return true;
+		vscode.window.showErrorMessage(
+			`Git Octopus: ${remoteRefPath(remote)} could belong to either of these remotes — ` +
+				`${listCandidates.join(' or ')} — so there is no telling which one to act on. ` +
+				'Rename one of them, or use the terminal.'
+		);
+		return false;
+	}
+
+	private async listRemoteNames(cwd: string): Promise<string[]> {
+		const output = await this.readGit(['remote'], cwd);
+		return output
+			.split('\n')
+			.map((line) => line.trim())
+			.filter((line) => line !== '');
+	}
+
+	/** Run a read-only command, answering '' for the exit codes that mean "no such thing". */
+	private async readGit(args: string[], cwd: string, listOkCodes?: number[]): Promise<string> {
+		try {
+			return (await this.executor.run(args, cwd, listOkCodes)).trim();
+		} catch {
+			return '';
 		}
 	}
 
-	private async currentBranch(cwd: string): Promise<string | null> {
+	private async branchExists(name: string, cwd: string): Promise<boolean> {
+		// `--verify --quiet` exits 1 for a ref that is not there, which is an answer, not a failure.
+		const output = await this.executor.run(
+			['rev-parse', '--verify', '--quiet', `refs/heads/${name}`],
+			cwd,
+			[1]
+		);
+		return output.trim() !== '';
+	}
+
+	private async aheadBehind(
+		local: string,
+		remote: string,
+		cwd: string
+	): Promise<{ ahead: number; behind: number }> {
 		try {
-			const name = (await this.executor.run(['symbolic-ref', '--short', 'HEAD'], cwd)).trim();
-			return name === '' ? null : name;
+			return parseAheadBehind(
+				await this.executor.run(
+					['rev-list', '--count', '--left-right', `${local}...${remote}`],
+					cwd
+				)
+			);
 		} catch {
-			// Detached HEAD: no branch to compare against, so every action checks one out first.
-			return null;
+			// No local branch yet, or no merge base — either way there is no gap to close.
+			return { ahead: 0, behind: 0 };
 		}
+	}
+
+	/**
+	 * Whether the working tree holds anything the user has not committed.
+	 *
+	 * Untracked files count. `merge --ff-only` will refuse rather than overwrite one, so a tree
+	 * the guard called clean could still turn a checkout into an error — and the setting promises
+	 * the fast-forward never runs while there is uncommitted work, which an untracked file is.
+	 * Ignored files stay out of it: `--porcelain` never lists them.
+	 */
+	private async isDirty(cwd: string): Promise<boolean> {
+		try {
+			const output = await this.executor.run(
+				['status', '--porcelain', '--untracked-files=normal'],
+				cwd
+			);
+			return output.trim() !== '';
+		} catch {
+			// Unreadable status is not proof of a clean tree; assume dirty and leave the branch alone.
+			return true;
+		}
+	}
+
+	/** Whether `target` is an ancestor of `source`, i.e. whether it can be fast-forwarded to it. */
+	public canFastForward(source: string, target: string, cwd: string): Promise<boolean> {
+		return this.rewriter.canFastForward(source, target, cwd);
 	}
 
 	private async runStashAction(
@@ -646,6 +769,44 @@ export class CommitActionService {
 		}
 	}
 
+	/**
+	 * Whether `ref` still points at the commit the menu was built over.
+	 *
+	 * A menu is a snapshot. It can sit open while a terminal moves a branch, force-moves a tag, or
+	 * deletes and recreates one — and every ref-scoped action names its ref by name, so without this
+	 * the delete would land on whatever the name means *now*. `message.hash` is empty for actions
+	 * raised from the repository tree, which names a ref with no commit in mind; there is nothing to
+	 * check against there, so those pass through.
+	 */
+	private async refStillAt(ref: string, hash: string, cwd: string): Promise<boolean> {
+		if (!hash) return true;
+		try {
+			// `^{commit}` so an annotated tag is compared by the commit it names, the way the graph
+			// drew it, rather than by the tag object's own hash.
+			const resolved = await this.executor.run(
+				['rev-parse', '--verify', '--quiet', `${ref}^{commit}`],
+				cwd
+			);
+			return resolved.trim() === hash;
+		} catch {
+			return false;
+		}
+	}
+
+	/** `refStillAt`, plus the message the user sees when it has moved. */
+	private async proveRefStillAt(
+		ref: string,
+		label: string,
+		hash: string,
+		cwd: string
+	): Promise<boolean> {
+		if (await this.refStillAt(ref, hash, cwd)) return true;
+		vscode.window.showErrorMessage(
+			`Git Octopus: ${label} no longer points at ${hash.slice(0, 7)} — it moved or was deleted since the menu opened. Refresh and try again.`
+		);
+		return false;
+	}
+
 	private async pickOne(
 		prompt: UserPrompt,
 		listChoices: string[],
@@ -658,6 +819,25 @@ export class CommitActionService {
 			listOptions: listChoices.map((choice) => ({ id: choice, label: choice })),
 		});
 		return listSelected?.[0];
+	}
+
+	/** The same choice over remote-tracking branches, picked by label but returned whole. */
+	private async pickRemote(
+		prompt: UserPrompt,
+		listChoices: RemoteBranchRef[],
+		title: string
+	): Promise<RemoteBranchRef | undefined> {
+		if (listChoices.length === 0) return undefined;
+		if (listChoices.length === 1) return listChoices[0];
+		const listSelected = await prompt.pickOptions({
+			title,
+			listOptions: listChoices.map((choice) => ({
+				id: remoteRefLabel(choice),
+				label: remoteRefLabel(choice),
+			})),
+		});
+		const picked = listSelected?.[0];
+		return listChoices.find((choice) => remoteRefLabel(choice) === picked);
 	}
 
 	private async askName(prompt: UserPrompt, title: string): Promise<string | undefined> {

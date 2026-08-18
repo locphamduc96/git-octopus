@@ -2,12 +2,15 @@ import * as vscode from 'vscode';
 import type { CommitActionMessage } from '@git-octopus/shared';
 import {
 	GitOctopusController,
-	GitOctopusViewProvider,
 	STATE_VIEW_SETTINGS,
-} from './adapters/vscode/GitOctopusViewProvider.js';
+} from './adapters/vscode/GitOctopusController.js';
+import { GitOctopusViewProvider } from './adapters/vscode/GitOctopusViewProvider.js';
 import { GitProcessExecutor } from './adapters/process/gitProcessExecutor.js';
 import { DiffService } from './adapters/vscode/DiffService.js';
-import { CommitActionService } from './adapters/vscode/CommitActionService.js';
+import {
+	CommitActionService,
+	readHostViewSettings,
+} from './adapters/vscode/CommitActionService.js';
 import { WorkingTreeService } from './adapters/vscode/WorkingTreeService.js';
 import { RepoActionService } from './adapters/vscode/RepoActionService.js';
 import { RepoTreeProvider, type RepoNode } from './adapters/vscode/RepoTreeProvider.js';
@@ -38,7 +41,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const askpass = await startAskpass(context);
 	const executor = new GitProcessExecutor(askpass);
 	const diff = new DiffService(executor);
-	const actions = new CommitActionService(executor);
+	// The stored blob is everything the view persists — settings, columns, panel state. Only the
+	// settings half is a preference the host acts on, so only that half is handed over.
+	const actions = new CommitActionService(executor, () =>
+		readHostViewSettings(context.globalState.get<unknown>(STATE_VIEW_SETTINGS))
+	);
 	const controller = new GitOctopusController(
 		context.extensionUri,
 		executor,
@@ -129,11 +136,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}),
 		vscode.commands.registerCommand('git-octopus.tree.checkoutRemote', (node: RepoNode) => {
 			if (node.kind === 'remoteBranch')
-				void runTreeAction({ action: 'checkoutRemote', remoteBranches: [node.fullName] });
+				void runTreeAction({
+					action: 'checkoutRemote',
+					remoteBranches: [{ remote: node.remote, branch: node.branch }],
+				});
 		}),
 		vscode.commands.registerCommand('git-octopus.tree.deleteRemoteBranch', (node: RepoNode) => {
 			if (node.kind === 'remoteBranch')
-				void runTreeAction({ action: 'deleteRemoteBranch', remoteBranches: [node.fullName] });
+				void runTreeAction({
+					action: 'deleteRemoteBranch',
+					remoteBranches: [{ remote: node.remote, branch: node.branch }],
+				});
 		}),
 		vscode.commands.registerCommand('git-octopus.tree.pushTag', (node: RepoNode) => {
 			if (node.kind === 'tag') void runTreeAction({ action: 'pushTag', tags: [node.name] });

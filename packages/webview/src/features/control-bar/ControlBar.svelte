@@ -37,6 +37,11 @@
 		onpush,
 		onpushForce,
 		onsequencer,
+		previousBranch,
+		headHash,
+		onbackToPreviousBranch,
+		onbranchFromHead,
+		onshowHead,
 		onsettings,
 		oncleanup,
 		identityLabel,
@@ -80,6 +85,13 @@
 		onpush: () => void;
 		onpushForce: () => void;
 		onsequencer: (action: SequencerActionMessage['action']) => void;
+		/** The branch HEAD left, offered as the way back while detached. */
+		previousBranch: string | null;
+		/** The commit HEAD points at — named in the detached banner. */
+		headHash: string | null;
+		onbackToPreviousBranch: () => void;
+		onbranchFromHead: () => void;
+		onshowHead: () => void;
 		onsettings: () => void;
 		/** Open the dialog that deletes local branches nobody has touched in months. */
 		oncleanup: () => void;
@@ -299,6 +311,25 @@
 				<button onclick={() => onsequencer('skip')}>Skip</button>
 			{/if}
 			<button onclick={() => onsequencer('abort')}>Abort</button>
+		</span>
+	</div>
+{/if}
+
+<!-- Detached HEAD says nothing about what to do next, and the way back is a command most people
+     look up. The bar that reports it carries the ways out. -->
+{#if !loading && currentBranch === null && headHash}
+	<div class="sequencer">
+		<Icon name="warning" />
+		<span class="state">Detached HEAD</span>
+		<span class="hint"
+			>— at {headHash.slice(0, 7)}, not on any branch; new commits belong to no branch</span
+		>
+		<span class="seq-actions">
+			{#if previousBranch}
+				<button class="primary" onclick={onbackToPreviousBranch}>Back to {previousBranch}</button>
+			{/if}
+			<button onclick={onbranchFromHead}>Branch from here</button>
+			<button onclick={onshowHead}>Show commit</button>
 		</span>
 	</div>
 {/if}

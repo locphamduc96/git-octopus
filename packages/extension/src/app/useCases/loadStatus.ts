@@ -3,6 +3,7 @@ import { pathExists } from '../../adapters/fs/pathExists.js';
 import {
 	getAheadBehind,
 	getCurrentBranch,
+	getPreviousBranch,
 	getHeadHash,
 	getRepoState,
 	getStatus,
@@ -25,13 +26,15 @@ export async function loadStatus(ctx: RepoContext): Promise<HostToWebview> {
 			activeRepo: null,
 		};
 	}
-	const [working, aheadBehind, repoState, currentBranch, headHash] = await Promise.all([
-		getStatus(ctx.executor, ctx.cwd),
-		getAheadBehind(ctx.executor, ctx.cwd),
-		getRepoState(ctx.executor, ctx.cwd, pathExists),
-		getCurrentBranch(ctx.executor, ctx.cwd),
-		getHeadHash(ctx.executor, ctx.cwd),
-	]);
+	const [working, aheadBehind, repoState, currentBranch, previousBranch, headHash] =
+		await Promise.all([
+			getStatus(ctx.executor, ctx.cwd),
+			getAheadBehind(ctx.executor, ctx.cwd),
+			getRepoState(ctx.executor, ctx.cwd, pathExists),
+			getCurrentBranch(ctx.executor, ctx.cwd),
+			getPreviousBranch(ctx.executor, ctx.cwd),
+			getHeadHash(ctx.executor, ctx.cwd),
+		]);
 	const changeCount = working.staged.length + working.unstaged.length;
 	return {
 		type: 'statusUpdate',
@@ -41,6 +44,7 @@ export async function loadStatus(ctx: RepoContext): Promise<HostToWebview> {
 		behind: aheadBehind.behind,
 		repoState,
 		currentBranch,
+		previousBranch,
 		headHash,
 	};
 }

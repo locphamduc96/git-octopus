@@ -27,6 +27,35 @@ export interface BranchRef {
 	remote: boolean;
 }
 
+/**
+ * A remote-tracking branch, as two fields rather than one `origin/main` string.
+ *
+ * Git allows a remote name to contain a slash (`team/origin`), so splitting the joined form at
+ * the first slash names the wrong branch, and it allows one to begin with `-`, which puts an
+ * option where a ref was meant to go. Neither is recoverable once the two have been flattened,
+ * so they never are.
+ */
+export interface RemoteBranchRef {
+	remote: string;
+	branch: string;
+}
+
+/**
+ * The unambiguous ref path — what to hand `git` as a revision.
+ *
+ * Always safe as a positional argument: it starts with `refs/`, so no remote name can turn it
+ * into an option, and the remote's own slashes stop mattering because nothing has to be split
+ * back out of it.
+ */
+export function remoteRefPath(ref: RemoteBranchRef): string {
+	return `refs/remotes/${ref.remote}/${ref.branch}`;
+}
+
+/** The familiar `origin/main` form — for reading, never for handing to git. */
+export function remoteRefLabel(ref: RemoteBranchRef): string {
+	return `${ref.remote}/${ref.branch}`;
+}
+
 /** How `git log` orders the walk. */
 export type CommitOrder = 'date' | 'authorDate' | 'topo';
 
@@ -135,6 +164,7 @@ export type CommitActionId =
 	| 'deleteBranch'
 	| 'checkoutBranch'
 	| 'checkoutRemote'
+	| 'checkoutPrevious'
 	| 'deleteRemoteBranch'
 	| 'fetchIntoLocal'
 	| 'stashApply'
@@ -142,7 +172,8 @@ export type CommitActionId =
 	| 'stashDrop'
 	| 'stashBranch'
 	| 'copyHash'
-	| 'copySubject';
+	| 'copySubject'
+	| 'copyRefName';
 
 export interface CommitActionMessage {
 	type: 'commitAction';
@@ -157,12 +188,24 @@ export interface CommitActionMessage {
 	subject: string;
 	/** Local branch names pointing at this commit (for the delete-branch action). */
 	branches: string[];
-	/** Remote-tracking branch names at this commit, e.g. "origin/main". */
-	remoteBranches: string[];
+	/** Remote-tracking branches at this commit, remote and branch kept apart. */
+	remoteBranches: RemoteBranchRef[];
 	/** Tag names at this commit (for the tag actions). */
 	tags?: string[];
 	/** Stash reference (e.g. "stash@{0}") when the commit is a stash. */
 	stashName?: string;
+	/**
+	 * The state the detached-HEAD banner was showing when its button was pressed, for
+	 * `checkoutPrevious`. The host re-reads both and refuses when either has moved: the banner can
+	 * sit on screen while a terminal checks something else out, and "Back to main" must not become
+	 * "back to wherever HEAD happens to have been".
+	 */
+	expected?: {
+		/** The branch the banner named. */
+		previousBranch: string;
+		/** The commit the banner said HEAD was detached at. */
+		headHash: string;
+	};
 }
 
 /**
@@ -226,8 +269,14 @@ export interface BranchActionMessage {
 	 */
 	repoPath: string;
 	action: BranchActionId;
-	/** The dragged branch: a local name, or a remote-tracking one such as "origin/main". */
+	/**
+	 * The dragged branch as git should be handed it: a local name, or the full
+	 * `refs/remotes/<remote>/<branch>` path — never the joined `origin/main` short form, which a
+	 * remote named with a slash or a leading dash makes ambiguous or dangerous.
+	 */
 	source: string;
+	/** The same branch as the user saw it named, for prompts and confirmations. */
+	sourceLabel: string;
 	/** The branch dropped onto — always local, since Git can only write a local ref. */
 	target: string;
 }
@@ -427,7 +476,6 @@ export interface CopyTextMessage {
 	label: string;
 }
 
-
 /**
  * A question the host asks the webview to render with the product's own dialogs (see
  * feature-040). Payloads are declarative data; the webview answers with `uiReply` carrying the
@@ -530,6 +578,11 @@ export interface CommitsMessage {
 	/** Branches offered in the Branch dropdown (local first, then remote). */
 	listBranches: BranchRef[];
 	currentBranch: string | null;
+	/**
+	 * The branch HEAD was on before the last checkout (`@{-1}`), or null when there is no such
+	 * entry. Only read while detached, where it is the way back.
+	 */
+	previousBranch: string | null;
 	/** The commit HEAD points at — null in an empty repository. */
 	headHash: string | null;
 	/** Commits the current branch is ahead of / behind its upstream. */
@@ -550,6 +603,7 @@ export interface StatusUpdateMessage {
 	behind: number;
 	repoState: RepoState | null;
 	currentBranch: string | null;
+	previousBranch: string | null;
 	/**
 	 * The commit HEAD points at. A status update whose HEAD differs from the last full load means
 	 * history changed without a graph reload — the sender upgrades to one instead of posting this.

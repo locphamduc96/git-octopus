@@ -4,7 +4,13 @@ import * as net from 'node:net';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { GitAuthContext } from '../../core/git/GitExecutor.js';
-import { classifyPrompt, decodeFrame, encodeFrame, MAX_FRAME_BYTES } from './askpassProtocol.js';
+import {
+	buildReply,
+	classifyPrompt,
+	decodeFrame,
+	encodeFrame,
+	MAX_FRAME_BYTES,
+} from './askpassProtocol.js';
 import type { PromptKind } from './askpassProtocol.js';
 
 /** A question on its way to the user, carrying only trusted context plus sanitized display text. */
@@ -12,6 +18,22 @@ export interface PromptRequest {
 	context: GitAuthContext;
 	kind: PromptKind;
 	display: string;
+	/**
+	 * Aborted once the asking git process is gone — timed out, killed, or finished another way.
+	 * A handler showing UI should close it: nothing it collects after this can be delivered.
+	 */
+	signal: AbortSignal;
+}
+
+/** Resolves when the connection behind a prompt gives up, so a turn can stop waiting on its UI. */
+function whenAborted(signal: AbortSignal): Promise<undefined> {
+	return new Promise((resolve) => {
+		if (signal.aborted) {
+			resolve(undefined);
+			return;
+		}
+		signal.addEventListener('abort', () => resolve(undefined), { once: true });
+	});
 }
 
 /** Answers a prompt, or returns undefined to refuse it (user cancelled). */
@@ -137,9 +159,16 @@ export class AskpassCore {
 		let buffer = '';
 		let answered = false;
 		const timeoutMs = this.options.promptTimeoutMs ?? PROMPT_TIMEOUT_MS;
-		const timer = setTimeout(() => socket.destroy(), timeoutMs);
+		// Destroying the socket ends the git process's wait, but says nothing to the prompt already
+		// on screen. Aborting is what releases the queue, so the next command can still ask.
+		const abort = new AbortController();
+		const timer = setTimeout(() => {
+			abort.abort();
+			socket.destroy();
+		}, timeoutMs);
 		const done = (): void => {
 			clearTimeout(timer);
+			abort.abort();
 			this.connections--;
 		};
 		socket.once('close', done);
@@ -154,11 +183,11 @@ export class AskpassCore {
 			const newline = buffer.indexOf('\n');
 			if (newline === -1) return;
 			answered = true;
-			this.answer(socket, buffer.slice(0, newline));
+			this.answer(socket, buffer.slice(0, newline), abort.signal);
 		});
 	}
 
-	private answer(socket: net.Socket, line: string): void {
+	private answer(socket: net.Socket, line: string, signal: AbortSignal): void {
 		const frame = decodeFrame(line);
 		const nonce = typeof frame?.nonce === 'string' ? frame.nonce : null;
 		const prompt = typeof frame?.prompt === 'string' ? frame.prompt : null;
@@ -170,23 +199,22 @@ export class AskpassCore {
 			return;
 		}
 		const { kind, display } = classifyPrompt(prompt);
-		const request: PromptRequest = { context: lease.context, kind, display };
+		const request: PromptRequest = { context: lease.context, kind, display, signal };
 		// One question at a time, in arrival order: the previous prompt resolves before the next
 		// is shown, whatever order their git processes finish in.
+		//
+		// The turn also ends when its own asker gives up, whether or not the handler ever answers.
+		// Chaining the queue on a handler that outlives its git process — a native input box left
+		// open past the timeout — would park every later credential request behind a question
+		// nobody can answer any more.
 		const turn = this.queueTail.then(async () => {
-			if (this.disposed || socket.destroyed) return;
-			let response: string | undefined;
-			try {
-				response = await this.promptHandler(request);
-			} catch {
-				response = undefined;
-			}
-			if (socket.destroyed) return;
-			socket.end(
-				response === undefined
-					? encodeFrame({ ok: false })
-					: encodeFrame({ ok: true, response })
-			);
+			if (this.disposed || socket.destroyed || signal.aborted) return;
+			const response = await Promise.race([
+				this.promptHandler(request).catch(() => undefined),
+				whenAborted(signal),
+			]);
+			if (socket.destroyed || signal.aborted) return;
+			socket.end(encodeFrame(buildReply(kind, response)));
 		});
 		this.queueTail = turn;
 	}

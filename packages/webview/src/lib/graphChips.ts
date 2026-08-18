@@ -1,8 +1,9 @@
-import type { Ref } from '@git-octopus/shared';
+import type { Ref, RemoteBranchRef } from '@git-octopus/shared';
+import { remoteRefLabel, remoteRefPath } from '@git-octopus/shared';
 
 /** One chip drawn in the Branch / Tag column, standing for one or more refs at a commit. */
 export interface RefChip {
-	kind: 'branch' | 'tag' | 'stash';
+	kind: 'branch' | 'tag' | 'stash' | 'head';
 	name: string;
 	checkedOut: boolean;
 	hasLocal: boolean;
@@ -21,6 +22,9 @@ export interface ChipGroups {
  * one chip carrying both markers, and the standalone HEAD ref is folded into a tick on the
  * checked-out branch instead of taking a chip of its own.
  *
+ * Detached HEAD is the exception. There is no branch for the tick to sit on, so it takes a chip —
+ * without one the graph says nothing at all about where the working tree is.
+ *
  * Ordering puts the chips a reader looks for first at the front: stash, then the checked-out
  * branch, then the branch last picked this session, then other local branches, then remote-only
  * ones, and tags last.
@@ -33,9 +37,24 @@ export function buildChips(
 	const mapBranches = new Map<string, RefChip>();
 	const listStashes: RefChip[] = [];
 	const listTags: RefChip[] = [];
+	const listHead: RefChip[] = [];
 
 	for (const ref of refs) {
-		if (ref.kind === 'head') continue;
+		if (ref.kind === 'head') {
+			if (currentBranch === null) {
+				listHead.push({
+					kind: 'head',
+					name: 'HEAD',
+					// Not `checkedOut`: that flag paints a chip in its branch's colour, and this chip
+					// has a colour of its own precisely because it is not a branch.
+					checkedOut: false,
+					hasLocal: false,
+					listRemotes: [],
+					title: 'HEAD is detached here — not on any branch',
+				});
+			}
+			continue;
+		}
 		if (ref.kind === 'tag' || ref.kind === 'stash') {
 			const chip: RefChip = {
 				kind: ref.kind,
@@ -73,7 +92,8 @@ export function buildChips(
 	const listBranches = [...mapBranches.values()].sort(
 		(a, b) => branchRank(a, lastPicked) - branchRank(b, lastPicked)
 	);
-	return [...listStashes, ...listBranches, ...listTags];
+	// HEAD leads: while detached it is the one thing on the row a reader is looking for.
+	return [...listHead, ...listStashes, ...listBranches, ...listTags];
 }
 
 /** Checked-out first, then the branch last picked this session, then local, then remote-only. */
@@ -91,4 +111,32 @@ export function splitChips(listChips: RefChip[]): ChipGroups {
 		listVisible: listChips.filter((chip) => !setOverflow.has(chip)),
 		listOverflow: listBranch.slice(1),
 	};
+}
+
+/** The remote-tracking branch a chip stands for, remote and branch kept apart. */
+export function chipRemote(chip: RefChip): RemoteBranchRef | null {
+	const remote = chip.listRemotes[0];
+	return remote ? { remote, branch: chip.name } : null;
+}
+
+/**
+ * The ref a chip stands for: its local name when it has one, else its first remote-tracking one.
+ *
+ * `ref` is what git is handed and `label` is what the user reads. They differ for a remote,
+ * where only the full path is unambiguous — a remote may be named with a slash in it, or with
+ * a leading dash that an option parser would swallow.
+ */
+export function chipRef(chip: RefChip): { ref: string; label: string } | null {
+	if (chip.hasLocal) return { ref: chip.name, label: chip.name };
+	const remote = chipRemote(chip);
+	return remote ? { ref: remoteRefPath(remote), label: remoteRefLabel(remote) } : null;
+}
+
+/**
+ * Only a local branch can be dropped onto: Git writes the target ref, and a remote-tracking ref
+ * is a copy of someone else's, not something this repository may move. `dragLabel` is the label
+ * of the chip being dragged, or null while nothing is.
+ */
+export function isDropTarget(chip: RefChip, dragLabel: string | null): boolean {
+	return dragLabel !== null && chip.kind === 'branch' && chip.hasLocal && chip.name !== dragLabel;
 }

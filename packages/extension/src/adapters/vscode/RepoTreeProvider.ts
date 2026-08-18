@@ -17,7 +17,15 @@ export type RepoNode =
 	| { kind: 'folder'; label: string; listChildren: RepoNode[] }
 	| { kind: 'branch'; name: string; hash: string; current: boolean; aheadBehind: string | null }
 	| { kind: 'remoteRoot'; name: string }
-	| { kind: 'remoteBranch'; fullName: string; label: string; hash: string }
+	| {
+			kind: 'remoteBranch';
+			/** Display only — `remote` and `branch` are what any git command is built from. */
+			fullName: string;
+			remote: string;
+			branch: string;
+			label: string;
+			hash: string;
+	  }
 	| { kind: 'tag'; name: string; hash: string }
 	| { kind: 'stash'; name: string; hash: string; message: string }
 	| { kind: 'submodule'; path: string; hash: string };
@@ -61,6 +69,8 @@ export class RepoTreeProvider implements vscode.TreeDataProvider<RepoNode> {
 						return {
 							kind: 'remoteBranch',
 							fullName: `${prefix}${fullName}`,
+							remote: node.name,
+							branch: fullName,
 							label: fullName.split('/').pop() ?? fullName,
 							hash: entry?.hash ?? '',
 						};

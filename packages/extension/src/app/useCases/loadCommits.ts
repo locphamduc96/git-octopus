@@ -7,7 +7,9 @@ import {
 	getBranchEntries,
 	getCommits,
 	getCurrentBranch,
+	getPreviousBranch,
 	getHeadHash,
+	getRemoteNames,
 	getRepoState,
 	getStashes,
 	getStatus,
@@ -42,6 +44,9 @@ export async function loadCommits(
 		};
 	}
 	try {
+		// Read before the walk: the decoration parser needs the configured remotes to know where a
+		// remote's name ends, and a remote may have a slash in it.
+		const listRemoteNames = await getRemoteNames(ctx.executor, ctx.cwd);
 		const listStashes =
 			(filters.showStashes ?? true) ? await getStashes(ctx.executor, ctx.cwd) : [];
 		// One commit past the limit answers "is there more?" without a second log walk.
@@ -52,6 +57,7 @@ export async function loadCommits(
 			listLocal,
 			listRemote,
 			currentBranch,
+			previousBranch,
 			aheadBehind,
 			repoState,
 		] = await Promise.all([
@@ -60,13 +66,15 @@ export async function loadCommits(
 				ctx.cwd,
 				limit + 1,
 				filters,
-				listStashes.map((stash) => stash.hash)
+				listStashes.map((stash) => stash.hash),
+				listRemoteNames
 			),
 			getStatus(ctx.executor, ctx.cwd),
 			getHeadHash(ctx.executor, ctx.cwd),
 			getBranchEntries(ctx.executor, ctx.cwd, 'refs/heads'),
 			getBranchEntries(ctx.executor, ctx.cwd, 'refs/remotes'),
 			getCurrentBranch(ctx.executor, ctx.cwd),
+			getPreviousBranch(ctx.executor, ctx.cwd),
 			getAheadBehind(ctx.executor, ctx.cwd),
 			getRepoState(ctx.executor, ctx.cwd, pathExists),
 		]);
@@ -104,6 +112,7 @@ export async function loadCommits(
 				...listRemote.map((entry) => ({ name: entry.name, hash: entry.hash, remote: true })),
 			],
 			currentBranch,
+			previousBranch,
 			headHash,
 			ahead: aheadBehind.ahead,
 			behind: aheadBehind.behind,

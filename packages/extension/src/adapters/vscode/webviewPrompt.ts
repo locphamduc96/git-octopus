@@ -29,7 +29,9 @@ export class WebviewPromptBroker implements UserPrompt {
 	private readonly mapPending = new Map<string, Pending>();
 
 	public constructor(
-		private readonly post: (message: UiRequestMessage | { type: 'uiDismiss'; requestId: string }) => void
+		private readonly post: (
+			message: UiRequestMessage | { type: 'uiDismiss'; requestId: string }
+		) => void
 	) {}
 
 	public async confirm(request: ConfirmRequest): Promise<boolean> {

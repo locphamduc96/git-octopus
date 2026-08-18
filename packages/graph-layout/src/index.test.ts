@@ -165,11 +165,11 @@ describe('layoutCommits', () => {
 		expect(graphWidth(listRows)).toBe(2);
 	});
 
-	it('lets a merged branch take a column an open branch has finished with', () => {
-		// Every branch here runs beside the trunk down to the commit it merges at, so a column only
-		// comes free once that meeting point is passed. `g1` opens after master's lane has met `b1`'s
-		// at m2, so it takes that column back rather than widening the graph — and so does the open
-		// `o1` further down, once g1's lane has closed at m3.
+	it('keeps the trunk in its lane while side branches share the column they free up', () => {
+		// Each branch runs beside the trunk down to the commit they share, and the trunk keeps its
+		// lane through every one of those fork points: b1's lane loses at m2 because the trunk's line
+		// into it starts higher, g1's because it is an offshoot, o1's again by line length. The freed
+		// column 0 is what the next branch moves into, so the graph still never widens.
 		const listRows = layoutCommits([
 			makeUncommitted(['b1']),
 			makeCommit('m1', ['m2', 'b1']),
@@ -183,8 +183,80 @@ describe('layoutCommits', () => {
 		const mapColumn = mapColumnsByHash(listRows);
 		expect(mapColumn.b1).toBe(0);
 		expect(mapColumn.m1).toBe(1);
-		expect(mapColumn.g1).toBe(1);
-		expect(mapColumn.o1).toBe(1);
+		expect(mapColumn.m2).toBe(1);
+		expect(mapColumn.g1).toBe(0);
+		expect(mapColumn.m3).toBe(1);
+		expect(mapColumn.o1).toBe(0);
+		expect(mapColumn.m4).toBe(1);
+		expect(graphWidth(listRows)).toBe(2);
+	});
+
+	it('keeps a trunk straight past the fork point it shares with the checked-out branch', () => {
+		// The ZagooForDevelopers shape: HEAD is on a feature branch, so the Uncommitted row claims
+		// column 0 and master opens at column 1. Master merges the feature twice on its way down, and
+		// both lanes converge at the fork point. Leftmost-wins would pull master into column 0 there;
+		// master's line into the fork starts higher (its last node merged a commit of the feature
+		// below it), so master keeps its lane and the feature's line bends into it.
+		const listRows = layoutCommits([
+			makeUncommitted(['f1']),
+			makeCommit('m1', ['m2', 'f1']),
+			makeBranchTip('f1', ['f2'], 'feature/checked-out'),
+			makeCommit('m2', ['fork', 'f2']),
+			makeCommit('f2', ['fork']),
+			makeCommit('fork', ['m3']),
+			makeCommit('m3', []),
+		]);
+		const mapColumn = mapColumnsByHash(listRows);
+		expect(mapColumn.m1).toBe(1);
+		expect(mapColumn.f1).toBe(0);
+		expect(mapColumn.m2).toBe(1);
+		expect(mapColumn.f2).toBe(0);
+		expect(mapColumn.fork).toBe(1);
+		expect(mapColumn.m3).toBe(1);
+		expect(graphWidth(listRows)).toBe(2);
+	});
+
+	it('keeps a trunk straight when the feature ran ahead before being merged', () => {
+		// The ZagooPayment shape: same as above but the feature carries two commits below the trunk's
+		// last merge, so the trunk waits for the fork point across several rows before the lines meet.
+		const listRows = layoutCommits([
+			makeUncommitted(['c1']),
+			makeCommit('m1', ['m2', 'c1']),
+			makeBranchTip('c1', ['c2'], 'feature/checked-out'),
+			makeCommit('m2', ['fork', 'c2']),
+			makeCommit('c2', ['c3']),
+			makeCommit('c3', ['fork']),
+			makeCommit('fork', ['m3']),
+			makeCommit('m3', []),
+		]);
+		const mapColumn = mapColumnsByHash(listRows);
+		expect(mapColumn.m1).toBe(1);
+		expect(mapColumn.m2).toBe(1);
+		expect([mapColumn.c1, mapColumn.c2, mapColumn.c3]).toEqual([0, 0, 0]);
+		expect(mapColumn.fork).toBe(1);
+		expect(mapColumn.m3).toBe(1);
+		expect(graphWidth(listRows)).toBe(2);
+	});
+
+	it('keeps a trunk straight past a once-merged branch living in a freed left column', () => {
+		// Single-merge flow: w1's lane closes, freeing column 0, and the trunk's next merge opens the
+		// branch it merged there — left of the trunk. That lane is an offshoot (born hanging off a
+		// merge node), so at the fork point the trunk wins even though it is the rightmost lane.
+		const listRows = layoutCommits([
+			makeUncommitted(['w1']),
+			makeBranchTip('m1', ['m2'], 'master'),
+			makeCommit('w1', []),
+			makeCommit('m2', ['fork', 'f1']),
+			makeCommit('f1', ['fork']),
+			makeCommit('fork', ['m3']),
+			makeCommit('m3', []),
+		]);
+		const mapColumn = mapColumnsByHash(listRows);
+		expect(mapColumn.m1).toBe(1);
+		expect(mapColumn.m2).toBe(1);
+		expect(mapColumn.f1).toBe(0);
+		expect(mapColumn.fork).toBe(1);
+		expect(mapColumn.m3).toBe(1);
 		expect(graphWidth(listRows)).toBe(2);
 	});
 

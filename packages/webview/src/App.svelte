@@ -14,6 +14,7 @@
 		GitIdentity,
 		GraphRow,
 		HostToWebview,
+		RemoteBranchRef,
 		RepoInfo,
 		UiRequestMessage,
 		RepoState,
@@ -24,11 +25,22 @@
 	import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 	import { layoutCommits } from '@git-octopus/graph-layout';
 	import { onHostMessage, postToHost, readState, writeState, STATE_VERSION } from './lib/bridge';
-	import type {
-		ColumnKey,
-		ColumnVisibility,
-		ColumnWidths,
-	} from './features/graph/GraphView.svelte';
+	import { buildHostFilters, commitsReplyMatches, loadSignature } from './lib/commitsGuard';
+	import { buildDiffKey, isCacheableDiffKey } from './lib/diffKey';
+	import { buildRefPayload } from './lib/refPayload';
+	import type { RefTarget } from './lib/graphMenu';
+	import { nextRowIndex } from './lib/keyNav';
+	import {
+		DEFAULT_VIEW_SETTINGS,
+		mergePreferences,
+		settingsRequireReload,
+		type ColumnKey,
+		type ColumnVisibility,
+		type ColumnWidths,
+		type GlobalPreferences,
+		type RepoIdentityState,
+		type ViewSettings,
+	} from './lib/viewSettings';
 	import ControlBar from './features/control-bar/ControlBar.svelte';
 	import DiffPanel from './features/diff/DiffPanel.svelte';
 	import FindWidget from './features/find/FindWidget.svelte';
@@ -40,14 +52,13 @@
 	} from './features/changes-panel/ChangesPanel.svelte';
 	import IdentityDialog from './features/settings/IdentityDialog.svelte';
 	import BranchCleanupDialog from './features/branch-cleanup/BranchCleanupDialog.svelte';
-	import SettingsWidget, {
-		type RepoIdentityState,
-		type ViewSettings,
-	} from './features/settings/SettingsWidget.svelte';
+	import SettingsWidget from './features/settings/SettingsWidget.svelte';
 	import type { FileViewMode } from './lib/fileTree';
 	import { fontFaceCss } from './lib/fileIcon';
 	import { guessThemeKind, langForPath, tokenizeHunks, type HighlightToken } from './lib/highlight';
-	import { identityMismatch, matchIdentity } from './lib/identity';
+	import { identityMismatch, listMatchedIdentities, matchIdentity } from './lib/identity';
+	import { planAutoApply } from './lib/identityAutoApply';
+	import { planReveal } from './lib/revealPlan';
 	import { selectRange } from './lib/squashRange';
 	import { fileIconTheme, setFileIconTheme } from './lib/stores/fileIcons.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
@@ -86,9 +97,14 @@
 	/** Grows as the user scrolls past the end; reset when the repo or page size changes. */
 	let graphLimit = $state(0);
 	let currentBranch = $state<string | null>(null);
+	/** Only meaningful while `currentBranch` is null: the branch the detached HEAD came from. */
+	let previousBranch = $state<string | null>(null);
+	let headHash = $state<string | null>(null);
 	let listBranches = $state<BranchRef[]>([]);
 	/** A branch pick waiting on more history, with the pages of it still worth loading. */
 	let pendingJump = $state<{ branch: BranchRef; pagesLeft: number } | null>(null);
+	/** The same, for the detached-HEAD banner's "Show commit". */
+	let pendingHeadReveal = $state<{ pagesLeft: number } | null>(null);
 	let notice = $state<string | null>(null);
 	let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 	const stored = readState();
@@ -120,46 +136,9 @@
 	let fileView = $state<FileViewMode>('tree');
 	let metaOpen = $state(false);
 	let settingsOpen = $state(false);
-	/**
-	 * The defaults, and nothing else. What the user actually chose arrives from the host as a
-	 * `viewSettings` message and is laid over these — one source of truth, so a stale copy in some
-	 * workspace can never win an argument with it.
-	 */
-	let settings = $state<ViewSettings>({
-		commitLimit: 300,
-		commitOrder: 'date',
-		dateFormat: 'dateTime',
-		dateType: 'commit',
-		graphStyle: 'rounded',
-		rowDensity: 'comfortable',
-		diffTarget: 'panel',
-		diffMode: 'compact',
-		fetchAvatars: false,
-		highlightBranchOnHover: true,
-		muteMergeCommits: false,
-		showTicketBadge: true,
-		showTypeBadge: true,
-		showRemoteBranches: true,
-		showTags: true,
-		showStashes: true,
-		showUncommitted: true,
-		scrollToHeadOnLoad: false,
-	});
-
-	/**
-	 * Preferences are the user's, not the folder's, so the host keeps them in global state and hands
-	 * them back on load. What stays local to this workspace is only what depends on it: the column
-	 * widths and the panel split, which are chosen for this window and this repository's ref names.
-	 *
-	 * Everything is spread over the defaults above, so a value saved by an older version — or by a
-	 * version that had a setting this one dropped — degrades to the default instead of breaking.
-	 */
-	interface GlobalPreferences {
-		settings: ViewSettings;
-		columns: ColumnVisibility;
-		fileView: FileViewMode;
-		metaOpen: boolean;
-	}
+	// The defaults live in `lib/viewSettings`; the user's choices arrive as a `viewSettings`
+	// message and are laid over them by `mergePreferences`.
+	let settings = $state<ViewSettings>({ ...DEFAULT_VIEW_SETTINGS });
 
 	/**
 	 * What the host has, as far as this view knows. Two open panels each save and each receive the
@@ -178,19 +157,17 @@
 	function applyPreferences(stored: Record<string, unknown> | null): void {
 		preferencesLoaded = true;
 		if (stored) {
-			const next = stored as Partial<GlobalPreferences>;
-			// Spread over the defaults rather than replacing them: a setting this version added is
-			// simply missing from an older blob, and must land on its default instead of `undefined`.
-			if (next.settings) settings = { ...settings, ...next.settings };
-			if (next.columns) columns = { ...columns, ...next.columns };
-			if (next.fileView) fileView = next.fileView;
-			if (typeof next.metaOpen === 'boolean') metaOpen = next.metaOpen;
+			const merged = mergePreferences({ settings, columns, fileView, metaOpen }, stored);
+			settings = merged.settings;
+			columns = merged.columns;
+			fileView = merged.fileView;
+			metaOpen = merged.metaOpen;
 			syncedPreferences = preferencesJson();
 			// The first load went out with the defaults, because the saved settings only arrive in
 			// answer to it. When they change what the host walk produces — order, limit, stashes,
 			// avatars — that first answer is already wrong, so ask again with the real settings.
 			// Self-limiting: once the loaded data matches the settings, the signatures agree.
-			if (loadSignature() !== lastLoadSignature) {
+			if (currentLoadSignature() !== lastLoadSignature) {
 				graphLimit = 0;
 				load();
 			}
@@ -217,37 +194,9 @@
 
 	$effect(savePreferences);
 
-	/** The filter payload sent with every loadCommits — settings the host walk depends on. */
-	function hostFilters() {
-		return {
-			branch: null,
-			showRemoteBranches: settings.showRemoteBranches,
-			fetchAvatars: settings.fetchAvatars,
-			commitOrder: settings.commitOrder,
-			showTags: settings.showTags,
-			showStashes: settings.showStashes,
-			showUncommitted: settings.showUncommitted,
-		};
-	}
-
-	/**
-	 * Whether a commits reply was walked with what this view is asking for now. Loads run
-	 * concurrently on the host, so a reply carrying old filters — or less history than the view
-	 * has — can land after the one that superseded it, and must not repaint the graph.
-	 */
-	function commitsReplyMatches(reply: { limit?: number; filters?: GraphFilters }): boolean {
-		if (reply.limit !== undefined && reply.limit < graphLimit) return false;
-		const echoed = reply.filters;
-		if (!echoed) return true;
-		const wanted = hostFilters();
-		return (
-			echoed.showRemoteBranches === wanted.showRemoteBranches &&
-			(echoed.fetchAvatars ?? false) === wanted.fetchAvatars &&
-			(echoed.commitOrder ?? 'date') === wanted.commitOrder &&
-			(echoed.showTags ?? true) === wanted.showTags &&
-			(echoed.showStashes ?? true) === wanted.showStashes &&
-			(echoed.showUncommitted ?? true) === wanted.showUncommitted
-		);
+	/** Always read live: the guard compares a reply against what the view wants *now*. */
+	function hostFilters(): GraphFilters {
+		return buildHostFilters(settings);
 	}
 
 	let repoIdentity = $state<RepoIdentityState | null>(null);
@@ -381,16 +330,6 @@
 		});
 	});
 
-	/**
-	 * Only a diff pinned to commit hashes may be cached: its content can never change. A working
-	 * tree or untracked diff has no revision in its key, so a cached copy would keep showing the
-	 * file as it was the first time it was opened.
-	 */
-	function isCacheableDiffKey(key: string): boolean {
-		const [hash, fromHash, toHash] = key.split('|');
-		return hash !== '' || (fromHash !== '' && toHash !== '');
-	}
-
 	let scrollTarget = $state<{ hash: string; nonce: number } | null>(null);
 	/** The host's last answer about whether a drop could fast-forward, keyed by the question's nonce. */
 	let fastForward = $state<{ nonce: number; canFastForward: boolean } | null>(null);
@@ -470,26 +409,7 @@
 		const fromHash = rangeEnd ?? selectedHash;
 		const current = fromHash ? visibleRows.findIndex((row) => row.commit.hash === fromHash) : -1;
 		const last = visibleRows.length - 1;
-		let next: number;
-		switch (event.key) {
-			case 'ArrowUp':
-				next = current <= 0 ? 0 : current - 1;
-				break;
-			case 'ArrowDown':
-				next = current === -1 ? 0 : Math.min(last, current + 1);
-				break;
-			case 'PageUp':
-				next = Math.max(0, (current === -1 ? 0 : current) - PAGE_JUMP);
-				break;
-			case 'PageDown':
-				next = Math.min(last, (current === -1 ? 0 : current) + PAGE_JUMP);
-				break;
-			case 'Home':
-				next = 0;
-				break;
-			default:
-				next = last;
-		}
+		const next = nextRowIndex(event.key, current, last, PAGE_JUMP);
 		const hash = visibleRows[next].commit.hash;
 		if (event.shiftKey && selectedHash) selectRangeTo(hash);
 		else select(hash);
@@ -509,7 +429,7 @@
 		const off = onHostMessage((message: HostToWebview) => {
 			switch (message.type) {
 				case 'commits': {
-					if (!commitsReplyMatches(message)) break;
+					if (!commitsReplyMatches(message, hostFilters(), graphLimit)) break;
 					// Another view switched the controller to a different repository. Everything built
 					// over the old one — the keyed graph (menus, drag state), dialogs, selection, the
 					// open diff — closes now, so no stale payload can be stamped with the new repo.
@@ -518,6 +438,7 @@
 						cleanupInventory = null;
 						cleanupResults = null;
 						pendingCheckout = null;
+						pendingHeadReveal = null;
 						// Questions asked over the old repository die with it.
 						for (const item of listUiQueue) {
 							postToHost({ type: 'uiReply', requestId: item.requestId, cancelled: true });
@@ -555,11 +476,14 @@
 					repos = message.repos;
 					activeRepo = message.activeRepo;
 					currentBranch = message.currentBranch;
+					previousBranch = message.previousBranch;
+					headHash = message.headHash;
 					listBranches = message.listBranches;
 					ahead = message.ahead;
 					behind = message.behind;
 					status = 'ready';
 					if (pendingJump) jumpToBranch(pendingJump.branch, pendingJump.pagesLeft - 1);
+					if (pendingHeadReveal) showHead(pendingHeadReveal.pagesLeft - 1);
 					break;
 				}
 				case 'statusUpdate': {
@@ -570,6 +494,8 @@
 					behind = message.behind;
 					repoState = message.repoState;
 					currentBranch = message.currentBranch;
+					previousBranch = message.previousBranch;
+					headHash = message.headHash;
 					// Rebuilt only when there is an uncommitted row to relabel: reassigning `rows` is
 					// what every graph derivation hangs off, so a no-op update should not touch it.
 					if (rows.some((row) => row.commit.isUncommitted)) {
@@ -655,6 +581,7 @@
 						globalEmail: message.globalEmail,
 					};
 					listIdentities = message.listIdentities;
+					maybeAutoApplyIdentity();
 					break;
 				}
 				case 'branchInventory': {
@@ -742,8 +669,8 @@
 	/** What the last loadCommits was actually asked with, to compare against saved settings. */
 	let lastLoadSignature = '';
 
-	function loadSignature(): string {
-		return JSON.stringify({ base: settings.commitLimit, filters: hostFilters() });
+	function currentLoadSignature(): string {
+		return loadSignature(settings.commitLimit, hostFilters());
 	}
 
 	function load(): void {
@@ -752,7 +679,7 @@
 		if (stallTimer) clearTimeout(stallTimer);
 		stallTimer = setTimeout(() => (stalled = status === 'loading'), STALL_MS);
 		if (graphLimit < settings.commitLimit) graphLimit = settings.commitLimit;
-		lastLoadSignature = loadSignature();
+		lastLoadSignature = currentLoadSignature();
 		postToHost({ type: 'loadCommits', limit: graphLimit, filters: hostFilters() });
 		postToHost({ type: 'loadIdentity' });
 	}
@@ -760,7 +687,7 @@
 	/** One more page of history, without tearing the graph down into a loading screen. */
 	function loadMore(): void {
 		graphLimit += settings.commitLimit;
-		lastLoadSignature = loadSignature();
+		lastLoadSignature = currentLoadSignature();
 		postToHost({ type: 'loadCommits', limit: graphLimit, filters: hostFilters() });
 	}
 
@@ -771,6 +698,29 @@
 			name: identity.name,
 			email: identity.email,
 		});
+	}
+
+	/**
+	 * One attempt per repo-and-identity: a successful apply comes back as an identity message that
+	 * no longer asks for anything, but a *failed* one comes back unchanged — and without this the
+	 * view would retry the same doomed apply on every identity reply, forever.
+	 */
+	let lastAutoApplyKey = '';
+
+	function maybeAutoApplyIdentity(): void {
+		if (!repoIdentity) return;
+		const plan = planAutoApply({
+			enabled: settings.autoApplyIdentity,
+			hasLocalOverride: repoIdentity.hasLocalName || repoIdentity.hasLocalEmail,
+			activeEmail: repoIdentity.email,
+			listMatched: listMatchedIdentities(listIdentities, repoIdentity.listRemoteUrls),
+		});
+		if (plan.kind !== 'apply') return;
+		const key = `${activeRepo ?? ''}|${plan.identity.email}`;
+		if (key === lastAutoApplyKey) return;
+		lastAutoApplyKey = key;
+		applyIdentity(plan.identity);
+		showNotice(`Auto-applied identity "${plan.identity.label}" to this repository.`);
 	}
 
 	function clearIdentityOverride(): void {
@@ -836,14 +786,7 @@
 
 	function requestDiff(target: DiffTargetState): void {
 		const context = settings.diffMode === 'full' ? FULL_CONTEXT : 3;
-		const key = [
-			target.hash ?? '',
-			target.fromHash ?? '',
-			target.toHash ?? '',
-			target.untracked ? 'u' : '',
-			context,
-			target.path,
-		].join('|');
+		const key = buildDiffKey(target, context);
 		diffKey = key;
 		const cached = mapDiffCache.get(key);
 		if (cached) {
@@ -919,6 +862,7 @@
 
 	function selectRepo(path: string): void {
 		status = 'loading';
+		pendingHeadReveal = null;
 		selectedHash = null;
 		details = null;
 		graphLimit = 0;
@@ -985,13 +929,65 @@
 		postToHost({ type: 'sequencerAction', repoPath: activeRepo ?? '', action });
 	}
 
-	let pendingCheckout = $state<{ local: string | null; remote: string | null } | null>(null);
+	/** The three ways out of a detached HEAD, offered by the bar that reports it. */
+	function runHeadAction(action: 'checkoutPrevious' | 'createBranch'): void {
+		if (!headHash) return;
+		postToHost({
+			type: 'commitAction',
+			repoPath: activeRepo ?? '',
+			action,
+			hash: headHash,
+			subject: '',
+			branches: [],
+			remoteBranches: [],
+			// What the banner was claiming when it was pressed. The host proves both again before
+			// it moves HEAD, so a banner left open across a checkout made elsewhere cannot send the
+			// user somewhere its own label never named.
+			expected:
+				action === 'checkoutPrevious' && previousBranch ? { previousBranch, headHash } : undefined,
+		});
+	}
+
+	/**
+	 * Scroll to the commit HEAD is detached at, loading more history until it turns up.
+	 *
+	 * The banner can name a commit the graph has not walked to yet — the loaded page ends above it
+	 * — and selecting a row that is not there would be a button that does nothing. Same paging as
+	 * a branch jump, and the same admission when it runs out.
+	 */
+	function showHead(pagesLeft = JUMP_PAGES): void {
+		pendingHeadReveal = null;
+		if (!headHash) return;
+		const hash = headHash;
+		const step = planReveal({
+			loaded: rows.some((item) => item.commit.hash === hash),
+			hasMore,
+			pagesLeft,
+		});
+		if (step.kind === 'reveal') {
+			// A find query the target does not match would hide the very row being revealed.
+			if (findOpen && !visibleRows.some((item) => item.commit.hash === hash)) closeFind();
+			select(hash);
+			scrollTo(hash);
+			return;
+		}
+		if (step.kind === 'loadMore') {
+			pendingHeadReveal = { pagesLeft };
+			loadMore();
+			return;
+		}
+		showNotice(`${hash.slice(0, 7)} is not in the loaded history.`);
+	}
+
+	let pendingCheckout = $state<{ local: string | null; remote: RemoteBranchRef | null } | null>(
+		null
+	);
 	/** Branch name most recently checked out this session — wins the collapsed chip slot. */
 	let lastPickedBranch = $state<string | null>(null);
 
 	const changeCount = $derived(working ? working.staged.length + working.unstaged.length : 0);
 
-	function checkoutBranch(local: string | null, remote: string | null): void {
+	function checkoutBranch(local: string | null, remote: RemoteBranchRef | null): void {
 		// Uncommitted work follows you across a checkout, or blocks it — worth a heads-up first.
 		if (changeCount > 0) {
 			pendingCheckout = { local, remote };
@@ -1000,9 +996,9 @@
 		runCheckout(local, remote);
 	}
 
-	function runCheckout(local: string | null, remote: string | null): void {
+	function runCheckout(local: string | null, remote: RemoteBranchRef | null): void {
 		pendingCheckout = null;
-		lastPickedBranch = local ?? (remote ? remote.slice(remote.indexOf('/') + 1) : null);
+		lastPickedBranch = local ?? remote?.branch ?? null;
 		postToHost({
 			type: 'commitAction',
 			repoPath: activeRepo ?? '',
@@ -1054,31 +1050,62 @@
 		});
 	}
 
-	function runBranchAction(action: BranchActionId, source: string, target: string): void {
-		postToHost({ type: 'branchAction', repoPath: activeRepo ?? '', action, source, target });
+	function runBranchAction(
+		action: BranchActionId,
+		source: string,
+		sourceLabel: string,
+		target: string
+	): void {
+		postToHost({
+			type: 'branchAction',
+			repoPath: activeRepo ?? '',
+			action,
+			source,
+			sourceLabel,
+			target,
+		});
 	}
 
 	function checkFastForward(source: string, target: string, nonce: number): void {
 		postToHost({ type: 'checkFastForward', source, target, nonce });
 	}
 
-	function runAction(action: CommitActionId, commit: Commit): void {
+	/**
+	 * Run a commit action, optionally narrowed to one ref.
+	 *
+	 * Without `target` the payload carries every ref on the commit, which is right for the actions
+	 * that are about the commit itself. With one — every action reached from a ref chip or a ref
+	 * submenu — the lists hold exactly that ref, so the host never has to ask which one was meant.
+	 * The right-click already answered that, and re-asking is where the wrong branch gets deleted.
+	 */
+	function runAction(action: CommitActionId, commit: Commit, target?: RefTarget): void {
 		const stashRef = commit.refs.find((ref) => ref.kind === 'stash');
+		const narrowed = target ? buildRefPayload(target) : null;
 		postToHost({
 			type: 'commitAction',
 			repoPath: activeRepo ?? '',
 			action,
 			hash: commit.hash,
 			subject: commit.subject,
-			branches: commit.refs
-				.filter((ref) => ref.kind === 'branch' && !ref.remote)
-				.map((ref) => (ref.kind === 'branch' ? ref.name : '')),
-			remoteBranches: commit.refs
-				.filter((ref) => ref.kind === 'branch' && ref.remote)
-				.map((ref) => (ref.kind === 'branch' ? `${ref.remote}/${ref.name}` : '')),
-			tags: commit.refs
-				.filter((ref) => ref.kind === 'tag')
-				.map((ref) => (ref.kind === 'tag' ? ref.name : '')),
+			branches:
+				narrowed?.listBranches ??
+				commit.refs
+					.filter((ref) => ref.kind === 'branch' && !ref.remote)
+					.map((ref) => (ref.kind === 'branch' ? ref.name : '')),
+			remoteBranches:
+				narrowed?.listRemoteBranches ??
+				commit.refs
+					.filter((ref) => ref.kind === 'branch' && ref.remote !== undefined)
+					.map((ref) =>
+						ref.kind === 'branch' && ref.remote !== undefined
+							? { remote: ref.remote, branch: ref.name }
+							: { remote: '', branch: '' }
+					),
+			tags:
+				narrowed?.listTags ??
+				commit.refs
+					.filter((ref) => ref.kind === 'tag')
+					.map((ref) => (ref.kind === 'tag' ? ref.name : '')),
 			stashName: stashRef?.kind === 'stash' ? stashRef.name : undefined,
 		});
 	}
@@ -1129,12 +1156,14 @@
 	{/if}
 
 	{#if pendingCheckout}
+		<!-- The branch is deliberately not named. A remote chip may stand for a local branch that has
+		     fallen behind and sits on another row, and only the host can tell — naming the chip here
+		     would promise `origin/x` and then check out `x`. -->
 		<ConfirmDialog
 			title="Check out branch"
 			message="You have {changeCount} uncommitted change{changeCount === 1
 				? ''
-				: 's'}. They will be carried over to {pendingCheckout.local ??
-				pendingCheckout.remote}, and the checkout will fail if any of them conflict. Continue?"
+				: 's'}. They will be carried over to the branch you check out, and the checkout will fail if any of them conflict. Continue?"
 			confirmLabel="Check out"
 			onconfirm={() => runCheckout(pendingCheckout!.local, pendingCheckout!.remote)}
 			oncancel={() => (pendingCheckout = null)}
@@ -1151,15 +1180,7 @@
 			onclearIdentityOverride={clearIdentityOverride}
 			onsaveIdentities={saveIdentities}
 			onchange={(next) => {
-				// Fields the host's log walk depends on force a reload; pure view settings do not.
-				const reload =
-					next.commitLimit !== settings.commitLimit ||
-					next.fetchAvatars !== settings.fetchAvatars ||
-					next.commitOrder !== settings.commitOrder ||
-					next.showRemoteBranches !== settings.showRemoteBranches ||
-					next.showTags !== settings.showTags ||
-					next.showStashes !== settings.showStashes ||
-					next.showUncommitted !== settings.showUncommitted;
+				const reload = settingsRequireReload(settings, next);
 				if (next.commitLimit !== settings.commitLimit) graphLimit = 0;
 				const diffModeChanged = next.diffMode !== settings.diffMode;
 				settings = next;
@@ -1244,6 +1265,11 @@
 					onpushForce={() =>
 						postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'pushForce' })}
 					onsequencer={runSequencer}
+					{previousBranch}
+					{headHash}
+					onbackToPreviousBranch={() => runHeadAction('checkoutPrevious')}
+					onbranchFromHead={() => runHeadAction('createBranch')}
+					onshowHead={() => showHead()}
 					onsettings={() => (settingsOpen = true)}
 					{identityLabel}
 					{identityWarning}

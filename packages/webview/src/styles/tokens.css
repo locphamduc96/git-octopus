@@ -169,6 +169,8 @@ body,
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 	font-size: 0.9em;
 	line-height: 1.4;
+	/* Multi-line tooltips break on their own newlines; single-line ones are unaffected. */
+	white-space: pre-line;
 	pointer-events: none;
 }
 

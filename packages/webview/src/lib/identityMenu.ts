@@ -16,6 +16,8 @@ export interface IdentityMenuItem {
 	id: string;
 	label: string;
 	separatorBefore?: boolean;
+	/** The identity Git is committing with; the menu draws its tick against the right edge. */
+	checked?: boolean;
 }
 
 export interface IdentityMenuInput {
@@ -52,7 +54,8 @@ export function buildIdentityMenu(input: IdentityMenuInput): IdentityMenuItem[] 
 	listIdentities.forEach((item, index) => {
 		listItems.push({
 			id: String(index),
-			label: `${item.label} — ${item.email}${item.email === activeEmail ? '   ✓' : ''}`,
+			label: `${item.label} — ${item.email}`,
+			checked: item.email === activeEmail,
 			separatorBefore: index === 0 && suggestedIdentity !== null,
 		});
 	});
@@ -60,7 +63,8 @@ export function buildIdentityMenu(input: IdentityMenuInput): IdentityMenuItem[] 
 	if (activeEmail && !listIdentities.some((item) => item.email === activeEmail)) {
 		listItems.push({
 			id: IDENTITY_ITEM.unsavedCurrent,
-			label: `${activeEmail} — from Git config   ✓`,
+			label: `${activeEmail} — from Git config`,
+			checked: true,
 			separatorBefore: listIdentities.length > 0,
 		});
 	}

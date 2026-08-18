@@ -10,9 +10,11 @@ View a Git graph of your repository and perform Git actions from it, inside Visu
 ## Features
 
 - **Commit graph** with branch lanes and colours, author avatars on the nodes, stash and
-  uncommitted-changes entries, and resizable columns you can switch off. Ticket references
-  (`[GAME-421]`) and conventional-commit types (`feat`, `fix`, `chore`, …) render as chips, and
-  hovering a row or branch chip highlights that branch's whole line.
+  uncommitted-changes entries, and resizable columns you can switch off. Four lane styles —
+  rounded, curved, angular, diagonal. Ticket references (`[GAME-421]`) and conventional-commit
+  types (`feat`, `fix`, `chore`, …) render as chips, and hovering a row or branch chip highlights
+  that branch's whole line. Rest on an avatar to see who wrote the commit. A long-lived branch
+  keeps its own lane through fork points instead of drifting left.
 - **Commit details**: message, author and committer, parents, and the changed files as a flat list or
   a folder tree — with the file icons from whichever icon theme you already use.
 - **Working tree**: stage, unstage and discard per file, stage or unstage everything, stash, commit,
@@ -21,9 +23,24 @@ View a Git graph of your repository and perform Git actions from it, inside Visu
   overview ruler of every change — or Ctrl/Cmd + click a second commit to compare two commits.
 - **Git actions**: checkout, branch, merge, rebase, cherry-pick, revert, reset, tag, and the stash
   actions, from the commit's context menu; drag one branch chip onto another to merge, rebase or
-  fast-forward; fetch, pull, push and force-push ask before running.
+  fast-forward; fetch, pull, push and force-push ask before running. Merge options, squash and
+  reword messages and the confirmations are asked in the view's own dialogs, with a real
+  multi-line editor for commit messages.
+- **Refs where you clicked them**: right-click a branch, remote branch or tag chip and the menu
+  belongs to that ref, named in the label — no second question about which ref you meant. Hover the
+  ref column and it unfolds, every ref on the row at full length, still draggable and still
+  right-clickable.
+- **Checkout that keeps up**: checking a branch out from its remote finds the local branch even
+  when it has fallen behind, and brings it up to date in the same step — never over uncommitted
+  work, and switchable off. A detached HEAD is marked in the graph, with one click back to the
+  branch you left.
+- **Remotes that ask for credentials** work without a terminal: git's prompt is answered through
+  VS Code, and nothing secret reaches a log or notification.
 - **Branch cleanup**: scan local branches by age, see which are merged or have lost their remote,
   and delete a batch in one pass — every result comes back with the hash to undo it.
+- **Git identities per repository**: keep an identity per client, each with one or more remote
+  patterns, and apply it to a repository without touching your global config — optionally applied
+  on its own when a repository's remote matches exactly one of them.
 - **Find** with Ctrl+F, several repositories in one workspace, and a view you can open as an editor
   tab.
 
@@ -47,7 +64,7 @@ View a Git graph of your repository and perform Git actions from it, inside Visu
 
 ## Requirements
 
-VS Code 1.90 or newer and `git` on your PATH.
+VS Code 1.90 or newer, and `git` 2.24 or newer on your PATH.
 
 ## Privacy
 

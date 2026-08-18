@@ -1,55 +1,16 @@
 <script lang="ts">
-	import type { DateFormat as CommitDateFormat } from '../../lib/commitDate';
-
-	/** Owned by `lib/commitDate`, where the formatting lives; re-named here for the settings API. */
-	export type DateFormat = CommitDateFormat;
-	export type GraphStyle = 'rounded' | 'angular' | 'diagonal';
-	/** How tall a commit row is drawn — named for the space around the text, not a pixel count. */
-	export type RowDensity = 'compact' | 'comfortable' | 'spacious';
-	/** Where a file diff opens: a VS Code editor tab, or the panel in place of the graph. */
-	export type DiffTarget = 'editor' | 'panel';
-	/** How much of the file the diff panel draws. */
-	export type DiffMode = 'compact' | 'full';
-	/** Which of a commit's two dates the Date column shows. */
-	export type DateType = 'commit' | 'author';
-
-	export interface ViewSettings {
-		commitLimit: number;
-		commitOrder: CommitOrder;
-		dateFormat: DateFormat;
-		dateType: DateType;
-		graphStyle: GraphStyle;
-		rowDensity: RowDensity;
-		diffTarget: DiffTarget;
-		diffMode: DiffMode;
-		fetchAvatars: boolean;
-		highlightBranchOnHover: boolean;
-		muteMergeCommits: boolean;
-		/** Off for either one leaves that part of the subject as plain text. */
-		showTicketBadge: boolean;
-		showTypeBadge: boolean;
-		showRemoteBranches: boolean;
-		showTags: boolean;
-		showStashes: boolean;
-		showUncommitted: boolean;
-		scrollToHeadOnLoad: boolean;
-	}
-
-	/** The active repository's effective Git identity, as reported by the host. */
-	export interface RepoIdentityState {
-		name: string | null;
-		email: string | null;
-		hasLocalName: boolean;
-		hasLocalEmail: boolean;
-		listRemoteUrls: string[];
-		/** The global config's identity, reported even while a local override hides it. */
-		globalName: string | null;
-		globalEmail: string | null;
-	}
-
 	import type { CommitOrder, GitIdentity } from '@git-octopus/shared';
 	import IconButton from '../../lib/ui/IconButton.svelte';
-	import { remoteHost } from '../../lib/identity';
+	import IdentitySection from './IdentitySection.svelte';
+	import type {
+		DateFormat,
+		DateType,
+		DiffTarget,
+		GraphStyle,
+		RepoIdentityState,
+		RowDensity,
+		ViewSettings,
+	} from '../../lib/viewSettings';
 
 	let {
 		settings,
@@ -100,68 +61,6 @@
 		{ id: 'identity', label: 'Identity' },
 	];
 	let tab = $state<Tab>('general');
-
-	/**
-	 * Which card is being edited: an index into the list, or `'new'` for the one being added. Only
-	 * ever one at a time, so a single draft serves both.
-	 */
-	let editing = $state<number | 'new' | null>(null);
-	let draft = $state({ label: '', name: '', email: '', hostPattern: '' });
-
-	/**
-	 * The host of this repo's first remote, shown beside the pattern field for reference only. It is
-	 * never filled in: which repositories an identity covers is the user's call, not a guess.
-	 */
-	const currentHost = $derived(
-		identity?.listRemoteUrls.map(remoteHost).find((host) => host !== null) ?? null
-	);
-
-	function startAddIdentity(): void {
-		draft = { label: '', name: '', email: '', hostPattern: '' };
-		editing = 'new';
-	}
-
-	/** Whether this repository's own config overrides the global identity. */
-	const overridden = $derived(identity?.hasLocalName === true || identity?.hasLocalEmail === true);
-	const hasGlobal = $derived((identity?.globalName ?? identity?.globalEmail ?? null) !== null);
-
-	function startEditIdentity(index: number): void {
-		const item = listIdentities[index];
-		draft = {
-			label: item.label,
-			name: item.name,
-			email: item.email,
-			hostPattern: item.hostPattern ?? '',
-		};
-		editing = index;
-	}
-
-	function saveDraftIdentity(): void {
-		const hostPattern = draft.hostPattern.trim();
-		const next: GitIdentity = {
-			label: draft.label.trim(),
-			name: draft.name.trim(),
-			email: draft.email.trim(),
-			...(hostPattern !== '' ? { hostPattern } : {}),
-		};
-		onsaveIdentities(
-			editing === 'new'
-				? [...listIdentities, next]
-				: listIdentities.map((item, index) => (index === editing ? next : item))
-		);
-		editing = null;
-	}
-
-	function deleteIdentity(target: GitIdentity): void {
-		editing = null;
-		onsaveIdentities(listIdentities.filter((item) => item !== target));
-	}
-
-	const identitySource = $derived(
-		identity && (identity.hasLocalName || identity.hasLocalEmail)
-			? 'set for this repository'
-			: 'inherited from the global Git config'
-	);
 </script>
 
 <svelte:window
@@ -169,40 +68,6 @@
 		if (event.key === 'Escape') onclose();
 	}}
 />
-
-{#snippet identityForm()}
-	<div class="id-form">
-		<label>
-			Label
-			<input placeholder="Work, Personal…" bind:value={draft.label} />
-		</label>
-		<label>
-			User name
-			<input placeholder="user.name" bind:value={draft.name} />
-		</label>
-		<label>
-			Email
-			<input placeholder="user.email" bind:value={draft.email} />
-		</label>
-		<label>
-			Suggest for remotes containing (optional)
-			<input placeholder="e.g. git.mycompany.com" bind:value={draft.hostPattern} />
-			{#if currentHost}
-				<span class="note">This repository's remote host: {currentHost}</span>
-			{/if}
-		</label>
-		<div class="id-form-actions">
-			<button
-				class="mini"
-				onclick={saveDraftIdentity}
-				disabled={draft.label.trim() === '' || draft.email.trim() === ''}
-			>
-				Save
-			</button>
-			<button class="mini" onclick={() => (editing = null)}>Cancel</button>
-		</div>
-	</div>
-{/snippet}
 
 <!-- The backdrop deliberately does NOT close the dialog: settings changes apply live, and a stray
      click outside must not throw the panel away mid-adjustment. Close is the ✕ button or Escape. -->
@@ -283,6 +148,21 @@
 							onchange={(event) => set('scrollToHeadOnLoad', event.currentTarget.checked)}
 						/>
 					</div>
+					<div class="row">
+						<span class="row-label">
+							Fast-forward on checkout
+							<span class="note">
+								Checking out a branch from its remote brings it up to date when it has only fallen
+								behind. Never runs on a branch with commits of its own, or while you have
+								uncommitted changes.
+							</span>
+						</span>
+						<input
+							type="checkbox"
+							checked={settings.autoFastForwardOnCheckout}
+							onchange={(event) => set('autoFastForwardOnCheckout', event.currentTarget.checked)}
+						/>
+					</div>
 				</section>
 			{:else if tab === 'graph'}
 				<section>
@@ -293,6 +173,7 @@
 							onchange={(event) => set('graphStyle', event.currentTarget.value as GraphStyle)}
 						>
 							<option value="rounded">Rounded</option>
+							<option value="curved">Curved</option>
 							<option value="angular">Angular</option>
 							<option value="diagonal">Diagonal</option>
 						</select>
@@ -433,97 +314,30 @@
 					</div>
 				</section>
 			{:else}
-				<section>
-					{#if identity}
-						<p class="note">
-							Committing as <b class="fg"
-								>{identity.name ?? '(no name)'} &lt;{identity.email ?? 'no email'}&gt;</b
-							>
-							— {identitySource}.
-						</p>
-						{#if suggestedIdentity}
-							<p class="note warn">
-								This repository's remote suggests “{suggestedIdentity.label}” ({suggestedIdentity.email}).
-							</p>
-						{/if}
-						<!-- Only reachable when there is no global identity to switch back to; otherwise the
-					     global card's own Apply does this, and two controls for one action read as two
-					     different actions. -->
-						{#if overridden && !hasGlobal}
-							<button class="linkish" onclick={onclearIdentityOverride}>
-								Clear the repository override (fall back to global)
-							</button>
-						{/if}
-					{/if}
-
-					<div class="cards">
-						<!-- A fixture, not a list entry: the global identity cannot be edited or deleted from
-					     here, and it stays visible while a repository override hides it — an override you
-					     cannot see past is a switch with no way back. -->
-						{#if hasGlobal}
-							<div class="card fixed" class:in-use={!overridden}>
-								<div class="card-head">
-									<b class="fg">{identity?.globalName || '(no name)'}</b>
-									{#if !overridden}<span class="pill">In use</span>{/if}
-									<span class="card-actions">
-										<button class="mini" onclick={onclearIdentityOverride} disabled={!overridden}>
-											Apply
-										</button>
-									</span>
-								</div>
-								<span class="card-line">{identity?.globalEmail ?? '(no email)'}</span>
-								<span class="card-line note"
-									>Global Git config — used by every repository without an override</span
-								>
-							</div>
-						{/if}
-
-						{#each listIdentities as item, index (item.label + item.email)}
-							{@const inUse = identity?.email === item.email && identity?.name === item.name}
-							<div class="card" class:in-use={inUse}>
-								{#if editing === index}
-									{@render identityForm()}
-								{:else}
-									<div class="card-head">
-										<b class="fg">{item.label}</b>
-										{#if inUse}<span class="pill">In use</span>{/if}
-										<span class="card-actions">
-											<button class="mini" onclick={() => onapplyIdentity(item)} disabled={inUse}>
-												Apply
-											</button>
-											<IconButton
-												name="edit"
-												label="Edit identity"
-												onclick={() => startEditIdentity(index)}
-											/>
-											<IconButton
-												name="trash"
-												label="Delete identity"
-												onclick={() => deleteIdentity(item)}
-											/>
-										</span>
-									</div>
-									<span class="card-line">{item.name || '(no name)'} &lt;{item.email}&gt;</span>
-									<span class="card-line note">
-										{#if item.hostPattern}
-											Suggested for remotes containing “{item.hostPattern}”
-										{:else}
-											No remote pattern — never suggested automatically
-										{/if}
-									</span>
-								{/if}
-							</div>
-						{/each}
-
-						{#if editing === 'new'}
-							<div class="card">{@render identityForm()}</div>
-						{/if}
+				<section class="lead">
+					<div class="row">
+						<span class="row-label">
+							Auto-apply identity by remote
+							<span class="note">
+								When a repository has no identity override and exactly one saved identity matches
+								its remotes, apply that identity automatically. Ambiguous matches only warn.
+							</span>
+						</span>
+						<input
+							type="checkbox"
+							checked={settings.autoApplyIdentity}
+							onchange={(event) => set('autoApplyIdentity', event.currentTarget.checked)}
+						/>
 					</div>
-
-					{#if editing === null}
-						<button class="linkish" onclick={startAddIdentity}>+ Add identity…</button>
-					{/if}
 				</section>
+				<IdentitySection
+					{identity}
+					{listIdentities}
+					{suggestedIdentity}
+					{onapplyIdentity}
+					{onclearIdentityOverride}
+					{onsaveIdentities}
+				/>
 			{/if}
 		</div>
 	</div>
@@ -572,7 +386,11 @@
 		gap: var(--gg-space-2);
 		padding: var(--gg-space-3) 0;
 	}
-	/* Label left, control right, every row on one baseline — the git-graph dialog layout. */
+	/* Sits directly above another section (the identity cards), so it gives its padding up. */
+	section.lead {
+		padding-bottom: 0;
+	}
+	/* Label left, control right, every row on one baseline. */
 	.row {
 		display: flex;
 		align-items: center;
@@ -602,22 +420,6 @@
 		padding: 2px var(--gg-space-1);
 		min-width: 150px;
 	}
-	.fg {
-		color: var(--gg-fg);
-	}
-	.warn {
-		color: var(--vscode-editorWarning-foreground, #cca700);
-	}
-	.linkish {
-		background: none;
-		border: none;
-		padding: 0;
-		text-align: left;
-		font: inherit;
-		font-size: 0.85em;
-		color: var(--gg-accent);
-		cursor: pointer;
-	}
 	.tabs {
 		display: flex;
 		flex: none;
@@ -640,96 +442,5 @@
 	.tabs button.active {
 		color: var(--gg-fg);
 		border-bottom-color: var(--gg-accent);
-	}
-	.cards {
-		display: flex;
-		flex-direction: column;
-		gap: var(--gg-space-2);
-	}
-	.card {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		padding: var(--gg-space-2) var(--gg-space-3);
-		border: 1px solid var(--gg-border);
-		border-radius: 4px;
-		min-width: 0;
-	}
-	.card.in-use {
-		border-color: var(--gg-accent);
-	}
-	/* Reads as part of the panel rather than an entry of the list, which is what it is. */
-	.card.fixed {
-		background: color-mix(in srgb, var(--gg-fg-muted) 8%, transparent);
-		border-style: dashed;
-	}
-	.card.fixed.in-use {
-		border-style: solid;
-	}
-	.card-head {
-		display: flex;
-		align-items: center;
-		gap: var(--gg-space-2);
-	}
-	.card-actions {
-		display: flex;
-		align-items: center;
-		gap: var(--gg-space-1);
-		margin-left: auto;
-	}
-	.card-line {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: 0.85em;
-	}
-	.pill {
-		font-size: 0.75em;
-		padding: 0 var(--gg-space-1);
-		border-radius: 8px;
-		background: var(--vscode-badge-background);
-		color: var(--vscode-badge-foreground);
-	}
-	.id-form label {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		font-size: 0.8em;
-		color: var(--gg-fg-muted);
-	}
-	.mini {
-		flex: none;
-		display: inline-flex;
-		align-items: center;
-		background: var(--vscode-button-secondaryBackground, transparent);
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
-		border: 1px solid var(--gg-border);
-		border-radius: 3px;
-		font: inherit;
-		font-size: 0.8em;
-		padding: 1px var(--gg-space-1);
-		cursor: pointer;
-	}
-	.mini:disabled {
-		opacity: 0.5;
-		cursor: default;
-	}
-	.id-form {
-		display: flex;
-		flex-direction: column;
-		gap: var(--gg-space-1);
-	}
-	.id-form input {
-		background: var(--vscode-input-background, var(--gg-bg));
-		color: var(--vscode-input-foreground, var(--gg-fg));
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 3px;
-		font: inherit;
-		font-size: 0.85em;
-		padding: 2px var(--gg-space-1);
-	}
-	.id-form-actions {
-		display: flex;
-		gap: var(--gg-space-1);
 	}
 </style>

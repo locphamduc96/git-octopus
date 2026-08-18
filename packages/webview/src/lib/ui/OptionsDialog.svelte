@@ -59,7 +59,10 @@
 		{#if multi}
 			<button
 				class="confirm"
-				onclick={() => onsubmit(listOptions.filter((option) => mapChecked[option.id]).map((option) => option.id))}
+				onclick={() =>
+					onsubmit(
+						listOptions.filter((option) => mapChecked[option.id]).map((option) => option.id)
+					)}
 			>
 				OK
 			</button>

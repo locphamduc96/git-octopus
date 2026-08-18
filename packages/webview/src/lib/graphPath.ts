@@ -1,4 +1,4 @@
-export type GraphStyle = 'rounded' | 'angular' | 'diagonal';
+export type GraphStyle = 'rounded' | 'curved' | 'angular' | 'diagonal';
 
 export interface LaneMetrics {
 	/** Distance between lane centres. */
@@ -7,7 +7,7 @@ export interface LaneMetrics {
 	rowHeight: number;
 	/** Left inset of the first lane. */
 	padding: number;
-	/** How far a bend is rounded off. */
+	/** How far a bend is rounded off. The `curved` style ignores this and bends as far as it can. */
 	curve: number;
 	style: GraphStyle;
 }
@@ -84,9 +84,15 @@ export function branchOut(nodeColumn: number, toColumn: number, m: LaneMetrics):
 	return `M${nodeX} ${mid} L${x - dir * r} ${mid} Q${x} ${mid} ${x} ${mid + r} L${x} ${m.rowHeight}`;
 }
 
-/** Never bend further than the gap being crossed, nor further than the half-row it happens in. */
+/**
+ * Never bend further than the gap being crossed, nor further than the half-row it happens in. The
+ * `curved` style takes that whole allowance: the straight run all but disappears and the lane reads
+ * as one continuous arc. Its tangent at the row edge stays vertical either way, so rows still line
+ * up with each other.
+ */
 function bendRadius(fromX: number, toX: number, half: number, m: LaneMetrics): number {
-	return Math.max(0, Math.min(m.curve, Math.abs(toX - fromX), half));
+	const limit = m.style === 'curved' ? Infinity : m.curve;
+	return Math.max(0, Math.min(limit, Math.abs(toX - fromX), half));
 }
 
 /**

@@ -102,4 +102,31 @@ describe('parseRefs', () => {
 	it('marks a detached HEAD', () => {
 		expect(parseRefs('HEAD')).toEqual([{ kind: 'head' }]);
 	});
+
+	it('ends the remote name where the configured remote ends, not at the first slash', () => {
+		// `team/origin` is a legal remote name, and splitting at the first slash would call the
+		// branch `origin/main` — a name no command could then act on.
+		expect(parseRefs('refs/remotes/team/origin/main', ['team/origin'])).toEqual([
+			{ kind: 'branch', name: 'main', remote: 'team/origin' },
+		]);
+	});
+
+	it('prefers the longest configured remote when two of them nest', () => {
+		expect(parseRefs('refs/remotes/team/origin/main', ['team', 'team/origin'])).toEqual([
+			{ kind: 'branch', name: 'main', remote: 'team/origin' },
+		]);
+	});
+
+	it('keeps a remote whose name begins with a dash intact', () => {
+		expect(parseRefs('refs/remotes/-evil/main', ['-evil'])).toEqual([
+			{ kind: 'branch', name: 'main', remote: '-evil' },
+		]);
+	});
+
+	it('falls back to the first slash when no configured remote matches', () => {
+		// A ref left behind by a remote that has since been removed still has to read as something.
+		expect(parseRefs('refs/remotes/origin/main', [])).toEqual([
+			{ kind: 'branch', name: 'main', remote: 'origin' },
+		]);
+	});
 });

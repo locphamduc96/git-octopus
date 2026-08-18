@@ -23,8 +23,8 @@ describe('buildIdentityMenu', () => {
 	});
 
 	it('ticks the identity Git is committing with', () => {
-		expect(menu()[0].label).toContain('✓');
-		expect(menu()[1].label).not.toContain('✓');
+		expect(menu()[0].checked).toBe(true);
+		expect(menu()[1].checked).toBe(false);
 	});
 
 	it('puts the remote suggestion first, so the amber button says what it wants', () => {
@@ -38,7 +38,8 @@ describe('buildIdentityMenu', () => {
 	it('lists the in-use identity even when it was never saved', () => {
 		const listItems = menu({ activeEmail: 'stray@example.com' });
 		const unsaved = listItems.find((item) => item.id === IDENTITY_ITEM.unsavedCurrent);
-		expect(unsaved?.label).toBe('stray@example.com — from Git config   ✓');
+		expect(unsaved?.label).toBe('stray@example.com — from Git config');
+		expect(unsaved?.checked).toBe(true);
 	});
 
 	it('offers the way back to the global config only while an override is in force', () => {

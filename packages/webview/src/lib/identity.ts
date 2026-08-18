@@ -25,19 +25,40 @@ export function remoteHost(url: string): string | null {
 }
 
 /**
- * The identity a repository's remotes point at: the first one whose `hostPattern` appears in any
- * remote URL. Identities without a pattern are never suggested.
+ * One identity's patterns, ready to match: `hostPattern` holds one or more substrings separated
+ * by commas, so an identity can cover a client's GitHub org and their self-hosted GitLab at once.
  */
+function listPatterns(identity: GitIdentity): string[] {
+	return (identity.hostPattern ?? '')
+		.split(',')
+		.map((part) => part.trim())
+		.filter((part) => part !== '');
+}
+
+/**
+ * Every identity whose pattern appears in any remote URL, in saved order. Identities without a
+ * pattern are never matched. More than one answer means the remotes are ambiguous — callers that
+ * act (rather than suggest) must treat that as "don't".
+ */
+export function listMatchedIdentities(
+	listIdentities: GitIdentity[],
+	listRemoteUrls: string[]
+): GitIdentity[] {
+	return listIdentities.filter((identity) => {
+		const patterns = listPatterns(identity);
+		return (
+			patterns.length > 0 &&
+			listRemoteUrls.some((url) => patterns.some((pattern) => url.includes(pattern)))
+		);
+	});
+}
+
+/** The identity a repository's remotes point at: the first match, for the suggestion UI. */
 export function suggestIdentity(
 	listIdentities: GitIdentity[],
 	listRemoteUrls: string[]
 ): GitIdentity | null {
-	for (const identity of listIdentities) {
-		const pattern = identity.hostPattern?.trim();
-		if (!pattern) continue;
-		if (listRemoteUrls.some((url) => url.includes(pattern))) return identity;
-	}
-	return null;
+	return listMatchedIdentities(listIdentities, listRemoteUrls)[0] ?? null;
 }
 
 /**

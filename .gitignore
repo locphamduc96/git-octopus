@@ -4,6 +4,7 @@ out/
 *.vsix
 packages/extension/media/webview/
 .DS_Store
+.codex/
 *.log
 .vscode-test/
 coverage/

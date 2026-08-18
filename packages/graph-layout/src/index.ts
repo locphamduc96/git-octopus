@@ -18,6 +18,12 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 	let lanes: (string | null)[] = []; // hash each column currently expects (a line from above)
 	let laneColours: number[] = [];
 	let laneBranches: number[] = [];
+	// Offshoot: the lane was opened for a merge's extra parent, so it hangs off a merge node and is
+	// known to die at its fork point. Lanes born at a tip (including the trunk) never become one.
+	let laneOffshoots: boolean[] = [];
+	// Row where the lane's current expectation was set — the row of its most recent node, so the
+	// smaller it is, the longer the straight line currently falling down this lane.
+	let laneAwaits: number[] = [];
 	let nextColour = 0;
 	// Branch-line identities never repeat (colours do), so hover-highlighting can match on them.
 	let nextBranch = 0;
@@ -30,11 +36,31 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 
 	const allocBranch = (): number => nextBranch++;
 
+	let rowIndex = -1;
 	for (const commit of listCommits) {
+		rowIndex++;
 		const hash = commit.hash;
 
-		// 1. Node column: the first lane expecting this commit; otherwise a fresh branch-tip lane.
-		let nodeColumn = lanes.indexOf(hash);
+		// 1. Node column. When several lanes converge on this commit, taking the leftmost would drag
+		// a long-lived branch out of its lane at every fork point it shares with a side branch to its
+		// left (the checked-out branch under the Uncommitted row being the common case). Instead:
+		// prefer a lane that is not an offshoot — offshoots exist only to die at their fork point —
+		// and among equals the lane whose line has been falling the longest (smallest await row), so
+		// the longest straight line runs on straight and the shorter ones bend into it. At a trunk's
+		// fork point that is always the trunk: its last node is a merge of a commit on the side
+		// branch, so it sits above the side branch's last node. Ties keep the old leftmost rule.
+		let nodeColumn = -1;
+		for (let i = 0; i < lanes.length; i++) {
+			if (lanes[i] !== hash) continue;
+			if (nodeColumn === -1) {
+				nodeColumn = i;
+				continue;
+			}
+			const demoted = laneOffshoots[nodeColumn] && !laneOffshoots[i];
+			const longerLine =
+				laneOffshoots[nodeColumn] === laneOffshoots[i] && laneAwaits[i] < laneAwaits[nodeColumn];
+			if (demoted || longerLine) nodeColumn = i;
+		}
 		const isTip = nodeColumn === -1;
 		if (isTip) {
 			// A tip has no edge coming into it from above and gets a fresh colour and branch identity,
@@ -47,9 +73,13 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 				lanes.push(null);
 				laneColours.push(0);
 				laneBranches.push(0);
+				laneOffshoots.push(false);
+				laneAwaits.push(0);
 			}
 			laneColours[nodeColumn] = allocColour();
 			laneBranches[nodeColumn] = allocBranch();
+			laneOffshoots[nodeColumn] = false;
+			laneAwaits[nodeColumn] = rowIndex;
 		}
 		const nodeColour = laneColours[nodeColumn];
 		const nodeBranch = laneBranches[nodeColumn];
@@ -64,7 +94,14 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 		const nextLanes = lanes.slice();
 		const nextColours = laneColours.slice();
 		const nextBranches = laneBranches.slice();
-		for (const i of listTerminating) nextLanes[i] = null;
+		const nextOffshoots = laneOffshoots.slice();
+		const nextAwaits = laneAwaits.slice();
+		for (const i of listTerminating) {
+			nextLanes[i] = null;
+			// The node's own lane keeps its flag: an offshoot stays an offshoot all the way down its
+			// first-parent chain. A lane that closed here must not leak its flag to a later tenant.
+			if (i !== nodeColumn) nextOffshoots[i] = false;
+		}
 		if (isTip) nextLanes[nodeColumn] = null;
 
 		const listParentColumns: number[] = [];
@@ -95,13 +132,21 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 					nextLanes.push(null);
 					nextColours.push(0);
 					nextBranches.push(0);
+					nextOffshoots.push(false);
+					nextAwaits.push(0);
 				}
 				colour = allocColour();
 				branch = allocBranch();
+				// Born hanging off a merge node, so it is the branch that was merged here. An existing
+				// lane is never demoted this way: "merged somewhere" also matches the trunk the moment
+				// anything merges the trunk in (e.g. `Merge 'master' into dev`), and a trunk demoted
+				// once would lose every convergence below.
+				nextOffshoots[column] = true;
 			}
 			nextLanes[column] = parent;
 			nextColours[column] = colour;
 			nextBranches[column] = branch;
+			nextAwaits[column] = rowIndex;
 			listParentColumns.push(column);
 		});
 
@@ -123,11 +168,15 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 			nextLanes.pop();
 			nextColours.pop();
 			nextBranches.pop();
+			nextOffshoots.pop();
+			nextAwaits.pop();
 		}
 
 		lanes = nextLanes;
 		laneColours = nextColours;
 		laneBranches = nextBranches;
+		laneOffshoots = nextOffshoots;
+		laneAwaits = nextAwaits;
 	}
 
 	return listRows;

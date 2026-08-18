@@ -61,6 +61,21 @@ describe('lane paths', () => {
 		expect(branchOut(0, 1, tight)).toBe('M12 17 L12 17 Q18 17 18 23 L18 34');
 	});
 
+	it('bends the curved style as far as the half-row allows', () => {
+		const curved: LaneMetrics = { ...M, style: 'curved' };
+		// The straight run down the column collapses: the lane is bending the moment it enters the row.
+		expect(mergeIn(1, 0, curved)).toBe('M32 0 L32 0 Q32 17 15 17 L12 17');
+		expect(branchOut(0, 1, curved)).toBe('M12 17 L15 17 Q32 17 32 34 L32 34');
+	});
+
+	it('keeps the curved style inside its own row and short of the column it aims at', () => {
+		const curved: LaneMetrics = { ...M, style: 'curved' };
+		expect(ys(mergeIn(1, 0, curved)).every((y) => y >= 0 && y <= 17)).toBe(true);
+		// A gap narrower than the half-row caps the bend at the gap, as it does for `rounded`.
+		const tight: LaneMetrics = { ...curved, columnWidth: 6 };
+		expect(branchOut(0, 1, tight)).toBe('M12 17 L12 17 Q18 17 18 23 L18 34');
+	});
+
 	it('keeps the angular style square', () => {
 		const angular: LaneMetrics = { ...M, style: 'angular' };
 		expect(mergeIn(1, 0, angular)).toBe('M32 0 L32 17 L12 17');

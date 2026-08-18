@@ -2,7 +2,7 @@
 	"name": "git-octopus",
 	"displayName": "Git Octopus",
 	"description": "View a Git graph of your repository and perform Git actions from it.",
-	"version": "0.12.0",
+	"version": "0.17.0",
 	"publisher": "locpham",
 	"license": "MIT",
 	"icon": "media/icon.png",
@@ -64,8 +64,14 @@
 			],
 			"git-octopus-sidebar": [
 				{
+					"type": "webview",
+					"id": "git-octopus.launcher",
+					"name": "Git Octopus"
+				},
+				{
 					"id": "git-octopus.repoTree",
-					"name": "Repository"
+					"name": "Repository",
+					"when": "false"
 				}
 			]
 		},

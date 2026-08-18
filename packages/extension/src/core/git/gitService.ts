@@ -43,7 +43,9 @@ export async function getCommits(
 	cwd: string,
 	limit: number,
 	filters: GraphFilterOptions,
-	listExtraRevs: string[] = []
+	listExtraRevs: string[] = [],
+	/** Configured remote names — the only thing that can say where a remote's name ends. */
+	listRemotes: string[] = []
 ): Promise<Commit[]> {
 	const output = await executor.run(
 		[
@@ -59,7 +61,7 @@ export async function getCommits(
 		],
 		cwd
 	);
-	return parseLog(output);
+	return parseLog(output, listRemotes);
 }
 
 export interface StashEntry {
@@ -202,6 +204,24 @@ export async function getSubmodules(executor: GitExecutor, cwd: string): Promise
 export async function getCurrentBranch(executor: GitExecutor, cwd: string): Promise<string | null> {
 	try {
 		const name = (await executor.run(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)).trim();
+		return name === '' || name === 'HEAD' ? null : name;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The branch HEAD was on before the last checkout — what `git checkout -` would return to.
+ *
+ * `@{-1}` reads the reflog, so it is empty in a fresh clone and resolves to a hash rather than a
+ * name when the previous position was itself detached. Both are "no branch to offer", not errors.
+ */
+export async function getPreviousBranch(
+	executor: GitExecutor,
+	cwd: string
+): Promise<string | null> {
+	try {
+		const name = (await executor.run(['rev-parse', '--abbrev-ref', '@{-1}'], cwd)).trim();
 		return name === '' || name === 'HEAD' ? null : name;
 	} catch {
 		return null;

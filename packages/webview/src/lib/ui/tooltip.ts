@@ -1,6 +1,20 @@
 const SHOW_DELAY_MS = 300;
 const GAP = 6;
 
+export interface TooltipOptions {
+	text: string;
+	/** How long the pointer must rest before the tooltip appears. */
+	delay?: number;
+}
+
+type TooltipArg = string | TooltipOptions;
+
+function normalise(arg: TooltipArg): Required<TooltipOptions> {
+	return typeof arg === 'string'
+		? { text: arg, delay: SHOW_DELAY_MS }
+		: { text: arg.text, delay: arg.delay ?? SHOW_DELAY_MS };
+}
+
 let element: HTMLDivElement | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -14,7 +28,7 @@ function ensureElement(): HTMLDivElement {
 	return element;
 }
 
-function place(target: HTMLElement, text: string): void {
+function place(target: Element, text: string): void {
 	const tip = ensureElement();
 	tip.textContent = text;
 	tip.style.visibility = 'hidden';
@@ -44,14 +58,19 @@ function hide(): void {
  *
  * The native `title` attribute waits one to two seconds before appearing, which is long enough that
  * icon-only controls read as unexplained; this shows the same text quickly and in the app's style.
+ * Pass `{ text, delay }` where a slower reveal is wanted instead — detail a pointer should have to
+ * ask for, rather than meet on its way past.
+ *
+ * The text is written as `textContent`, never markup: some of it comes out of the repository.
  */
-export function tooltip(node: HTMLElement, text: string) {
-	let current = text;
+export function tooltip(node: Element, arg: TooltipArg) {
+	let current = normalise(arg);
 
 	const open = (): void => {
 		clearTimeout(timer);
-		if (current === '') return;
-		timer = setTimeout(() => place(node, current), SHOW_DELAY_MS);
+		if (current.text === '') return;
+		const { text, delay } = current;
+		timer = setTimeout(() => place(node, text), delay);
 	};
 
 	node.addEventListener('mouseenter', open);
@@ -62,8 +81,8 @@ export function tooltip(node: HTMLElement, text: string) {
 	window.addEventListener('scroll', hide, true);
 
 	return {
-		update(next: string) {
-			current = next;
+		update(next: TooltipArg) {
+			current = normalise(next);
 		},
 		destroy() {
 			hide();

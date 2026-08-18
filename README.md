@@ -9,7 +9,11 @@ actions from it.
 
 ## Install
 
-No Marketplace listing yet, so install the packaged extension directly:
+Search for **Git Octopus** in the VS Code Extensions view, or install it from the
+[Marketplace](https://marketplace.visualstudio.com/items?itemName=locpham.git-octopus) or
+[Open VSX](https://open-vsx.org/extension/locpham/git-octopus).
+
+To build and install it from source instead:
 
 ```bash
 git clone https://github.com/locphamduc96/git-octopus.git
@@ -22,15 +26,18 @@ code --install-extension git-octopus.vsix --force
 Reload the window, then open the view from the Git Octopus item in the status bar, or run
 **Git Octopus: Open Git Octopus** — or **Open Git Octopus in Editor Tab** — from the Command Palette.
 
-Requires VS Code 1.90 or newer, Node 20+, pnpm, and `git` on your PATH.
+Requires VS Code 1.90 or newer, Node 20+, pnpm, and `git` 2.24 or newer on your PATH.
 
 ## What it does
 
-Commit graph with branch lanes and colours · branch, tag and stash chips · commit details with the
-file list as a flat list or a folder tree · file icons from whichever icon theme you use · working
-tree: stage, unstage, discard, stash, commit, undo commit · diff any file, or compare two commits
-with Ctrl/Cmd + click · fetch, pull, push and force-push with confirmation · 20+ Git actions from the
-commit menu · find (Ctrl+F) · several repositories in one workspace.
+Commit graph with branch lanes and colours, in four lane styles · branch, tag and stash chips, and
+a `HEAD` chip when it is detached · commit details with the file list as a flat list or a folder
+tree · file icons from whichever icon theme you use · working tree: stage, unstage, discard, stash,
+commit, undo commit · diff any file, or compare two commits with Ctrl/Cmd + click · fetch, pull,
+push and force-push with confirmation, against remotes that ask for credentials · 20+ Git actions
+from the commit menu, asked in the view's own dialogs · right-click a chip to act on that ref, or
+hover the ref column to read every name in full · a Git identity per repository, matched to the
+remote · find (Ctrl+F) · several repositories in one workspace.
 
 ## Screenshots
 

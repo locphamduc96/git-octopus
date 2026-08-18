@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { GitIdentity } from '@git-octopus/shared';
-import { identityMismatch, matchIdentity, remoteHost, suggestIdentity } from './identity';
+import {
+	identityMismatch,
+	listMatchedIdentities,
+	matchIdentity,
+	remoteHost,
+	suggestIdentity,
+} from './identity';
 
 const work: GitIdentity = {
 	label: 'Work',
@@ -52,6 +58,44 @@ describe('identityMismatch', () => {
 
 	it('stays quiet when nothing is suggested', () => {
 		expect(identityMismatch([work, personal], ['https://example.com/x.git'], null)).toBeNull();
+	});
+});
+
+describe('comma-separated patterns', () => {
+	const multi: GitIdentity = {
+		label: 'Client A',
+		name: 'loc',
+		email: 'loc@client-a.dev',
+		hostPattern: 'github.com/client-a, gitlab.client-a.io',
+	};
+
+	it('matches any one of the patterns', () => {
+		expect(suggestIdentity([multi], ['git@gitlab.client-a.io:app/api.git'])).toBe(multi);
+		expect(suggestIdentity([multi], ['https://github.com/client-a/web.git'])).toBe(multi);
+		expect(suggestIdentity([multi], ['https://github.com/elsewhere/x.git'])).toBeNull();
+	});
+
+	it('ignores empty fragments from stray commas', () => {
+		const sloppy: GitIdentity = { ...multi, hostPattern: ' , github.com/client-a,, ' };
+		expect(suggestIdentity([sloppy], ['https://github.com/client-a/web.git'])).toBe(sloppy);
+		// Only separators left → no pattern at all, so never suggested.
+		const empty: GitIdentity = { ...multi, hostPattern: ' , ,' };
+		expect(suggestIdentity([empty], ['https://github.com/client-a/web.git'])).toBeNull();
+	});
+});
+
+describe('listMatchedIdentities', () => {
+	it('returns every identity the remotes point at, in saved order', () => {
+		const wide: GitIdentity = { ...personal, label: 'Wide', hostPattern: 'github.com' };
+		const listUrls = ['https://github.com/locphamduc96/git-octopus.git'];
+		expect(listMatchedIdentities([work, personal, wide, noPattern], listUrls)).toEqual([
+			personal,
+			wide,
+		]);
+	});
+
+	it('is empty when nothing matches', () => {
+		expect(listMatchedIdentities([work, personal], ['https://example.com/x.git'])).toEqual([]);
 	});
 });
 

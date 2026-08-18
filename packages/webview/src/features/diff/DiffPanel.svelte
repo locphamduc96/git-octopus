@@ -4,7 +4,7 @@
 	import type { HighlightToken } from '../../lib/highlight';
 	import IconButton from '../../lib/ui/IconButton.svelte';
 	import { tooltip } from '../../lib/ui/tooltip';
-	import type { DiffMode } from '../settings/SettingsWidget.svelte';
+	import type { DiffMode } from '../../lib/viewSettings';
 
 	let {
 		path,

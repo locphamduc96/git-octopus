@@ -20,7 +20,10 @@ describe('redactSecrets', () => {
 	});
 
 	it('scrubs exact extra values wherever they appear', () => {
-		const clean = redactSecrets(`stack: at ${SENTINEL} in /tmp/gg-ask-x/s`, [SENTINEL, '/tmp/gg-ask-x/s']);
+		const clean = redactSecrets(`stack: at ${SENTINEL} in /tmp/gg-ask-x/s`, [
+			SENTINEL,
+			'/tmp/gg-ask-x/s',
+		]);
 		expect(clean).not.toContain(SENTINEL);
 		expect(clean).not.toContain('gg-ask-x');
 	});

@@ -162,4 +162,77 @@ describe('AskpassCore', () => {
 		const result = await runClient(core.handlePath!, nonce, 'Password: ');
 		expect(result.code).toBe(1);
 	});
+
+	it('lets a later credential request through after one times out unanswered', async () => {
+		// The first handler never resolves — a native input box still on screen after its git
+		// process gave up. The queue must not park the next command behind it.
+		let asked = 0;
+		core = makeCore(async (request) => {
+			asked++;
+			if (asked === 1) return new Promise<string>(() => undefined);
+			return `answer:${request.display}`;
+		}, 100);
+		await core.start();
+		const { nonce } = core.register(CONTEXT);
+
+		const first = await runClient(core.handlePath!, nonce, 'Password one');
+		expect(first.code).toBe(1);
+
+		const second = await runClient(core.handlePath!, nonce, 'Password two');
+		expect(second).toEqual({ code: 0, stdout: 'answer:Password two' });
+		expect(asked).toBe(2);
+	});
+
+	it('tells a handler its asker is gone, so the prompt can be taken down', async () => {
+		let aborted = false;
+		core = makeCore(
+			(request) =>
+				new Promise<string | undefined>((resolve) => {
+					request.signal.addEventListener('abort', () => {
+						aborted = true;
+						resolve(undefined);
+					});
+				}),
+			100
+		);
+		await core.start();
+		const { nonce } = core.register(CONTEXT);
+		await runClient(core.handlePath!, nonce, 'Password: ');
+		expect(aborted).toBe(true);
+	});
+
+	it('exits non-zero when the user declines a confirmation', async () => {
+		// OpenSSH decides an agent-key confirmation by this exit status alone.
+		core = makeCore(async () => 'no');
+		await core.start();
+		const { nonce } = core.register(CONTEXT);
+		const result = await runClient(
+			core.handlePath!,
+			nonce,
+			"The authenticity of host 'x' can't be established. Are you sure you want to continue connecting (yes/no)?"
+		);
+		expect(result.code).toBe(1);
+		// The word still travels, for the callers that compare stdout instead.
+		expect(result.stdout).toBe('no');
+	});
+
+	it('exits zero when the user accepts a confirmation', async () => {
+		core = makeCore(async () => 'yes');
+		await core.start();
+		const { nonce } = core.register(CONTEXT);
+		const result = await runClient(
+			core.handlePath!,
+			nonce,
+			'Are you sure you want to continue connecting (yes/no)?'
+		);
+		expect(result).toEqual({ code: 0, stdout: 'yes' });
+	});
+
+	it('still answers a password that happens to read as a refusal', async () => {
+		core = makeCore(async () => 'no');
+		await core.start();
+		const { nonce } = core.register(CONTEXT);
+		const result = await runClient(core.handlePath!, nonce, "Password for 'https://host':");
+		expect(result).toEqual({ code: 0, stdout: 'no' });
+	});
 });

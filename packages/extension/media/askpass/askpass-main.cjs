@@ -1,6 +1,9 @@
 // IPC client half of the askpass bridge. git (or ssh) runs askpass.sh with a prompt; this
 // forwards it — with the per-invocation nonce — to the extension host over the socket in the
 // environment, prints the answer to stdout, and exits non-zero on refusal so git aborts.
+//
+// Refusal covers a confirmation the user declined, not only a cancelled one: OpenSSH takes the
+// exit status as the answer to a confirmation and treats zero as consent.
 'use strict';
 const net = require('node:net');
 
@@ -33,8 +36,12 @@ socket.on('data', (chunk) => {
 	if (newline === -1) return;
 	try {
 		const reply = JSON.parse(buffer.slice(0, newline));
-		if (reply && reply.ok === true && typeof reply.response === 'string') {
-			return finish(0, reply.response);
+		if (reply && typeof reply.ok === 'boolean') {
+			// The exit status is the decision — OpenSSH reads a confirmation that way and ignores
+			// stdout — while the text, when there is any, is printed either way for the callers
+			// that compare it instead.
+			const text = typeof reply.response === 'string' ? reply.response : undefined;
+			return finish(reply.ok ? 0 : 1, text);
 		}
 	} catch {
 		// Malformed reply — treat as refusal.

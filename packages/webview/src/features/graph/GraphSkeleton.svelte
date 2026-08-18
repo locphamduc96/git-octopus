@@ -1,6 +1,5 @@
 <script lang="ts">
-	import type { RowDensity } from '../settings/SettingsWidget.svelte';
-	import type { ColumnVisibility, ColumnWidths } from './GraphView.svelte';
+	import type { ColumnVisibility, ColumnWidths, RowDensity } from '../../lib/viewSettings';
 
 	let {
 		columns,

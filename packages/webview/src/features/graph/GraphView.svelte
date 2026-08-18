@@ -1,44 +1,49 @@
 <script lang="ts">
-	import type { BranchActionId, Commit, CommitActionId, GraphRow, Ref } from '@git-octopus/shared';
+	import type {
+		BranchActionId,
+		Commit,
+		CommitActionId,
+		GraphRow,
+		Ref,
+		RemoteBranchRef,
+	} from '@git-octopus/shared';
 	import { graphWidth } from '@git-octopus/graph-layout';
 	import { graphColour } from '../../lib/graphColours';
-	import {
-		branchOut,
-		intoNode,
-		laneX,
-		mergeIn,
-		outOfNode,
-		passThrough,
-		type LaneMetrics,
-	} from '../../lib/graphPath';
+	import { laneX, type LaneMetrics } from '../../lib/graphPath';
+	import { rowWindow, shouldAskLoadMore } from '../../lib/virtualWindow';
+	import { laneSegments } from '../../lib/graphSegments';
 	import type { ParsedSubject } from '../../lib/commitSubject';
 	import { formatSubject, parseSubject, typeColour } from '../../lib/commitSubject';
 	import type { RefChip } from '../../lib/graphChips';
-	import { buildChips, splitChips } from '../../lib/graphChips';
+	import { buildChips, chipRef, chipRemote, isDropTarget, splitChips } from '../../lib/graphChips';
 	import type { DateFormat } from '../../lib/commitDate';
 	import { formatCommitDate } from '../../lib/commitDate';
-	import { isSquashableChain } from '../../lib/squashRange';
+	import { authorTooltip } from '../../lib/authorTooltip';
+	import {
+		buildCommitMenuItems,
+		buildDropMenuItems,
+		buildHeaderMenuItems,
+		buildMultiMenuItems,
+		buildRefMenu,
+		mapMultiAction,
+		resolveMenuSelection,
+		type RefMenu,
+		type RefMenuEntry,
+		type RefTarget,
+	} from '../../lib/graphMenu';
+	import { clampExpandRight, expanderAnchor, shouldExpand } from '../../lib/refExpander';
 	import { tooltip } from '../../lib/ui/tooltip';
-	import ContextMenu, { type MenuItem } from '../../lib/ui/ContextMenu.svelte';
+	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
 	import RefIcon from '../../lib/ui/RefIcon.svelte';
-	import type { DateType, GraphStyle, RowDensity } from '../settings/SettingsWidget.svelte';
-
-	export interface ColumnVisibility {
-		author: boolean;
-		commit: boolean;
-		date: boolean;
-	}
-
-	/** User-resizable column widths, in pixels. */
-	export interface ColumnWidths {
-		ref: number;
-		author: number;
-		commit: number;
-		date: number;
-	}
-
-	export type ColumnKey = keyof ColumnWidths;
+	import type {
+		ColumnKey,
+		ColumnVisibility,
+		ColumnWidths,
+		DateType,
+		GraphStyle,
+		RowDensity,
+	} from '../../lib/viewSettings';
 
 	let {
 		rows,
@@ -106,13 +111,18 @@
 		onselectRange: (hash: string) => void;
 		oncompare: (hash: string) => void;
 		/** Check out a branch chip: a local name when there is one, otherwise a remote-tracking one. */
-		oncheckoutBranch: (local: string | null, remote: string | null) => void;
-		onaction: (action: CommitActionId, commit: Commit) => void;
+		oncheckoutBranch: (local: string | null, remote: RemoteBranchRef | null) => void;
+		onaction: (action: CommitActionId, commit: Commit, target?: RefTarget) => void;
 		/** Act on the multi-selected commits (newest → oldest). */
 		onmulti: (action: 'squash' | 'drop' | 'cherryPick' | 'revert', listHashes: string[]) => void;
 		onloadMore: () => void;
 		/** One branch chip dropped onto another: merge, rebase or fast-forward. */
-		onbranchAction: (action: BranchActionId, source: string, target: string) => void;
+		onbranchAction: (
+			action: BranchActionId,
+			source: string,
+			sourceLabel: string,
+			target: string
+		) => void;
 		oncheckFastForward: (source: string, target: string, nonce: number) => void;
 		ontoggleColumn: (column: keyof ColumnVisibility) => void;
 		onresizeColumn: (column: ColumnKey, width: number) => void;
@@ -133,12 +143,23 @@
 	const NODE_R = 5;
 	/** Radius used when a commit shows its author's avatar instead of a plain dot. */
 	const AVATAR_R = 9;
+	/**
+	 * Avatars sit on the path of every pointer crossing the graph, so their tooltip waits long enough
+	 * that only a pointer which stopped on one gets it.
+	 */
+	const AVATAR_TIP_DELAY = 2000;
 	/** Lane lines are drawn hairline-thin: a graph this dense turns to mush at any real weight. */
 	const EDGE_W = 1.5;
 	/** How far a lane's corner is rounded off when it changes column. */
 	const CURVE = 8;
 	/** Codicon glyph for `archive`, drawn inside the stash node. */
 	const STASH_GLYPH = '';
+	/** Glyph in the square at the head of a chip that is not a branch. */
+	const mapChipGlyph: Record<'tag' | 'stash' | 'head', string> = {
+		tag: 'tag',
+		stash: 'archive',
+		head: 'target',
+	};
 	const OVERSCAN = 8;
 	const MIN_COL_W = 60;
 
@@ -153,11 +174,17 @@
 	/** Branch-line under the pointer: every other branch's lanes and nodes dim while it is set. */
 	let hoveredBranch = $state<number | null>(null);
 
-	/** The ref being dragged — a local branch name, or a remote-tracking one like "origin/main". */
-	let dragSource = $state<string | null>(null);
+	/** The ref being dragged: what git is handed, plus the shorter form the menus print. */
+	let dragSource = $state<{ ref: string; label: string } | null>(null);
 	/** The local branch under the pointer, i.e. where dropping would land. */
 	let dropTarget = $state<string | null>(null);
-	let dropMenu = $state<{ x: number; y: number; source: string; target: string } | null>(null);
+	let dropMenu = $state<{
+		x: number;
+		y: number;
+		source: string;
+		sourceLabel: string;
+		target: string;
+	} | null>(null);
 	/** Identifies the fast-forward question asked for the current drop, so stale answers are ignored. */
 	let ffNonce = $state(0);
 
@@ -166,18 +193,18 @@
 	 * sits outside that area, so it needs the same inset to stay aligned with the rows.
 	 */
 	const scrollbarW = $derived(viewport && viewportW ? viewport.offsetWidth - viewportW : 0);
-	let menu = $state<{ x: number; y: number; commit: Commit } | null>(null);
+	/** `chip` set means the menu was opened on one ref, and acts only on that ref. */
+	let menu = $state<{ x: number; y: number; commit: Commit; chip?: RefChip } | null>(null);
 	let headerMenu = $state<{ x: number; y: number } | null>(null);
 	let resizing = $state<{ key: ColumnKey; startX: number; startWidth: number } | null>(null);
 
 	const cols = $derived(graphWidth(rows));
 	const graphPx = $derived(cols * COL_W + PAD);
 	const totalH = $derived(rows.length * ROW_H);
-	const start = $derived(Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN));
-	const end = $derived(
-		Math.min(rows.length, Math.ceil((scrollTop + viewportH) / ROW_H) + OVERSCAN)
+	const range = $derived(rowWindow(scrollTop, viewportH, ROW_H, rows.length, OVERSCAN));
+	const visible = $derived(
+		rows.slice(range.start, range.end).map((row, k) => ({ row, index: range.start + k }))
 	);
-	const visible = $derived(rows.slice(start, end).map((row, k) => ({ row, index: start + k })));
 
 	const gridTemplate = $derived(
 		[
@@ -192,11 +219,7 @@
 			.join(' ')
 	);
 
-	const headerMenuItems = $derived([
-		{ id: 'author', label: `${columns.author ? '✓ ' : '   '}Author` },
-		{ id: 'commit', label: `${columns.commit ? '✓ ' : '   '}Commit` },
-		{ id: 'date', label: `${columns.date ? '✓ ' : '   '}Date` },
-	]);
+	const headerMenuItems = $derived(buildHeaderMenuItems(columns));
 
 	const metrics = $derived<LaneMetrics>({
 		columnWidth: COL_W,
@@ -206,114 +229,101 @@
 		style: graphStyle,
 	});
 
-	interface LaneSegment {
-		d: string;
-		colour: number;
-		/** Branch-line identity, for hover highlighting. */
-		branch: number;
-		/** Leaves this row's node, so a stash can draw its line dashed. */
-		fromNode: boolean;
-	}
-
-	/**
-	 * Every line to draw in one row's band, from its lanes alone.
-	 *
-	 * A lane keeps its column for its whole life, so a column changes hands only at a node: either a
-	 * lane arrives here and is consumed, or one starts here for a parent. That leaves four shapes and
-	 * no cross-row questions.
-	 */
-	function laneSegments(row: GraphRow): LaneSegment[] {
-		const listSegments: LaneSegment[] = [];
-		const node = row.nodeColumn;
-		const hash = row.commit.hash;
-		for (let column = 0; column < row.listInputLanes.length; column++) {
-			const input = row.listInputLanes[column] ?? null;
-
-			if (input && input.hash !== hash) {
-				// Not this commit's lane, so it crosses the whole band untouched.
-				listSegments.push({
-					d: passThrough(column, metrics),
-					colour: input.colour,
-					branch: input.branch,
-					fromNode: false,
-				});
-				continue;
-			}
-			if (input) {
-				listSegments.push(
-					column === node
-						? {
-								d: intoNode(column, metrics),
-								colour: input.colour,
-								branch: input.branch,
-								fromNode: false,
-							}
-						: {
-								d: mergeIn(column, node, metrics),
-								colour: input.colour,
-								branch: input.branch,
-								fromNode: false,
-							}
-				);
-			}
-		}
-
-		// The lines out of the node, one per parent. Driven by the parent columns rather than by the
-		// output lanes: a parent another lane already awaits opens no lane of its own, so the lanes
-		// alone would leave this commit with no way down.
-		for (const column of row.listParentColumns) {
-			const lane = row.listOutputLanes[column];
-			const colour = lane?.colour ?? row.nodeColour;
-			const branch = lane?.branch ?? row.nodeBranch;
-			listSegments.push(
-				column === node
-					? { d: outOfNode(column, metrics), colour, branch, fromNode: true }
-					: { d: branchOut(node, column, metrics), colour, branch, fromNode: true }
-			);
-		}
-		return listSegments;
-	}
-
 	/** Chips of one commit, ordered and collapsed by the pure helper in `lib/graphChips`. */
 	const chipsFor = (refs: Ref[]): RefChip[] => buildChips(refs, currentBranch, lastPicked);
 
 	/**
-	 * The `+N` popover: where to draw it and which chips it holds. Anchored by its right edge, so
-	 * the hidden chips hang in one flush column however long their names run.
+	 * The expanded ref column: every chip of one row, at full width, drawn over the collapsed cell.
+	 *
+	 * The column is narrow, so a row's chips arrive both cut down to an ellipsis and folded behind
+	 * a `+N` badge. Hovering the cell opens all of them rather than making the badge the only way
+	 * in — the badge is a small target, and it says nothing about the truncated name beside it.
 	 */
-	let chipPopover = $state<{ right: number; y: number; listChips: RefChip[] } | null>(null);
-	let chipCloseTimer: ReturnType<typeof setTimeout> | undefined;
+	let refExpand = $state<{
+		right: number;
+		y: number;
+		listChips: RefChip[];
+		commit: Commit;
+	} | null>(null);
+	let expandCloseTimer: ReturnType<typeof setTimeout> | undefined;
+	let expandOpenTimer: ReturnType<typeof setTimeout> | undefined;
 
-	function openChipPopover(event: MouseEvent, listChips: RefChip[]): void {
-		clearTimeout(chipCloseTimer);
-		const badge = event.currentTarget as HTMLElement;
-		// Lined up with the chip the badge follows, not with the badge itself: the chips it hides are
-		// the same kind of thing as that chip, so they read as a column continuing under it.
-		const anchor = badge.previousElementSibling ?? badge;
-		chipPopover = {
-			right: window.innerWidth - anchor.getBoundingClientRect().right,
-			y: badge.getBoundingClientRect().bottom + 2,
-			listChips,
-		};
+	/**
+	 * How far the panel's first chip sits inside the panel's own top-right corner: its border plus
+	 * its padding. The anchor cancels this out, so the chip lands exactly on the one it replaces
+	 * instead of a few pixels down and left of it.
+	 */
+	const EXPAND_INSET = 5;
+	/** Breathing room kept between the panel and the edge of the view it must stay inside. */
+	const EXPAND_MARGIN = 8;
+	/** Long enough that running the pointer down the column does not strobe panels open behind it. */
+	const EXPAND_DELAY = 180;
+
+	function openRefExpand(
+		event: MouseEvent,
+		commit: Commit,
+		listChips: RefChip[],
+		hasOverflow: boolean
+	): void {
+		clearTimeout(expandCloseTimer);
+		clearTimeout(expandOpenTimer);
+		const cell = event.currentTarget as HTMLElement;
+		// Measured on the names, not on the cell. Chips are allowed to shrink (`flex: 0 1 auto`), so
+		// a column too narrow for them ellipsises each name in place instead of overflowing the cell
+		// — by the time the cell itself scrolls, the names have already been cut for some time.
+		const isTruncated = [...cell.querySelectorAll('.ref-name')].some(
+			(name) => name.scrollWidth > name.clientWidth
+		);
+		if (!shouldExpand({ listChips, hasOverflow, isTruncated })) {
+			refExpand = null;
+			return;
+		}
+		const first = cell.firstElementChild;
+		if (!first) return;
+		const box = first.getBoundingClientRect();
+		expandWidth = 0;
+		expandOpenTimer = setTimeout(() => {
+			refExpand = { ...expanderAnchor(box, EXPAND_INSET, window.innerWidth), listChips, commit };
+		}, EXPAND_DELAY);
 	}
 
-	/** Delayed, so the pointer can travel from the badge into the popover without it vanishing. */
-	function scheduleChipClose(): void {
-		clearTimeout(chipCloseTimer);
-		chipCloseTimer = setTimeout(() => (chipPopover = null), 150);
+	/**
+	 * Delayed, so the pointer can travel from the cell into the panel without it vanishing.
+	 *
+	 * A ref menu opened from one of these chips pins the panel open. Otherwise moving the pointer
+	 * onto that menu — which is what the user does next — reads as leaving the panel, and the chips
+	 * vanish out from under the menu they raised, leaving it naming a ref with nothing on screen to
+	 * tie it to.
+	 */
+	function scheduleExpandClose(): void {
+		clearTimeout(expandOpenTimer);
+		clearTimeout(expandCloseTimer);
+		expandCloseTimer = setTimeout(() => {
+			if (menu?.chip) return;
+			refExpand = null;
+		}, 150);
 	}
 
-	function cancelChipClose(): void {
-		clearTimeout(chipCloseTimer);
+	function cancelExpandClose(): void {
+		clearTimeout(expandCloseTimer);
 	}
+
+	/**
+	 * The panel's measured width, and the anchor corrected against it.
+	 *
+	 * Two passes rather than one: the width is only knowable once the chips are laid out, and the
+	 * correction needs it. The panel stays hidden through the first pass — a visible slide from the
+	 * wrong place to the right one would read as the panel flinching.
+	 */
+	let expandWidth = $state(0);
+	const expandRight = $derived(
+		refExpand ? clampExpandRight(refExpand.right, expandWidth, window.innerWidth, EXPAND_MARGIN) : 0
+	);
 
 	function checkoutChip(chip: RefChip): void {
-		chipPopover = null;
+		refExpand = null;
 		if (chip.checkedOut) return;
-		oncheckoutBranch(
-			chip.hasLocal ? chip.name : null,
-			chip.listRemotes.length > 0 ? `${chip.listRemotes[0]}/${chip.name}` : null
-		);
+		oncheckoutBranch(chip.hasLocal ? chip.name : null, chipRemote(chip));
 	}
 
 	/**
@@ -348,21 +358,27 @@
 		menu = { x: event.clientX, y: event.clientY, commit };
 	}
 
-	/** The ref a chip stands for: its local name when it has one, else its first remote-tracking one. */
-	function chipRef(chip: RefChip): string | null {
-		if (chip.hasLocal) return chip.name;
-		const remote = chip.listRemotes[0];
-		return remote ? `${remote}/${chip.name}` : null;
+	/**
+	 * The menu for one ref. It stops the event rather than letting the row see it: the click named a
+	 * ref, and the commit menu would answer a question that was not asked.
+	 */
+	function openRefMenu(event: MouseEvent, commit: Commit, chip: RefChip): void {
+		// Built before the event is stopped: a chip with nothing of its own to offer — detached HEAD
+		// — must let the right-click reach the row, or it opens an empty menu instead of the commit's.
+		if (buildRefMenu(chip, currentBranch).items.length === 0) return;
+		event.preventDefault();
+		event.stopPropagation();
+		// The panel stays up while its menu is open: `.ref-expand` sits below `ContextMenu` in the
+		// stack, so the menu draws over it, and the chips keep saying which ref the menu is about.
+		clearTimeout(expandCloseTimer);
+		onselect(commit.hash);
+		if (commit.isUncommitted) return;
+		menu = { x: event.clientX, y: event.clientY, commit, chip };
 	}
 
-	/**
-	 * Only a local branch can be dropped onto: Git writes the target ref, and a remote-tracking ref
-	 * is a copy of someone else's, not something this repository may move.
-	 */
-	function isDropTarget(chip: RefChip): boolean {
-		return (
-			dragSource !== null && chip.kind === 'branch' && chip.hasLocal && chip.name !== dragSource
-		);
+	/** Whether the dragged chip may land here, read against the drag in flight right now. */
+	function canDrop(chip: RefChip): boolean {
+		return isDropTarget(chip, dragSource?.label ?? null);
 	}
 
 	function onChipDragStart(event: DragEvent, chip: RefChip): void {
@@ -374,25 +390,31 @@
 		dragSource = source;
 		if (event.dataTransfer) {
 			event.dataTransfer.effectAllowed = 'copy';
-			event.dataTransfer.setData('text/plain', source);
+			event.dataTransfer.setData('text/plain', source.label);
 		}
 	}
 
 	function onChipDragOver(event: DragEvent, chip: RefChip): void {
-		if (!isDropTarget(chip)) return;
+		if (!canDrop(chip)) return;
 		event.preventDefault();
 		if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
 		dropTarget = chip.name;
 	}
 
 	function onChipDrop(event: DragEvent, chip: RefChip): void {
-		if (!isDropTarget(chip) || !dragSource) return;
+		if (!canDrop(chip) || !dragSource) return;
 		event.preventDefault();
 		event.stopPropagation();
-		dropMenu = { x: event.clientX, y: event.clientY, source: dragSource, target: chip.name };
+		dropMenu = {
+			x: event.clientX,
+			y: event.clientY,
+			source: dragSource.ref,
+			sourceLabel: dragSource.label,
+			target: chip.name,
+		};
 		ffNonce += 1;
 		// The answer decides whether the menu offers a fast-forward; it lands while the menu is open.
-		oncheckFastForward(dragSource, chip.name, ffNonce);
+		oncheckFastForward(dragSource.ref, chip.name, ffNonce);
 		dragSource = null;
 		dropTarget = null;
 	}
@@ -402,128 +424,41 @@
 		dropTarget = null;
 	}
 
-	const dropMenuItems = $derived.by(() => {
-		if (!dropMenu) return [];
-		const items = [
-			{ id: 'mergeInto', label: `Merge ${dropMenu.source} into ${dropMenu.target}…` },
-			{ id: 'rebaseOnto', label: `Rebase ${dropMenu.source} onto ${dropMenu.target}…` },
-		];
-		if (fastForward?.nonce === ffNonce && fastForward.canFastForward) {
-			items.push({
-				id: 'fastForward',
-				label: `Fast-forward ${dropMenu.target} to ${dropMenu.source}`,
-			});
-		}
-		return items;
-	});
+	// `ffNonce` is read live: only the answer to *this* drop's question may add the entry.
+	const dropMenuItems = $derived(buildDropMenuItems(dropMenu, fastForward, ffNonce));
 
 	function onDropMenuSelect(id: string): void {
 		const drop = dropMenu;
 		dropMenu = null;
-		if (drop) onbranchAction(id as BranchActionId, drop.source, drop.target);
+		if (drop) onbranchAction(id as BranchActionId, drop.source, drop.sourceLabel, drop.target);
 	}
 
-	const menuItems = $derived.by(() => {
-		if (!menu) return [];
+	const openMenuBuild = $derived.by((): RefMenu => {
+		if (!menu) return { items: [], mapEntries: {} };
+		if (menu.chip) return buildRefMenu(menu.chip, currentBranch);
 		// A right-click inside the multi-selection acts on the range, not the single commit.
 		if (listSelectedCommits.length > 1 && setSelected.has(menu.commit.hash)) {
-			const n = listSelectedCommits.length;
-			const chain = isSquashableChain(listSelectedCommits);
-			// Cherry-pick and revert replay commits one by one, so they only need merge-free picks,
-			// not a contiguous chain.
-			const noMerges = listSelectedCommits.every((commit) => commit.parents.length === 1);
-			const items: MenuItem[] = [
-				{ id: 'squashSelected', label: `Squash ${n} Commits…`, disabled: !chain },
-				{ id: 'dropSelected', label: `Drop ${n} Commits…`, disabled: !chain },
-				{
-					id: 'cherryPickSelected',
-					label: `Cherry Pick ${n} Commits…`,
-					disabled: !noMerges,
-					separatorBefore: true,
-				},
-				{ id: 'revertSelected', label: `Revert ${n} Commits…`, disabled: !noMerges },
-			];
-			if (!chain) {
-				items.push({
-					id: 'multiHint',
-					label: noMerges
-						? 'Squash/Drop need a consecutive run on one branch'
-						: 'Selection contains merge commits',
-					disabled: true,
-					separatorBefore: true,
-				});
-			}
-			return items;
+			return { items: buildMultiMenuItems(listSelectedCommits), mapEntries: {} };
 		}
-		const stashRef = menu.commit.refs.find((r) => r.kind === 'stash');
-		if (stashRef) {
-			return [
-				{ id: 'stashApply', label: 'Apply Stash…' },
-				{ id: 'stashPop', label: 'Pop Stash…' },
-				{ id: 'stashBranch', label: 'Create Branch from Stash…' },
-				{ id: 'stashDrop', label: 'Drop Stash…', separatorBefore: true },
-				{ id: 'copyHash', label: 'Copy Commit Hash', separatorBefore: true },
-				{ id: 'copySubject', label: 'Copy Subject' },
-			];
-		}
-		const hasLocalBranch = menu.commit.refs.some((r) => r.kind === 'branch' && !r.remote);
-		// Naming the branch beats "current branch": on a graph of many branches it is the one thing
-		// the reader cannot infer from where they right-clicked.
-		const here = currentBranch ?? 'the current branch';
-		const items: MenuItem[] = [
-			{ id: 'checkout', label: 'Checkout Commit' },
-			{ id: 'createBranch', label: 'Create Branch…' },
-			{ id: 'addTag', label: 'Add Tag…' },
-			{ id: 'merge', label: `Merge into ${here}…`, separatorBefore: true },
-			{ id: 'rebase', label: `Rebase ${here} on this Commit…` },
-			{ id: 'cherryPick', label: 'Cherry Pick…' },
-			{ id: 'revert', label: 'Revert…' },
-			{ id: 'reword', label: 'Reword Message…' },
-			{
-				id: 'reset',
-				label: `Reset ${here} to this Commit`,
-				children: [
-					{ id: 'resetSoft', label: 'Soft — keep all changes, staged' },
-					{ id: 'resetMixed', label: 'Mixed — keep changes, unstaged' },
-					{ id: 'resetHard', label: 'Hard — discard all changes' },
-				],
-			},
-		];
-		const hasRemoteBranch = menu.commit.refs.some((r) => r.kind === 'branch' && r.remote);
-		if (hasLocalBranch)
-			items.push({ id: 'deleteBranch', label: 'Delete Branch…', separatorBefore: true });
-		if (hasRemoteBranch) {
-			items.push({
-				id: 'checkoutRemote',
-				label: 'Checkout Remote Branch…',
-				separatorBefore: !hasLocalBranch,
-			});
-			items.push({ id: 'fetchIntoLocal', label: 'Fetch into local branch…' });
-			items.push({ id: 'deleteRemoteBranch', label: 'Delete Remote Branch…' });
-		}
-		const hasTags = menu.commit.refs.some((r) => r.kind === 'tag');
-		if (hasTags) {
-			items.push({ id: 'pushTag', label: 'Push Tag…', separatorBefore: true });
-			items.push({ id: 'deleteTag', label: 'Delete Tag…' });
-			items.push({ id: 'deleteRemoteTag', label: 'Delete Remote Tag…' });
-		}
-		items.push({ id: 'openOnRemote', label: 'Open on Remote', separatorBefore: true });
-		items.push({ id: 'copyRemoteUrl', label: 'Copy Remote URL' });
-		items.push({ id: 'copyHash', label: 'Copy Commit Hash' });
-		items.push({ id: 'copySubject', label: 'Copy Subject' });
-		return items;
+		return buildCommitMenuItems(menu.commit, currentBranch, chipsFor(menu.commit.refs));
 	});
 
-	const mapMultiAction: Record<string, 'squash' | 'drop' | 'cherryPick' | 'revert'> = {
-		squashSelected: 'squash',
-		dropSelected: 'drop',
-		cherryPickSelected: 'cherryPick',
-		revertSelected: 'revert',
-	};
+	const menuItems = $derived(openMenuBuild.items);
 
 	function onMenuSelect(id: string): void {
 		const commit = menu?.commit;
-		menu = null;
+		// Read before closing: `openMenuBuild` is derived from `menu`, and clearing it first would
+		// leave nothing to look the id up in.
+		const selected = resolveMenuSelection(openMenuBuild.items, id);
+		const refEntry = openMenuBuild.mapEntries[id];
+		closeMenu();
+		// A disabled entry resolves to nothing. `ContextMenu` will not fire one either; both have to
+		// agree, because the id alone cannot say whether the action was ruled out.
+		if (!selected) return;
+		if (refEntry && commit) {
+			runRefEntry(refEntry, commit);
+			return;
+		}
 		const multiAction = mapMultiAction[id];
 		if (multiAction) {
 			onmulti(
@@ -535,6 +470,22 @@
 		if (commit) onaction(id as CommitActionId, commit);
 	}
 
+	/** Closing the menu releases the expanded column it was pinning, if it came from one. */
+	function closeMenu(): void {
+		menu = null;
+		refExpand = null;
+	}
+
+	function runRefEntry(entry: RefMenuEntry, commit: Commit): void {
+		if (entry.run.type === 'commit') {
+			onaction(entry.run.action, commit, entry.target);
+			return;
+		}
+		const source = chipRef(entry.target.chip);
+		if (!source) return;
+		onbranchAction(entry.run.action, source.ref, source.label, entry.run.target);
+	}
+
 	/** Row count the last load-more was asked at, so one scroll position asks only once. */
 	let loadMoreAskedAt = 0;
 
@@ -542,9 +493,17 @@
 		if (!viewport) return;
 		scrollTop = viewport.scrollTop;
 		// Anchored to a screen position, so any scroll leaves it floating over the wrong row.
-		chipPopover = null;
-		if (!hasMore || rows.length === loadMoreAskedAt) return;
-		if (scrollTop + viewportH >= totalH - ROW_H * 5) {
+		refExpand = null;
+		const ask = shouldAskLoadMore({
+			scrollTop,
+			viewportH,
+			totalH,
+			rowH: ROW_H,
+			rowCount: rows.length,
+			askedAt: loadMoreAskedAt,
+			hasMore,
+		});
+		if (ask) {
 			loadMoreAskedAt = rows.length;
 			onloadMore();
 		}
@@ -590,8 +549,8 @@
 
 {#snippet chipBody(chip: RefChip, colour: string)}
 	{#if chip.kind !== 'branch'}
-		<span class="glyph" style="background:{colour}">
-			<Icon name={chip.kind === 'tag' ? 'tag' : 'archive'} />
+		<span class="glyph" style={chip.kind === 'head' ? undefined : `background:${colour}`}>
+			<Icon name={mapChipGlyph[chip.kind]} />
 		</span>
 	{/if}
 	<span class="seg">
@@ -703,7 +662,7 @@
 					<!-- One band per row, drawn in its own coordinates: every lane runs edge to edge, so the
 					     bands stack seamlessly and no row has to know what the row below it looks like. -->
 					<g transform="translate(0,{v.index * ROW_H})">
-						{#each laneSegments(v.row) as segment, s (s)}
+						{#each laneSegments(v.row, metrics) as segment, s (s)}
 							<path
 								d={segment.d}
 								class:dim={hoveredBranch !== null && segment.branch !== hoveredBranch}
@@ -779,6 +738,15 @@
 									stroke={colour}
 									stroke-width="2"
 								/>
+								<!-- The ring above is drawn unfilled, so on its own it only answers the pointer along
+								     the stroke. This disc catches the whole avatar. -->
+								<circle
+									cx={nodeX}
+									cy={ROW_H / 2}
+									r={AVATAR_R}
+									fill="transparent"
+									use:tooltip={{ text: authorTooltip(commit, dateType), delay: AVATAR_TIP_DELAY }}
+								/>
 							{:else}
 								<circle cx={nodeX} cy={ROW_H / 2} r={NODE_R} fill={colour} />
 							{/if}
@@ -816,7 +784,18 @@
 						if (highlightHover) hoveredBranch = v.row.nodeBranch;
 					}}
 				>
-					<span class="refs">
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<span
+						class="refs"
+						onmouseenter={(event) =>
+							openRefExpand(
+								event,
+								v.row.commit,
+								chipsFor(v.row.commit.refs),
+								chipGroups.listOverflow.length > 0
+							)}
+						onmouseleave={scheduleExpandClose}
+					>
 						{#each chipGroups.listVisible as chip (chip.kind + chip.name)}
 							{@const chipColour = graphColour(v.row.nodeColour)}
 							<!-- Only the checked-out chip takes the branch colour: it is the one fact worth
@@ -827,7 +806,7 @@
 									class="ref branch"
 									class:current={chip.checkedOut}
 									class:checkoutable={!chip.checkedOut}
-									class:droppable={isDropTarget(chip)}
+									class:droppable={canDrop(chip)}
 									class:drop-hover={dropTarget === chip.name}
 									draggable="true"
 									ondragstart={(event) => onChipDragStart(event, chip)}
@@ -837,44 +816,39 @@
 										if (dropTarget === chip.name) dropTarget = null;
 									}}
 									ondrop={(event) => onChipDrop(event, chip)}
+									oncontextmenu={(event) => openRefMenu(event, v.row.commit, chip)}
 									ondblclick={(event) => {
 										event.stopPropagation();
 										if (chip.checkedOut) return;
-										oncheckoutBranch(
-											chip.hasLocal ? chip.name : null,
-											chip.listRemotes.length > 0 ? `${chip.listRemotes[0]}/${chip.name}` : null
-										);
+										oncheckoutBranch(chip.hasLocal ? chip.name : null, chipRemote(chip));
 									}}
 									onkeydown={(event) => {
 										if (event.key !== 'Enter' || chip.checkedOut) return;
 										event.stopPropagation();
-										oncheckoutBranch(
-											chip.hasLocal ? chip.name : null,
-											chip.listRemotes.length > 0 ? `${chip.listRemotes[0]}/${chip.name}` : null
-										);
+										oncheckoutBranch(chip.hasLocal ? chip.name : null, chipRemote(chip));
 									}}
 									style={border}
 								>
 									{@render chipBody(chip, chipColour)}
 								</button>
 							{:else}
-								<span class="ref {chip.kind}" use:tooltip={chip.title} style={border}>
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<span
+									class="ref {chip.kind}"
+									use:tooltip={chip.title}
+									style={border}
+									oncontextmenu={(event) => openRefMenu(event, v.row.commit, chip)}
+								>
 									{@render chipBody(chip, chipColour)}
 								</span>
 							{/if}
 						{/each}
 						{#if chipGroups.listOverflow.length > 0}
-							<button
-								class="ref more"
-								onmouseenter={(event) => openChipPopover(event, chipGroups.listOverflow)}
-								onmouseleave={scheduleChipClose}
-								onclick={(event) => {
-									event.stopPropagation();
-									openChipPopover(event, chipGroups.listOverflow);
-								}}
+							<!-- A count, not a control: hovering anywhere in the cell now opens the column,
+							     so the badge only has to say how much is being withheld. -->
+							<span class="ref more"
+								><span class="seg">+{chipGroups.listOverflow.length}</span></span
 							>
-								+{chipGroups.listOverflow.length}
-							</button>
 						{/if}
 					</span>
 					<span class="graph-cell"></span>
@@ -893,7 +867,15 @@
 					{#if columns.author}
 						<span class="muted author">
 							{#if v.row.commit.author.avatarUrl}
-								<img class="avatar" src={v.row.commit.author.avatarUrl} alt="" />
+								<img
+									class="avatar"
+									src={v.row.commit.author.avatarUrl}
+									alt=""
+									use:tooltip={{
+										text: authorTooltip(v.row.commit, dateType),
+										delay: AVATAR_TIP_DELAY,
+									}}
+								/>
 							{/if}
 							{v.row.commit.author.name}
 						</span>
@@ -916,31 +898,59 @@
 	</div>
 </div>
 
-{#if chipPopover}
+{#if refExpand}
+	{@const expandCommit = refExpand.commit}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class="chip-popover"
-		style="right:{chipPopover.right}px; top:{chipPopover.y}px"
-		onmouseenter={cancelChipClose}
-		onmouseleave={scheduleChipClose}
+		class="ref-expand"
+		bind:clientWidth={expandWidth}
+		style="right:{expandRight}px; top:{refExpand.y}px; visibility:{expandWidth > 0
+			? 'visible'
+			: 'hidden'}"
+		onmouseenter={cancelExpandClose}
+		onmouseleave={scheduleExpandClose}
+		oncontextmenu={(event) => event.preventDefault()}
 	>
-		{#each chipPopover.listChips as chip (chip.kind + chip.name)}
-			<button
-				class="ref branch popover-chip"
-				class:current={chip.checkedOut}
-				title="{chip.title} — double-click to check out"
-				ondblclick={(event) => {
-					event.stopPropagation();
-					checkoutChip(chip);
-				}}
-				onkeydown={(event) => {
-					if (event.key !== 'Enter') return;
-					event.stopPropagation();
-					checkoutChip(chip);
-				}}
-			>
-				{@render chipBody(chip, 'var(--gg-accent)')}
-			</button>
+		{#each refExpand.listChips as chip (chip.kind + chip.name)}
+			{#if chip.kind === 'branch'}
+				<!-- The panel covers the chips it stands for, so it has to be where they are dragged
+				     from and dropped onto — otherwise opening it would take the merge gesture away. -->
+				<button
+					class="ref branch expand-chip"
+					class:current={chip.checkedOut}
+					class:droppable={canDrop(chip)}
+					class:drop-hover={dropTarget === chip.name}
+					title="{chip.title} — double-click to check out"
+					draggable="true"
+					ondragstart={(event) => onChipDragStart(event, chip)}
+					ondragend={endDrag}
+					ondragover={(event) => onChipDragOver(event, chip)}
+					ondragleave={() => {
+						if (dropTarget === chip.name) dropTarget = null;
+					}}
+					ondrop={(event) => onChipDrop(event, chip)}
+					oncontextmenu={(event) => openRefMenu(event, expandCommit, chip)}
+					ondblclick={(event) => {
+						event.stopPropagation();
+						checkoutChip(chip);
+					}}
+					onkeydown={(event) => {
+						if (event.key !== 'Enter') return;
+						event.stopPropagation();
+						checkoutChip(chip);
+					}}
+				>
+					{@render chipBody(chip, 'var(--gg-accent)')}
+				</button>
+			{:else}
+				<span
+					class="ref {chip.kind} expand-chip"
+					title={chip.title}
+					oncontextmenu={(event) => openRefMenu(event, expandCommit, chip)}
+				>
+					{@render chipBody(chip, 'var(--gg-accent)')}
+				</span>
+			{/if}
 		{/each}
 	</div>
 {/if}
@@ -951,7 +961,7 @@
 		y={menu.y}
 		items={menuItems}
 		onselect={onMenuSelect}
-		onclose={() => (menu = null)}
+		onclose={closeMenu}
 	/>
 {/if}
 
@@ -1125,8 +1135,11 @@
 		flex: 0 1 auto;
 		font-size: 12px;
 		line-height: 18px;
-		/* Fixed, not a minimum: an icon's line box must never make one chip taller than its neighbour. */
-		height: 18px;
+		/* Fixed, not a minimum: an icon's line box must never make one chip taller than its neighbour.
+		   Border-box so the border and any padding a variant adds come out of this height rather than
+		   on top of it — otherwise the one chip that pads itself stands taller than the rest. */
+		box-sizing: border-box;
+		height: 20px;
 		border-radius: 5px;
 		border: 1px solid var(--gg-chip-border);
 		background: var(--gg-chip-bg);
@@ -1162,6 +1175,16 @@
 		font-size: 13px;
 		opacity: 1;
 	}
+	/* Detached HEAD is a state to get out of, not a ref to admire — it borrows the warning colour
+	   rather than a lane colour, so it never reads as one more branch on the row. */
+	.ref.head {
+		border-color: var(--vscode-editorWarning-foreground, #cca700);
+		color: var(--vscode-editorWarning-foreground, #cca700);
+		font-weight: 600;
+	}
+	.ref.head .glyph {
+		color: inherit;
+	}
 	.ref-name {
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -1193,35 +1216,39 @@
 	.ref.current :global(.codicon) {
 		opacity: 1;
 	}
+	/* Padded through a `.seg` like every other chip, rather than padding itself: a chip that carries
+	   its own padding is the one that ends up a different size from its neighbours. */
 	.ref.more {
 		flex: none;
 		color: var(--gg-fg-muted);
-		align-items: center;
-		padding: var(--gg-chip-padding);
-		font-family: inherit;
-		cursor: pointer;
 	}
-	.ref.more:hover {
-		background: var(--vscode-list-hoverBackground);
-		color: var(--gg-fg);
-	}
-	/* The `+N` popover: the hidden chips, stacked, each one behaving like the chip it stands for. */
-	/* No panel behind the chips: they are the same chips as the row above, so a frame around them
-	   only says "different kind of thing", which is the opposite of what they are. */
-	.chip-popover {
+	/* The expanded ref column: every chip of one row, stacked, each behaving like the chip it stands
+	   for.
+
+	   Opaque, and on a panel. Bare chips floating over the graph read well in isolation, but this
+	   hangs down over the rows below its own, and chips from two different commits overlapping at
+	   the same height read as one row carrying both — the one thing the graph must never say. Below
+	   `ContextMenu` in the stack, so a menu opened from a chip in here draws on top. */
+	.ref-expand {
 		position: fixed;
-		z-index: 20;
+		z-index: 5;
 		display: flex;
 		flex-direction: column;
-		align-items: stretch;
+		/* Each chip is as wide as it needs to be, hung off the right edge — the same shape they have
+		   in the row. Stretching them to the widest name would invent a size none of them has. */
+		align-items: flex-end;
 		gap: var(--gg-space-1);
+		padding: var(--gg-space-1);
+		border-radius: 6px;
+		background: var(--vscode-menu-background, var(--gg-bg));
+		border: 1px solid var(--vscode-menu-border, var(--gg-chip-border));
+		box-shadow: 0 4px 12px rgb(0 0 0 / 36%);
 	}
-	/* With nothing behind them, each chip has to be opaque on its own: the chip tint is deliberately
-	   translucent, and the commit rows underneath would otherwise read straight through it. */
-	.popover-chip {
+	/* The panel behind them is opaque, so these only need to read as chips against it — the same
+	   lift a chip has against a row, left alone rather than tuned for a second background. */
+	.expand-chip {
 		justify-content: flex-start;
 		background: color-mix(in srgb, var(--gg-fg) 12%, var(--gg-bg));
-		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 	}
 	.ref :global(.codicon) {
 		flex: none;
