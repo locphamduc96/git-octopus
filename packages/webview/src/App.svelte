@@ -11,7 +11,6 @@
 		CommitActionId,
 		CommitDetails,
 		DiffHunk,
-		GitIdentity,
 		GraphRow,
 		HostToWebview,
 		RemoteBranchRef,
@@ -20,7 +19,6 @@
 		RepoState,
 		SequencerActionMessage,
 		WorkingTreeAction,
-		WorkspaceIdentityEntry,
 		WorkingTreeStatus,
 	} from '@git-octopus/shared';
 	import { UNCOMMITTED_HASH } from '@git-octopus/shared';
@@ -33,7 +31,7 @@
 	import type { RefTarget } from './lib/graphMenu';
 	import { nextRowIndex } from './lib/keyNav';
 	import { buildPanelFiles, stepPath } from './lib/panelFiles';
-	import { settingsRequireReload, type RepoIdentityState } from './lib/viewSettings';
+	import { settingsRequireReload } from './lib/viewSettings';
 	import ControlBar from './features/control-bar/ControlBar.svelte';
 	import DiffPanel from './features/diff/DiffPanel.svelte';
 	import FindWidget from './features/find/FindWidget.svelte';
@@ -48,12 +46,10 @@
 	import SettingsWidget from './features/settings/SettingsWidget.svelte';
 	import { fontFaceCss } from './lib/fileIcon';
 	import { guessThemeKind, langForPath, tokenizeHunks, type HighlightToken } from './lib/highlight';
-	import { identityMismatch, listMatchedIdentities, matchIdentity } from './lib/identity';
-	import { planCommitGuard } from './lib/commitGuard';
-	import { planAutoApply } from './lib/identityAutoApply';
 	import { planReveal } from './lib/revealPlan';
 	import { selectRange } from './lib/squashRange';
 	import { fileIconTheme, setFileIconTheme } from './lib/stores/fileIcons.svelte';
+	import { identity } from './lib/stores/identity.svelte';
 	import { prefs } from './lib/stores/prefs.svelte';
 	import { session } from './lib/stores/session.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
@@ -125,20 +121,6 @@
 		return buildHostFilters(prefs.settings);
 	}
 
-	let repoIdentity = $state<RepoIdentityState | null>(null);
-	let listIdentities = $state<GitIdentity[]>([]);
-	let addingIdentity = $state(false);
-	/** Every workspace repository's effective identity, asked for each time settings open. */
-	let listWorkspaceIdentities = $state<WorkspaceIdentityEntry[]>([]);
-	/** The commit-time question: the user is about to commit with an email the remote disagrees with. */
-	let commitGuard = $state<{ suggested: GitIdentity; message?: string } | null>(null);
-	/**
-	 * A commit waiting for the identity switch it asked for. The host handles `identityAction` and
-	 * `workingTreeAction` independently, so posting both at once could commit under the old email;
-	 * the commit goes out only once an `identity` reply shows the switch has landed.
-	 */
-	let pendingCommitAwaitIdentity = $state<{ email: string; message?: string } | null>(null);
-
 	/**
 	 * Questions the host asks this view to render (feature-040). One dialog at a time — the
 	 * rest wait in arrival order; each is answered exactly once by its requestId.
@@ -176,22 +158,6 @@
 		cleanupOpen = true;
 		postToHost({ type: 'loadBranchInventory' });
 	}
-
-	/** Saved identity currently in use, mismatch warning, and the chip label they produce. */
-	const activeIdentity = $derived(matchIdentity(listIdentities, repoIdentity?.email ?? null));
-	const identityWarningFor = $derived(
-		repoIdentity
-			? identityMismatch(listIdentities, repoIdentity.listRemoteUrls, repoIdentity.email)
-			: null
-	);
-	const identityWarning = $derived(
-		identityWarningFor
-			? `This repository's remote suggests the "${identityWarningFor.label}" identity (${identityWarningFor.email}), but commits will use ${repoIdentity?.email ?? 'no email'}. Open settings to switch.`
-			: null
-	);
-	const identityLabel = $derived(
-		activeIdentity ? activeIdentity.label : (repoIdentity?.email ?? null)
-	);
 
 	let comparison = $state<ComparisonState>({
 		fromHash: null,
@@ -403,9 +369,6 @@
 						cleanupResults = null;
 						pendingCheckout = null;
 						pendingHeadReveal = null;
-						listWorkspaceIdentities = [];
-						commitGuard = null;
-						pendingCommitAwaitIdentity = null;
 						// Questions asked over the old repository die with it.
 						for (const item of listUiQueue) {
 							postToHost({ type: 'uiReply', requestId: item.requestId, cancelled: true });
@@ -533,35 +496,6 @@
 					fastForward = { nonce: message.nonce, canFastForward: message.canFastForward };
 					break;
 				}
-				case 'identity': {
-					repoIdentity = {
-						name: message.name,
-						email: message.email,
-						hasLocalName: message.hasLocalName,
-						hasLocalEmail: message.hasLocalEmail,
-						listRemoteUrls: message.listRemoteUrls,
-						globalName: message.globalName,
-						globalEmail: message.globalEmail,
-					};
-					listIdentities = message.listIdentities;
-					if (pendingCommitAwaitIdentity) {
-						const pending = pendingCommitAwaitIdentity;
-						pendingCommitAwaitIdentity = null;
-						if (message.email === pending.email) {
-							postCommit(pending.message);
-						} else {
-							session.showNotice(
-								`The identity switch did not take effect, so nothing was committed. Your message is still in the box.`
-							);
-						}
-					}
-					maybeAutoApplyIdentity();
-					break;
-				}
-				case 'workspaceIdentities': {
-					listWorkspaceIdentities = message.listRepos;
-					break;
-				}
 				case 'branchInventory': {
 					cleanupInventory = {
 						listBranches: message.listBranches,
@@ -675,61 +609,6 @@
 		graphLimit += prefs.settings.commitLimit;
 		lastLoadSignature = currentLoadSignature();
 		postToHost({ type: 'loadCommits', limit: graphLimit, filters: hostFilters() });
-	}
-
-	function applyIdentity(identity: GitIdentity): void {
-		postToHost({
-			type: 'identityAction',
-			action: 'apply',
-			name: identity.name,
-			email: identity.email,
-		});
-	}
-
-	/**
-	 * One attempt per repo-and-identity: a successful apply comes back as an identity message that
-	 * no longer asks for anything, but a *failed* one comes back unchanged — and without this the
-	 * view would retry the same doomed apply on every identity reply, forever.
-	 */
-	let lastAutoApplyKey = '';
-
-	function maybeAutoApplyIdentity(): void {
-		if (!repoIdentity) return;
-		const plan = planAutoApply({
-			enabled: prefs.settings.autoApplyIdentity,
-			hasLocalOverride: repoIdentity.hasLocalName || repoIdentity.hasLocalEmail,
-			activeEmail: repoIdentity.email,
-			listMatched: listMatchedIdentities(listIdentities, repoIdentity.listRemoteUrls),
-		});
-		if (plan.kind !== 'apply') return;
-		const key = `${session.repoPath}|${plan.identity.email}`;
-		if (key === lastAutoApplyKey) return;
-		lastAutoApplyKey = key;
-		applyIdentity(plan.identity);
-		session.showNotice(`Auto-applied identity "${plan.identity.label}" to this repository.`);
-	}
-
-	function clearIdentityOverride(): void {
-		postToHost({ type: 'identityAction', action: 'clearOverride' });
-	}
-
-	/** Adding from the account dropdown saves the identity and switches to it in one step. */
-	function addIdentity(identity: GitIdentity): void {
-		addingIdentity = false;
-		const next = [...listIdentities, identity];
-		listIdentities = next;
-		postToHost({
-			type: 'identityAction',
-			action: 'apply',
-			name: identity.name,
-			email: identity.email,
-			listIdentities: next,
-		});
-	}
-
-	function saveIdentities(next: GitIdentity[]): void {
-		listIdentities = next;
-		postToHost({ type: 'saveIdentities', listIdentities: next });
 	}
 
 	/** Ctrl/Cmd + click: compare the clicked commit against the selected one. */
@@ -1017,11 +896,7 @@
 	}
 
 	function workingAction(action: WorkingTreeAction, path?: string, message?: string): void {
-		const plan = planCommitGuard(action, identityWarningFor);
-		if (plan.kind === 'ask') {
-			commitGuard = { suggested: plan.suggested, message };
-			return;
-		}
+		if (identity.askBeforeCommit(action, message)) return;
 		postToHost({
 			type: 'workingTreeAction',
 			repoPath: session.repoPath,
@@ -1031,30 +906,9 @@
 		});
 	}
 
-	function postCommit(message?: string): void {
-		postToHost({
-			type: 'workingTreeAction',
-			repoPath: session.repoPath,
-			action: 'commit',
-			message,
-		});
-	}
-
-	function answerCommitGuard(choice: string): void {
-		if (!commitGuard) return;
-		const { suggested, message } = commitGuard;
-		commitGuard = null;
-		if (choice === 'anyway') {
-			postCommit(message);
-			return;
-		}
-		pendingCommitAwaitIdentity = { email: suggested.email, message };
-		applyIdentity(suggested);
-	}
-
 	function openSettings(): void {
 		settingsOpen = true;
-		postToHost({ type: 'loadWorkspaceIdentities' });
+		identity.loadWorkspaceIdentities();
 	}
 
 	function runBranchAction(
@@ -1177,36 +1031,37 @@
 		/>
 	{/if}
 
-	{#if commitGuard}
+	{#if identity.commitGuard}
+		{@const guard = identity.commitGuard}
 		<OptionsDialog
-			title="Committing as {repoIdentity?.email ?? 'no email'}"
+			title="Committing as {identity.current?.email ?? 'no email'}"
 			listOptions={[
 				{
 					id: 'switch',
-					label: `Switch to ${commitGuard.suggested.label} (${commitGuard.suggested.email}), then commit`,
+					label: `Switch to ${guard.suggested.label} (${guard.suggested.email}), then commit`,
 					description: 'Writes the identity to this repository, then commits with it.',
 				},
 				{
 					id: 'anyway',
-					label: `Commit as ${repoIdentity?.email ?? 'no email'}`,
+					label: `Commit as ${identity.current?.email ?? 'no email'}`,
 					description: "This repository's remote suggests a different identity.",
 				},
 			]}
-			onsubmit={(listSelected) => answerCommitGuard(listSelected[0] ?? 'anyway')}
-			oncancel={() => (commitGuard = null)}
+			onsubmit={(listSelected) => identity.answerCommitGuard(listSelected[0] ?? 'anyway')}
+			oncancel={identity.dismissCommitGuard}
 		/>
 	{/if}
 
 	{#if settingsOpen}
 		<SettingsWidget
 			settings={prefs.settings}
-			identity={repoIdentity}
-			{listIdentities}
-			{listWorkspaceIdentities}
-			suggestedIdentity={identityWarningFor}
-			onapplyIdentity={applyIdentity}
-			onclearIdentityOverride={clearIdentityOverride}
-			onsaveIdentities={saveIdentities}
+			identity={identity.current}
+			listIdentities={identity.listIdentities}
+			listWorkspaceIdentities={identity.listWorkspaceIdentities}
+			suggestedIdentity={identity.warningFor}
+			onapplyIdentity={identity.apply}
+			onclearIdentityOverride={identity.clearOverride}
+			onsaveIdentities={identity.save}
 			onchange={(next) => {
 				const reload = settingsRequireReload(prefs.settings, next);
 				if (next.commitLimit !== prefs.settings.commitLimit) graphLimit = 0;
@@ -1220,8 +1075,8 @@
 		/>
 	{/if}
 
-	{#if addingIdentity}
-		<IdentityDialog onsave={addIdentity} onclose={() => (addingIdentity = false)} />
+	{#if identity.adding}
+		<IdentityDialog onsave={identity.add} onclose={identity.closeAdd} />
 	{/if}
 
 	{#if cleanupOpen}
@@ -1299,18 +1154,16 @@
 					onbranchFromHead={() => runHeadAction('createBranch')}
 					onshowHead={() => showHead()}
 					onsettings={openSettings}
-					{identityLabel}
-					{identityWarning}
-					{listIdentities}
-					activeEmail={repoIdentity?.email ?? null}
-					globalIdentity={repoIdentity
-						? { name: repoIdentity.globalName, email: repoIdentity.globalEmail }
-						: null}
-					overridden={repoIdentity?.hasLocalName === true || repoIdentity?.hasLocalEmail === true}
-					onuseGlobal={clearIdentityOverride}
-					suggestedIdentity={identityWarningFor}
-					onapplyIdentity={applyIdentity}
-					onaddIdentity={() => (addingIdentity = true)}
+					identityLabel={identity.label}
+					identityWarning={identity.warning}
+					listIdentities={identity.listIdentities}
+					activeEmail={identity.current?.email ?? null}
+					globalIdentity={identity.globalIdentity}
+					overridden={identity.overridden}
+					onuseGlobal={identity.clearOverride}
+					suggestedIdentity={identity.warningFor}
+					onapplyIdentity={identity.apply}
+					onaddIdentity={identity.openAdd}
 					oncleanup={openCleanup}
 					onidentity={openSettings}
 				/>
