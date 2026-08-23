@@ -27,23 +27,13 @@
 	import { layoutCommits } from '@git-octopus/graph-layout';
 	import { onHostMessage, postToHost, readState, writeState, STATE_VERSION } from './lib/bridge';
 	import { buildHostFilters, commitsReplyMatches, loadSignature } from './lib/commitsGuard';
-	import { dispatchHostMessage, resetForRepo } from './lib/hostRouter';
+	import { dispatchHostMessage, resetForRepo, type RoutedByStore } from './lib/hostRouter';
 	import { buildDiffKey, isCacheableDiffKey } from './lib/diffKey';
 	import { buildRefPayload } from './lib/refPayload';
 	import type { RefTarget } from './lib/graphMenu';
 	import { nextRowIndex } from './lib/keyNav';
 	import { buildPanelFiles, stepPath } from './lib/panelFiles';
-	import {
-		DEFAULT_VIEW_SETTINGS,
-		mergePreferences,
-		settingsRequireReload,
-		type ColumnKey,
-		type ColumnVisibility,
-		type ColumnWidths,
-		type GlobalPreferences,
-		type RepoIdentityState,
-		type ViewSettings,
-	} from './lib/viewSettings';
+	import { settingsRequireReload, type RepoIdentityState } from './lib/viewSettings';
 	import ControlBar from './features/control-bar/ControlBar.svelte';
 	import DiffPanel from './features/diff/DiffPanel.svelte';
 	import FindWidget from './features/find/FindWidget.svelte';
@@ -56,7 +46,6 @@
 	import IdentityDialog from './features/settings/IdentityDialog.svelte';
 	import BranchCleanupDialog from './features/branch-cleanup/BranchCleanupDialog.svelte';
 	import SettingsWidget from './features/settings/SettingsWidget.svelte';
-	import type { FileViewMode } from './lib/fileTree';
 	import { fontFaceCss } from './lib/fileIcon';
 	import { guessThemeKind, langForPath, tokenizeHunks, type HighlightToken } from './lib/highlight';
 	import { identityMismatch, listMatchedIdentities, matchIdentity } from './lib/identity';
@@ -65,6 +54,7 @@
 	import { planReveal } from './lib/revealPlan';
 	import { selectRange } from './lib/squashRange';
 	import { fileIconTheme, setFileIconTheme } from './lib/stores/fileIcons.svelte';
+	import { prefs } from './lib/stores/prefs.svelte';
 	import { session } from './lib/stores/session.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
 	import { motionMs } from './lib/ui/motion';
@@ -112,15 +102,6 @@
 	const stored = readState();
 	// Sizes saved against a different layout are ignored, so a changed default still lands.
 	const saved = stored.version === STATE_VERSION ? stored : {};
-	// Author is off by default: avatars now sit on the commit nodes, so the column is redundant.
-	let columns = $state<ColumnVisibility>({ author: false, commit: false, date: true });
-	let widths = $state<ColumnWidths>({
-		ref: 180,
-		author: 140,
-		commit: 90,
-		date: 150,
-		...saved.widths,
-	});
 	let ahead = $state(0);
 	let behind = $state(0);
 
@@ -135,70 +116,13 @@
 	let details = $state<CommitDetails | null>(null);
 	let detailsLoading = $state(false);
 
-	let fileView = $state<FileViewMode>('tree');
-	let metaOpen = $state(false);
 	let settingsOpen = $state(false);
-	// The defaults live in `lib/viewSettings`; the user's choices arrive as a `viewSettings`
-	// message and are laid over them by `mergePreferences`.
-	let settings = $state<ViewSettings>({ ...DEFAULT_VIEW_SETTINGS });
 
-	/**
-	 * What the host has, as far as this view knows. Two open panels each save and each receive the
-	 * other's save; without this they would answer each other forever over an unchanged value.
-	 */
-	let syncedPreferences = '';
-	/**
-	 * Nothing is saved before the host has said what it holds.
-	 *
-	 * Without this the very first thing a fresh view does is post its *defaults* — which the host
-	 * would store, wiping the preferences it was about to send back. Every window opened would
-	 * quietly reset the settings of every other one.
-	 */
-	let preferencesLoaded = $state(false);
-
-	function applyPreferences(stored: Record<string, unknown> | null): void {
-		preferencesLoaded = true;
-		if (stored) {
-			const merged = mergePreferences({ settings, columns, fileView, metaOpen }, stored);
-			settings = merged.settings;
-			columns = merged.columns;
-			fileView = merged.fileView;
-			metaOpen = merged.metaOpen;
-			syncedPreferences = preferencesJson();
-			// The first load went out with the defaults, because the saved settings only arrive in
-			// answer to it. When they change what the host walk produces — order, limit, stashes,
-			// avatars — that first answer is already wrong, so ask again with the real settings.
-			// Self-limiting: once the loaded data matches the settings, the signatures agree.
-			if (currentLoadSignature() !== lastLoadSignature) {
-				graphLimit = 0;
-				load();
-			}
-			return;
-		}
-		// Nothing stored: write the defaults once, so there is something to load next time.
-		savePreferences();
-	}
-
-	function preferencesJson(): string {
-		return JSON.stringify({ settings, columns, fileView, metaOpen });
-	}
-
-	function savePreferences(): void {
-		if (!preferencesLoaded) return;
-		const json = preferencesJson();
-		if (json === syncedPreferences) return;
-		syncedPreferences = json;
-		postToHost({
-			type: 'saveViewSettings',
-			settings: { settings, columns, fileView, metaOpen } satisfies GlobalPreferences,
-		});
-	}
-
-	$effect(savePreferences);
+	$effect(prefs.save);
 
 	/** Always read live: the guard compares a reply against what the view wants *now*. */
 	function hostFilters(): GraphFilters {
-		return buildHostFilters(settings);
+		return buildHostFilters(prefs.settings);
 	}
 
 	let repoIdentity = $state<RepoIdentityState | null>(null);
@@ -362,7 +286,7 @@
 
 	// Only what belongs to this window: the rest lives in the host's global state.
 	$effect(() => {
-		writeState({ version: STATE_VERSION, widths, panelRatio });
+		writeState({ version: STATE_VERSION, widths: prefs.widths, panelRatio });
 	});
 
 	const stacked = $derived(shellWidth < STACK_BREAKPOINT);
@@ -413,7 +337,7 @@
 			working,
 			details,
 			listComparisonFiles: comparison.files,
-			fileView,
+			fileView: prefs.fileView,
 		})
 	);
 
@@ -455,10 +379,6 @@
 		if (panelMode === 'changes') openWorkingFile(path);
 		else if (panelMode === 'commit') openDiff(path);
 		else openCompareDiff(path);
-	}
-
-	function toggleColumn(column: keyof ColumnVisibility): void {
-		columns = { ...columns, [column]: !columns[column] };
 	}
 
 	function closeFind(): void {
@@ -507,7 +427,7 @@
 					rows = layoutCommits(message.commits);
 					repoState = message.repoState;
 					hasMore = message.hasMore;
-					if (wasFullLoad && settings.scrollToHeadOnLoad) {
+					if (wasFullLoad && prefs.settings.scrollToHeadOnLoad) {
 						const head = message.commits.find((commit) =>
 							commit.refs.some((ref) => ref.kind === 'head')
 						);
@@ -604,10 +524,6 @@
 					themeKind = message.kind;
 					break;
 				}
-				case 'viewSettings': {
-					applyPreferences(message.settings);
-					break;
-				}
 				case 'revealCommit': {
 					select(message.hash);
 					scrollTo(message.hash);
@@ -697,12 +613,20 @@
 					break;
 				}
 				default: {
-					// Adding a message to the protocol without handling it here is now a compile error
-					// rather than a silent no-op that only shows up as "the view did not react".
-					const unhandled: never = message;
-					void unhandled;
+					// Only a type a store owns reaches here, and it was answered above. Adding one to the
+					// protocol without handling it anywhere is still a compile error rather than a silent
+					// no-op that only shows up as "the view did not react".
+					const routed: RoutedByStore = message.type;
+					void routed;
 				}
 			}
+		});
+		// The stored settings arrive in answer to this load, so that answer can already be wrong for
+		// them. Self-limiting: once the loaded data matches the settings, the signatures agree.
+		prefs.onLoaded(() => {
+			if (currentLoadSignature() === lastLoadSignature) return;
+			graphLimit = 0;
+			load();
 		});
 		// Load with this view's own filters: `ready` alone would make the host fall back to the
 		// filters it persisted last session, losing settings such as avatar fetching.
@@ -728,11 +652,11 @@
 	 */
 	const showSkeleton = $derived(status === 'loading' && rows.length === 0);
 
-	/** What the last loadCommits was actually asked with, to compare against saved settings. */
+	/** What the last loadCommits was actually asked with, to compare against saved prefs.settings. */
 	let lastLoadSignature = '';
 
 	function currentLoadSignature(): string {
-		return loadSignature(settings.commitLimit, hostFilters());
+		return loadSignature(prefs.settings.commitLimit, hostFilters());
 	}
 
 	function load(): void {
@@ -740,7 +664,7 @@
 		stalled = false;
 		if (stallTimer) clearTimeout(stallTimer);
 		stallTimer = setTimeout(() => (stalled = status === 'loading'), STALL_MS);
-		if (graphLimit < settings.commitLimit) graphLimit = settings.commitLimit;
+		if (graphLimit < prefs.settings.commitLimit) graphLimit = prefs.settings.commitLimit;
 		lastLoadSignature = currentLoadSignature();
 		postToHost({ type: 'loadCommits', limit: graphLimit, filters: hostFilters() });
 		postToHost({ type: 'loadIdentity' });
@@ -748,7 +672,7 @@
 
 	/** One more page of history, without tearing the graph down into a loading screen. */
 	function loadMore(): void {
-		graphLimit += settings.commitLimit;
+		graphLimit += prefs.settings.commitLimit;
 		lastLoadSignature = currentLoadSignature();
 		postToHost({ type: 'loadCommits', limit: graphLimit, filters: hostFilters() });
 	}
@@ -772,7 +696,7 @@
 	function maybeAutoApplyIdentity(): void {
 		if (!repoIdentity) return;
 		const plan = planAutoApply({
-			enabled: settings.autoApplyIdentity,
+			enabled: prefs.settings.autoApplyIdentity,
 			hasLocalOverride: repoIdentity.hasLocalName || repoIdentity.hasLocalEmail,
 			activeEmail: repoIdentity.email,
 			listMatched: listMatchedIdentities(listIdentities, repoIdentity.listRemoteUrls),
@@ -818,7 +742,7 @@
 	function openCompareDiff(path: string): void {
 		if (comparison.fromHash && comparison.toHash) {
 			const oldPath = comparison.files.find((file) => file.path === path)?.oldPath;
-			if (settings.diffTarget === 'panel') {
+			if (prefs.settings.diffTarget === 'panel') {
 				showDiff({
 					path,
 					oldPath,
@@ -847,7 +771,7 @@
 	}
 
 	function requestDiff(target: DiffTargetState): void {
-		const context = settings.diffMode === 'full' ? FULL_CONTEXT : 3;
+		const context = prefs.settings.diffMode === 'full' ? FULL_CONTEXT : 3;
 		const key = buildDiffKey(target, context);
 		diffKey = key;
 		const cached = mapDiffCache.get(key);
@@ -874,7 +798,7 @@
 	}
 
 	function setDiffMode(mode: 'compact' | 'full'): void {
-		settings = { ...settings, diffMode: mode };
+		prefs.setSettings({ ...prefs.settings, diffMode: mode });
 		if (diffTarget) requestDiff(diffTarget);
 	}
 
@@ -885,7 +809,7 @@
 
 	/** Remote branches are only in the graph when the walk includes them. */
 	const listJumpBranches = $derived(
-		listBranches.filter((branch) => settings.showRemoteBranches || !branch.remote)
+		listBranches.filter((branch) => prefs.settings.showRemoteBranches || !branch.remote)
 	);
 
 	/** How many extra pages a branch jump may pull in before giving up. */
@@ -1066,14 +990,10 @@
 		});
 	}
 
-	function resizeColumn(column: ColumnKey, width: number): void {
-		widths = { ...widths, [column]: width };
-	}
-
 	function openDiff(path: string): void {
 		if (!selectedHash) return;
 		const oldPath = details?.files.find((file) => file.path === path)?.oldPath;
-		if (settings.diffTarget === 'panel') {
+		if (prefs.settings.diffTarget === 'panel') {
 			showDiff({ path, oldPath, hash: selectedHash, title: selectedHash.slice(0, 8) });
 			return;
 		}
@@ -1081,7 +1001,7 @@
 	}
 
 	function openWorkingFile(path: string): void {
-		if (settings.diffTarget === 'panel') {
+		if (prefs.settings.diffTarget === 'panel') {
 			const file = [...(working?.staged ?? []), ...(working?.unstaged ?? [])].find(
 				(item) => item.path === path
 			);
@@ -1279,7 +1199,7 @@
 
 	{#if settingsOpen}
 		<SettingsWidget
-			{settings}
+			settings={prefs.settings}
 			identity={repoIdentity}
 			{listIdentities}
 			{listWorkspaceIdentities}
@@ -1288,10 +1208,10 @@
 			onclearIdentityOverride={clearIdentityOverride}
 			onsaveIdentities={saveIdentities}
 			onchange={(next) => {
-				const reload = settingsRequireReload(settings, next);
-				if (next.commitLimit !== settings.commitLimit) graphLimit = 0;
-				const diffModeChanged = next.diffMode !== settings.diffMode;
-				settings = next;
+				const reload = settingsRequireReload(prefs.settings, next);
+				if (next.commitLimit !== prefs.settings.commitLimit) graphLimit = 0;
+				const diffModeChanged = next.diffMode !== prefs.settings.diffMode;
+				prefs.setSettings(next);
 				if (reload) load();
 				// The open diff was fetched with the old context count, so it has to be asked for again.
 				if (diffModeChanged && diffTarget) requestDiff(diffTarget);
@@ -1414,7 +1334,11 @@
 				{/if}
 
 				{#if showSkeleton}
-					<GraphSkeleton {columns} {widths} rowDensity={settings.rowDensity} />
+					<GraphSkeleton
+						columns={prefs.columns}
+						widths={prefs.widths}
+						rowDensity={prefs.settings.rowDensity}
+					/>
 				{:else if status === 'error'}
 					<p class="error">{errorMessage}</p>
 				{:else if visibleRows.length === 0}
@@ -1432,18 +1356,18 @@
 								listSelectedHashes={listSelected}
 								{currentBranch}
 								lastPicked={lastPickedBranch}
-								{columns}
-								{widths}
+								columns={prefs.columns}
+								widths={prefs.widths}
 								{scrollTarget}
 								compareHash={comparison.toHash}
-								dateFormat={settings.dateFormat}
-								dateType={settings.dateType}
-								graphStyle={settings.graphStyle}
-								rowDensity={settings.rowDensity}
-								highlightHover={settings.highlightBranchOnHover}
-								muteMerges={settings.muteMergeCommits}
-								showTicketBadge={settings.showTicketBadge}
-								showTypeBadge={settings.showTypeBadge}
+								dateFormat={prefs.settings.dateFormat}
+								dateType={prefs.settings.dateType}
+								graphStyle={prefs.settings.graphStyle}
+								rowDensity={prefs.settings.rowDensity}
+								highlightHover={prefs.settings.highlightBranchOnHover}
+								muteMerges={prefs.settings.muteMergeCommits}
+								showTicketBadge={prefs.settings.showTicketBadge}
+								showTypeBadge={prefs.settings.showTypeBadge}
 								{fastForward}
 								{hasMore}
 								onselect={select}
@@ -1455,8 +1379,8 @@
 								onloadMore={loadMore}
 								onbranchAction={runBranchAction}
 								oncheckFastForward={checkFastForward}
-								ontoggleColumn={toggleColumn}
-								onresizeColumn={resizeColumn}
+								ontoggleColumn={prefs.toggleColumn}
+								onresizeColumn={prefs.resizeColumn}
 							/>
 						{/key}
 					</div>
@@ -1481,7 +1405,7 @@
 						listLineTokens={listDiffTokens}
 						notice={diffNotice}
 						loading={diffLoading}
-						mode={settings.diffMode}
+						mode={prefs.settings.diffMode}
 						onmode={setDiffMode}
 						onclose={() => (diffTarget = null)}
 					/>
@@ -1512,10 +1436,10 @@
 					postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'push' })}
 				onpushForce={() =>
 					postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'pushForce' })}
-				{fileView}
-				{metaOpen}
-				onmetaOpen={(open) => (metaOpen = open)}
-				onfileView={(next) => (fileView = next)}
+				fileView={prefs.fileView}
+				metaOpen={prefs.metaOpen}
+				onmetaOpen={prefs.setMetaOpen}
+				onfileView={prefs.setFileView}
 				onclose={closeDetails}
 				oncopy={(text) => postToHost({ type: 'copyText', text, label: 'commit hash' })}
 				onselectCommit={(hash) => {
