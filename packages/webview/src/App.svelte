@@ -8,7 +8,6 @@
 		Commit,
 		CommitActionId,
 		CommitDetails,
-		DiffHunk,
 		GraphRow,
 		HostToWebview,
 		RemoteBranchRef,
@@ -24,7 +23,6 @@
 	import { onHostMessage, postToHost, readState, writeState, STATE_VERSION } from './lib/bridge';
 	import { buildHostFilters, commitsReplyMatches, loadSignature } from './lib/commitsGuard';
 	import { dispatchHostMessage, resetForRepo, type RoutedByStore } from './lib/hostRouter';
-	import { buildDiffKey, isCacheableDiffKey } from './lib/diffKey';
 	import { buildRefPayload } from './lib/refPayload';
 	import type { RefTarget } from './lib/graphMenu';
 	import { nextRowIndex } from './lib/keyNav';
@@ -43,11 +41,12 @@
 	import BranchCleanupDialog from './features/branch-cleanup/BranchCleanupDialog.svelte';
 	import SettingsWidget from './features/settings/SettingsWidget.svelte';
 	import { fontFaceCss } from './lib/fileIcon';
-	import { guessThemeKind, langForPath, tokenizeHunks, type HighlightToken } from './lib/highlight';
+	import { guessThemeKind } from './lib/highlight';
 	import { planReveal } from './lib/revealPlan';
 	import { selectRange } from './lib/squashRange';
 	import { fileIconTheme, setFileIconTheme } from './lib/stores/fileIcons.svelte';
 	import { branchCleanup } from './lib/stores/branchCleanup.svelte';
+	import { diffView } from './lib/stores/diffView.svelte';
 	import { identity } from './lib/stores/identity.svelte';
 	import { prefs } from './lib/stores/prefs.svelte';
 	import { session } from './lib/stores/session.svelte';
@@ -148,71 +147,18 @@
 		files: [],
 		loading: false,
 	});
-	/**
-	 * The file the diff panel is showing, in place of the graph. Null whenever the graph is up —
-	 * including when diffs are set to open in a VS Code editor instead.
-	 */
-	interface DiffTargetState {
-		path: string;
-		/** The path before a rename, so the diff reads old → new instead of a whole-file add. */
-		oldPath?: string;
-		title: string;
-		hash?: string;
-		fromHash?: string;
-		toHash?: string;
-		untracked?: boolean;
-	}
-	let diffTarget = $state<DiffTargetState | null>(null);
-	let diffHunks = $state<DiffHunk[]>([]);
-	let diffNotice = $state<string | null>(null);
-	let diffLoading = $state(false);
-	/** True only while the diff is animating away — it is still drawn, so it must stop taking clicks. */
-	let diffClosing = $state(false);
-	/** Identifies the request in flight, so a reply for a file already navigated away from is dropped. */
-	let diffKey = $state('');
-	/** Diffs already fetched this session, keyed the same way. Prev/next then costs no git call. */
-	const mapDiffCache = new Map<string, { listHunks: DiffHunk[]; notice?: string }>();
+	// The body classes are all there is to go on until the host sends its `colorTheme` message.
+	diffView.setThemeKind(guessThemeKind(document.body));
 
-	/** Dark or light, told by the host; guessed from the body classes until that message arrives. */
-	let themeKind = $state(guessThemeKind(document.body));
-	/** Per-line syntax tokens for the open diff, or null while Shiki is not ready for it. */
-	let listDiffTokens = $state<HighlightToken[][] | null>(null);
-	/** Tokens per diff and theme, so revisiting a file or flipping the theme back is instant. */
-	const mapDiffTokenCache = new Map<string, HighlightToken[][]>();
-	/** Above this the whole-file view of a big file would hang the webview on tokenizing. */
-	const MAX_HIGHLIGHT_LINES = 20_000;
-
-	/**
-	 * Tokenize the open diff in the background. The panel renders plain text immediately and the
-	 * coloured spans swap in when Shiki has the grammar. Keyed off `diffKey`, so scrolling (which
-	 * only changes the visible slice) never re-tokenizes, and a result landing after the user
-	 * moved on is dropped.
-	 */
+	// The reads here are what decide when the diff is tokenized again; the work itself belongs to
+	// the store, but an effect needs a component to live in.
 	$effect(() => {
-		const key = diffKey;
-		const kind = themeKind;
-		const path = diffTarget?.path;
-		const listHunks = diffHunks;
-		listDiffTokens = null;
-		if (!path || listHunks.length === 0) return;
-		const lang = langForPath(path);
-		if (!lang) return;
-		const cacheKey = `${key}@${kind}`;
-		const cached = mapDiffTokenCache.get(cacheKey);
-		if (cached) {
-			listDiffTokens = cached;
-			return;
-		}
-		const listHunkTexts = listHunks.map((hunk) => hunk.listLines.map((line) => line.text));
-		if (
-			listHunkTexts.reduce((total, listTexts) => total + listTexts.length, 0) > MAX_HIGHLIGHT_LINES
-		)
-			return;
-		void tokenizeHunks(lang, listHunkTexts, kind).then((listTokens) => {
-			if (!listTokens) return;
-			if (isCacheableDiffKey(key)) mapDiffTokenCache.set(cacheKey, listTokens);
-			if (key === diffKey && kind === themeKind) listDiffTokens = listTokens;
-		});
+		diffView.tokenize(
+			diffView.key,
+			diffView.themeKind,
+			diffView.target?.path ?? null,
+			diffView.listHunks
+		);
 	});
 
 	let scrollTarget = $state<{ hash: string; nonce: number } | null>(null);
@@ -304,9 +250,9 @@
 			return;
 		const listKeys = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'];
 		if (!listKeys.includes(event.key)) return;
-		if (diffTarget && !event.altKey && listPanelFiles.length > 0) {
+		if (diffView.target && !event.altKey && listPanelFiles.length > 0) {
 			event.preventDefault();
-			const path = stepPath(listPanelFiles, diffTarget.path, event.key, PAGE_JUMP);
+			const path = stepPath(listPanelFiles, diffView.target.path, event.key, PAGE_JUMP);
 			if (path !== null) openPanelFile(path);
 			return;
 		}
@@ -358,7 +304,6 @@
 							postToHost({ type: 'uiReply', requestId: uiRequest.requestId, cancelled: true });
 							uiRequest = null;
 						}
-						diffTarget = null;
 						selectedHash = null;
 						listSelected = [];
 						rangeEnd = null;
@@ -443,28 +388,8 @@
 					};
 					break;
 				}
-				case 'fileDiff': {
-					if (isCacheableDiffKey(message.key)) {
-						mapDiffCache.set(message.key, {
-							listHunks: message.listHunks,
-							notice: message.notice,
-						});
-					}
-					// A reply for a file the user has already stepped past would otherwise overwrite the
-					// one they are looking at now.
-					if (message.key === diffKey) {
-						diffHunks = message.listHunks;
-						diffNotice = message.notice ?? null;
-						diffLoading = false;
-					}
-					break;
-				}
 				case 'fileIcons': {
 					setFileIconTheme(message.theme);
-					break;
-				}
-				case 'colorTheme': {
-					themeKind = message.kind;
 					break;
 				}
 				case 'revealCommit': {
@@ -504,8 +429,7 @@
 						break;
 					}
 					if (message.source === 'loadFileDiff') {
-						diffLoading = false;
-						diffNotice = message.message;
+						diffView.failed(message.message);
 						break;
 					}
 					errorMessage = message.message;
@@ -591,7 +515,7 @@
 		if (comparison.fromHash && comparison.toHash) {
 			const oldPath = comparison.files.find((file) => file.path === path)?.oldPath;
 			if (prefs.settings.diffTarget === 'panel') {
-				showDiff({
+				diffView.show({
 					path,
 					oldPath,
 					fromHash: comparison.fromHash,
@@ -608,46 +532,6 @@
 				oldPath,
 			});
 		}
-	}
-
-	/** Context lines: the whole-file view asks for more than any file could have. */
-	const FULL_CONTEXT = 1_000_000;
-
-	function showDiff(target: DiffTargetState): void {
-		diffTarget = target;
-		requestDiff(target);
-	}
-
-	function requestDiff(target: DiffTargetState): void {
-		const context = prefs.settings.diffMode === 'full' ? FULL_CONTEXT : 3;
-		const key = buildDiffKey(target, context);
-		diffKey = key;
-		const cached = mapDiffCache.get(key);
-		if (cached) {
-			diffHunks = cached.listHunks;
-			diffNotice = cached.notice ?? null;
-			diffLoading = false;
-			return;
-		}
-		diffHunks = [];
-		diffNotice = null;
-		diffLoading = true;
-		postToHost({
-			type: 'loadFileDiff',
-			key,
-			path: target.path,
-			oldPath: target.oldPath,
-			hash: target.hash,
-			fromHash: target.fromHash,
-			toHash: target.toHash,
-			untracked: target.untracked,
-			context,
-		});
-	}
-
-	function setDiffMode(mode: 'compact' | 'full'): void {
-		prefs.setSettings({ ...prefs.settings, diffMode: mode });
-		if (diffTarget) requestDiff(diffTarget);
 	}
 
 	function scrollTo(hash: string | null): void {
@@ -842,7 +726,7 @@
 		if (!selectedHash) return;
 		const oldPath = details?.files.find((file) => file.path === path)?.oldPath;
 		if (prefs.settings.diffTarget === 'panel') {
-			showDiff({ path, oldPath, hash: selectedHash, title: selectedHash.slice(0, 8) });
+			diffView.show({ path, oldPath, hash: selectedHash, title: selectedHash.slice(0, 8) });
 			return;
 		}
 		postToHost({ type: 'openDiff', hash: selectedHash, path, oldPath });
@@ -853,7 +737,7 @@
 			const file = [...(working?.staged ?? []), ...(working?.unstaged ?? [])].find(
 				(item) => item.path === path
 			);
-			showDiff({
+			diffView.show({
 				path,
 				oldPath: file?.oldPath,
 				untracked: file?.status === '?',
@@ -1038,7 +922,7 @@
 				prefs.setSettings(next);
 				if (reload) load();
 				// The open diff was fetched with the old context count, so it has to be asked for again.
-				if (diffModeChanged && diffTarget) requestDiff(diffTarget);
+				if (diffModeChanged) diffView.refresh();
 			}}
 			onclose={() => (settingsOpen = false)}
 		/>
@@ -1076,7 +960,7 @@
 			key or the focus while it cannot be seen.
 		-->
 		<div class="graph-area">
-			<div class="graph-stack" inert={diffTarget !== null}>
+			<div class="graph-stack" inert={diffView.target !== null}>
 				<ControlBar
 					{repos}
 					activeRepo={session.activeRepo}
@@ -1197,27 +1081,28 @@
 				{/if}
 			</div>
 
-			{#if diffTarget}
+			{#if diffView.target}
+				{@const open = diffView.target}
 				<!-- A Svelte transition rather than a CSS class: the closing half has to run while the
 				     element is on its way out, and a class cannot animate a node that is already gone. -->
 				<div
 					class="diff-layer"
-					class:leaving={diffClosing}
+					class:leaving={diffView.closing}
 					in:fly={{ x: 10, duration: motionMs('base') }}
 					out:fly={{ x: 10, duration: motionMs('exit') }}
-					onintrostart={() => (diffClosing = false)}
-					onoutrostart={() => (diffClosing = true)}
+					onintrostart={() => diffView.setClosing(false)}
+					onoutrostart={() => diffView.setClosing(true)}
 				>
 					<DiffPanel
-						path={diffTarget.path}
-						title={diffTarget.title}
-						listHunks={diffHunks}
-						listLineTokens={listDiffTokens}
-						notice={diffNotice}
-						loading={diffLoading}
+						path={open.path}
+						title={open.title}
+						listHunks={diffView.listHunks}
+						listLineTokens={diffView.listTokens}
+						notice={diffView.notice}
+						loading={diffView.loading}
 						mode={prefs.settings.diffMode}
-						onmode={setDiffMode}
-						onclose={() => (diffTarget = null)}
+						onmode={diffView.setMode}
+						onclose={diffView.close}
 					/>
 				</div>
 			{/if}
@@ -1241,7 +1126,7 @@
 				{ahead}
 				{behind}
 				{comparison}
-				activePath={diffTarget?.path ?? null}
+				activePath={diffView.target?.path ?? null}
 				onpush={() =>
 					postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'push' })}
 				onpushForce={() =>
