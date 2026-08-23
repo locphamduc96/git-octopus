@@ -139,10 +139,12 @@
 			<span class="summary">
 				{#if branchName}
 					<span class="branch" use:tooltip={'Commits and pushes go to this branch'}
-						>{branchName}</span
+						><span class="branch-name">{branchName}</span></span
 					>
 				{:else}
-					<span class="branch" use:tooltip={'HEAD is detached'}>detached</span>
+					<span class="branch" use:tooltip={'HEAD is detached'}
+						><span class="branch-name">detached</span></span
+					>
 				{/if}
 				{#if ahead > 0}<span
 						class="sync"
@@ -295,13 +297,27 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-	/* Outlined like the chips on the graph, so the same idea looks the same everywhere. */
+	/* Outlined like the chips on the graph, so the same idea looks the same everywhere — and built
+	   the same way: an atomic inline box with the border inside a fixed height. As a plain inline
+	   span its border box came out 2px taller than the line box `.summary` clips to, so the top and
+	   bottom borders were cut away and the chip read as two stray arcs around the name. */
 	.branch {
+		display: inline-flex;
+		align-items: center;
+		box-sizing: border-box;
+		height: 20px;
+		max-width: 100%;
 		border: 1px solid var(--gg-fg-muted);
 		color: var(--gg-fg);
 		border-radius: var(--gg-chip-radius);
 		padding: var(--gg-chip-padding);
 		font-weight: 600;
+	}
+	/* The name truncates inside the chip, so a long branch never costs the chip its right border. */
+	.branch-name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.sync {
 		color: var(--gg-accent);
