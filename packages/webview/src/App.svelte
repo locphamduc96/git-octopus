@@ -65,6 +65,7 @@
 	import { planReveal } from './lib/revealPlan';
 	import { selectRange } from './lib/squashRange';
 	import { fileIconTheme, setFileIconTheme } from './lib/stores/fileIcons.svelte';
+	import { session } from './lib/stores/session.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
 	import { motionMs } from './lib/ui/motion';
 	import ConfirmDialog from './lib/ui/ConfirmDialog.svelte';
@@ -95,7 +96,6 @@
 	let working = $state<WorkingTreeStatus | null>(null);
 
 	let repos = $state<RepoInfo[]>([]);
-	let activeRepo = $state<string | null>(null);
 	let repoState = $state<RepoState | null>(null);
 	let hasMore = $state(false);
 	/** Grows as the user scrolls past the end; reset when the repo or page size changes. */
@@ -109,8 +109,6 @@
 	let pendingJump = $state<{ branch: BranchRef; pagesLeft: number } | null>(null);
 	/** The same, for the detached-HEAD banner's "Show commit". */
 	let pendingHeadReveal = $state<{ pagesLeft: number } | null>(null);
-	let notice = $state<string | null>(null);
-	let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 	const stored = readState();
 	// Sizes saved against a different layout are ignored, so a changed default still lands.
 	const saved = stored.version === STATE_VERSION ? stored : {};
@@ -478,7 +476,7 @@
 					// Another view switched the controller to a different repository. Everything built
 					// over the old one — the keyed graph (menus, drag state), dialogs, selection, the
 					// open diff — closes now, so no stale payload can be stamped with the new repo.
-					if (activeRepo !== null && message.activeRepo !== activeRepo) {
+					if (session.activeRepo !== null && message.activeRepo !== session.activeRepo) {
 						resetForRepo();
 						cleanupOpen = false;
 						cleanupInventory = null;
@@ -523,7 +521,7 @@
 					repoName = message.repoName;
 					working = message.working;
 					repos = message.repos;
-					activeRepo = message.activeRepo;
+					session.setActiveRepo(message.activeRepo);
 					currentBranch = message.currentBranch;
 					previousBranch = message.previousBranch;
 					headHash = message.headHash;
@@ -636,7 +634,7 @@
 						if (message.email === pending.email) {
 							postCommit(pending.message);
 						} else {
-							showNotice(
+							session.showNotice(
 								`The identity switch did not take effect, so nothing was committed. Your message is still in the box.`
 							);
 						}
@@ -678,12 +676,12 @@
 					// was asked for instead of replacing a healthy graph with an error screen.
 					if (message.source === 'loadCommitDetails') {
 						detailsLoading = false;
-						showNotice(message.message);
+						session.showNotice(message.message);
 						break;
 					}
 					if (message.source === 'loadComparison') {
 						comparison = { ...comparison, loading: false };
-						showNotice(message.message);
+						session.showNotice(message.message);
 						break;
 					}
 					if (message.source === 'loadFileDiff') {
@@ -693,7 +691,7 @@
 					}
 					errorMessage = message.message;
 					repos = message.repos;
-					activeRepo = message.activeRepo;
+					session.setActiveRepo(message.activeRepo);
 					status = 'error';
 					detailsLoading = false;
 					break;
@@ -780,11 +778,11 @@
 			listMatched: listMatchedIdentities(listIdentities, repoIdentity.listRemoteUrls),
 		});
 		if (plan.kind !== 'apply') return;
-		const key = `${activeRepo ?? ''}|${plan.identity.email}`;
+		const key = `${session.repoPath}|${plan.identity.email}`;
 		if (key === lastAutoApplyKey) return;
 		lastAutoApplyKey = key;
 		applyIdentity(plan.identity);
-		showNotice(`Auto-applied identity "${plan.identity.label}" to this repository.`);
+		session.showNotice(`Auto-applied identity "${plan.identity.label}" to this repository.`);
 	}
 
 	function clearIdentityOverride(): void {
@@ -893,12 +891,6 @@
 	/** How many extra pages a branch jump may pull in before giving up. */
 	const JUMP_PAGES = 3;
 
-	function showNotice(message: string): void {
-		notice = message;
-		if (noticeTimer) clearTimeout(noticeTimer);
-		noticeTimer = setTimeout(() => (notice = null), 4000);
-	}
-
 	/**
 	 * Move the view to a branch's commit — the sidebar's reveal, driven from the control bar. The
 	 * branch is never checked out, so the pick leaves the repository exactly as it was.
@@ -921,7 +913,7 @@
 			loadMore();
 			return;
 		}
-		showNotice(`${branch.name} is not in the loaded history.`);
+		session.showNotice(`${branch.name} is not in the loaded history.`);
 	}
 
 	function selectRepo(path: string): void {
@@ -977,11 +969,11 @@
 		const hashes = listCommits.map((commit) => commit.hash);
 		const subjects = listCommits.map((commit) => commit.subject);
 		if (action === 'squash') {
-			postToHost({ type: 'squashCommits', repoPath: activeRepo ?? '', hashes, subjects });
+			postToHost({ type: 'squashCommits', repoPath: session.repoPath, hashes, subjects });
 		} else {
 			postToHost({
 				type: 'multiCommitAction',
-				repoPath: activeRepo ?? '',
+				repoPath: session.repoPath,
 				action,
 				hashes,
 				subjects,
@@ -990,7 +982,7 @@
 	}
 
 	function runSequencer(action: SequencerActionMessage['action']): void {
-		postToHost({ type: 'sequencerAction', repoPath: activeRepo ?? '', action });
+		postToHost({ type: 'sequencerAction', repoPath: session.repoPath, action });
 	}
 
 	/** The three ways out of a detached HEAD, offered by the bar that reports it. */
@@ -998,7 +990,7 @@
 		if (!headHash) return;
 		postToHost({
 			type: 'commitAction',
-			repoPath: activeRepo ?? '',
+			repoPath: session.repoPath,
 			action,
 			hash: headHash,
 			subject: '',
@@ -1040,7 +1032,7 @@
 			loadMore();
 			return;
 		}
-		showNotice(`${hash.slice(0, 7)} is not in the loaded history.`);
+		session.showNotice(`${hash.slice(0, 7)} is not in the loaded history.`);
 	}
 
 	let pendingCheckout = $state<{ local: string | null; remote: RemoteBranchRef | null } | null>(
@@ -1065,7 +1057,7 @@
 		lastPickedBranch = local ?? remote?.branch ?? null;
 		postToHost({
 			type: 'commitAction',
-			repoPath: activeRepo ?? '',
+			repoPath: session.repoPath,
 			action: 'checkoutBranch',
 			hash: '',
 			subject: '',
@@ -1112,7 +1104,7 @@
 		}
 		postToHost({
 			type: 'workingTreeAction',
-			repoPath: activeRepo ?? '',
+			repoPath: session.repoPath,
 			action,
 			path,
 			message,
@@ -1122,7 +1114,7 @@
 	function postCommit(message?: string): void {
 		postToHost({
 			type: 'workingTreeAction',
-			repoPath: activeRepo ?? '',
+			repoPath: session.repoPath,
 			action: 'commit',
 			message,
 		});
@@ -1153,7 +1145,7 @@
 	): void {
 		postToHost({
 			type: 'branchAction',
-			repoPath: activeRepo ?? '',
+			repoPath: session.repoPath,
 			action,
 			source,
 			sourceLabel,
@@ -1178,7 +1170,7 @@
 		const narrowed = target ? buildRefPayload(target) : null;
 		postToHost({
 			type: 'commitAction',
-			repoPath: activeRepo ?? '',
+			repoPath: session.repoPath,
 			action,
 			hash: commit.hash,
 			subject: commit.subject,
@@ -1321,7 +1313,7 @@
 			ondelete={(listNames, force) =>
 				postToHost({
 					type: 'cleanupBranches',
-					repoPath: activeRepo ?? '',
+					repoPath: session.repoPath,
 					listNames,
 					// The tips as this dialog showed them: the host refuses a branch that moved since.
 					mapExpectedTips: Object.fromEntries(
@@ -1355,12 +1347,12 @@
 			<div class="graph-stack" inert={diffTarget !== null}>
 				<ControlBar
 					{repos}
-					{activeRepo}
+					activeRepo={session.activeRepo}
 					{repoName}
 					loading={showSkeleton}
 					listBranches={listJumpBranches}
 					{currentBranch}
-					{notice}
+					notice={session.notice}
 					onjumpBranch={jumpToBranch}
 					commitCount={status === 'ready' ? rows.length : 0}
 					{ahead}
@@ -1371,15 +1363,15 @@
 					onterminal={() => postToHost({ type: 'openTerminal' })}
 					onfind={() => (findOpen = true)}
 					onfetch={() =>
-						postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'fetch' })}
+						postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'fetch' })}
 					onpull={() =>
-						postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'pull' })}
+						postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'pull' })}
 					onpullOption={(action) =>
-						postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action })}
+						postToHost({ type: 'repoAction', repoPath: session.repoPath, action })}
 					onpush={() =>
-						postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'push' })}
+						postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'push' })}
 					onpushForce={() =>
-						postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'pushForce' })}
+						postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'pushForce' })}
 					onsequencer={runSequencer}
 					{previousBranch}
 					{headHash}
@@ -1433,7 +1425,7 @@
 					<div class="graph-slot gg-enter-rise">
 						<!-- Keyed by repository: a repo switch remounts the graph, closing its context
 						     menus and drag state — stale UI must not survive into another repo. -->
-						{#key activeRepo}
+						{#key session.activeRepo}
 							<GraphView
 								rows={visibleRows}
 								{selectedHash}
@@ -1517,9 +1509,9 @@
 				{comparison}
 				activePath={diffTarget?.path ?? null}
 				onpush={() =>
-					postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'push' })}
+					postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'push' })}
 				onpushForce={() =>
-					postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'pushForce' })}
+					postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'pushForce' })}
 				{fileView}
 				{metaOpen}
 				onmetaOpen={(open) => (metaOpen = open)}
