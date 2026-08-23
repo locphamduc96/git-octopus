@@ -16,6 +16,15 @@
   so the commit can never beat it. Amend is not interrupted.
 - The multi-account flow is now described in the README.
 
+### Browsing a commit's files
+
+- **↑/↓ walk the files while a diff is open.** With a diff showing in the view, the arrow keys,
+  PageUp/PageDown and Home/End step through the panel's files in the order they are listed —
+  sections, folders and all — opening each one's diff, and stop at the ends rather than spilling
+  into the next commit. The file being read is highlighted in the panel, scrolled into view, and a
+  folder folded over it opens. Alt + ↑/↓ still move between commits without closing the diff; with
+  no diff open nothing changes.
+
 ### Fixes
 
 - The branch chip in the changes header had its top and bottom borders clipped; it is drawn as a

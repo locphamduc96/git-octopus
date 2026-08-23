@@ -9,6 +9,7 @@
 		details,
 		loading,
 		fileView,
+		activePath,
 		metaOpen,
 		onmetaOpen,
 		onopenDiff,
@@ -19,6 +20,7 @@
 		details: CommitDetails | null;
 		loading: boolean;
 		fileView: FileViewMode;
+		activePath: string | null;
 		/**
 		 * Whether the full message and the hash/parent/author block are expanded. The subject and
 		 * byline stay visible either way, so collapsing leaves the file list more room.
@@ -158,11 +160,16 @@
 			{#if totals.deletions > 0}<span class="del">−{totals.deletions}</span>{/if}
 		</h3>
 		{#if fileView === 'tree'}
-			<FileTree nodes={tree} onopen={onopenDiff} {onmenu} />
+			<FileTree nodes={tree} {activePath} onopen={onopenDiff} {onmenu} />
 		{:else}
 			<ul>
 				{#each details.files as file (file.path)}
-					<FileRow {file} onopen={onopenDiff} onmenu={(event) => onmenu(event, file)} />
+					<FileRow
+						{file}
+						active={file.path === activePath}
+						onopen={onopenDiff}
+						onmenu={(event) => onmenu(event, file)}
+					/>
 				{/each}
 			</ul>
 		{/if}

@@ -38,6 +38,7 @@
 		ahead,
 		behind,
 		comparison,
+		activePath,
 		onworkingAction,
 		onopenWorkingFile,
 		onopenDiff,
@@ -69,6 +70,8 @@
 		ahead: number;
 		behind: number;
 		comparison: ComparisonState;
+		/** The file whose diff is open in the panel, highlighted in whichever tab lists it. */
+		activePath: string | null;
 		onworkingAction: (action: WorkingTreeAction, path?: string, message?: string) => void;
 		onopenWorkingFile: (path: string) => void;
 		onopenDiff: (path: string) => void;
@@ -219,6 +222,7 @@
 				{working}
 				{ahead}
 				{fileView}
+				{activePath}
 				{onpush}
 				{onpushForce}
 				onaction={onworkingAction}
@@ -231,6 +235,7 @@
 				{details}
 				loading={detailsLoading}
 				{fileView}
+				{activePath}
 				{metaOpen}
 				{onmetaOpen}
 				{onopenDiff}
@@ -246,6 +251,7 @@
 				files={comparison.files}
 				loading={comparison.loading}
 				{fileView}
+				{activePath}
 				onopenDiff={onopenCompareDiff}
 				onmenu={(event, file) => openMenu(event, file)}
 			/>

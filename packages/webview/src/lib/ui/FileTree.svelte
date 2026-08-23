@@ -8,12 +8,15 @@
 
 	let {
 		nodes,
+		activePath = null,
 		actions = [],
 		onopen,
 		onaction,
 		onmenu,
 	}: {
 		nodes: FileTreeNode[];
+		/** The file being browsed; a folder folded over it opens so the highlight can be seen. */
+		activePath?: string | null;
 		actions?: FileRowAction[];
 		onopen: (path: string) => void;
 		onaction?: (id: string, path: string) => void;
@@ -34,6 +37,15 @@
 		if (setCollapsed.has(path)) setCollapsed.delete(path);
 		else setCollapsed.add(path);
 	}
+
+	// Keyboard browsing steps into collapsed folders rather than over them, so a folder that hides
+	// the active file is opened — the user asked for that file, not for the folder to stay shut.
+	$effect(() => {
+		if (activePath === null) return;
+		for (const path of setCollapsed) {
+			if (activePath.startsWith(`${path}/`)) setCollapsed.delete(path);
+		}
+	});
 </script>
 
 {#snippet branch(listNodes: FileTreeNode[], depth: number)}
@@ -63,6 +75,7 @@
 		{:else}
 			<FileRow
 				file={node.file}
+				active={node.file.path === activePath}
 				label={node.name}
 				indent={depth * 12 + 8 + CHEVRON_INSET}
 				{actions}

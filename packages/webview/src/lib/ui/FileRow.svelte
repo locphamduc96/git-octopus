@@ -12,6 +12,7 @@
 
 	let {
 		file,
+		active = false,
 		label,
 		indent = 8,
 		actions = [],
@@ -20,6 +21,8 @@
 		onmenu,
 	}: {
 		file: FileChange;
+		/** Whether this is the file whose diff is open; it is highlighted and kept in view. */
+		active?: boolean;
 		/** Text to show instead of the full path — the file name alone in tree view. */
 		label?: string;
 		/** Left inset in pixels, used to show tree depth. */
@@ -35,12 +38,19 @@
 	const cut = $derived(label !== undefined ? -1 : file.path.lastIndexOf('/'));
 	const dir = $derived(cut === -1 ? '' : file.path.slice(0, cut + 1));
 	const name = $derived(label ?? file.path.slice(cut + 1));
+
+	let row = $state<HTMLLIElement | null>(null);
+	$effect(() => {
+		if (active) row?.scrollIntoView({ block: 'nearest' });
+	});
 </script>
 
 <!-- The menu hangs off the whole row, not just the name, so right-clicking the counts or the status
 	letter works too. The row's button stays the keyboard path. -->
 <li
 	class="file-row"
+	class:active
+	bind:this={row}
 	oncontextmenu={onmenu
 		? (event) => {
 				event.preventDefault();
@@ -90,6 +100,10 @@
 	}
 	.file-row:hover {
 		background: var(--vscode-list-hoverBackground);
+	}
+	.file-row.active {
+		background: var(--vscode-list-activeSelectionBackground);
+		color: var(--vscode-list-activeSelectionForeground, inherit);
 	}
 	.open {
 		flex: 1;

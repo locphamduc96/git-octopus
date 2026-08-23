@@ -21,6 +21,7 @@ View a Git graph of your repository and perform Git actions from it, inside Visu
   and undo the last commit.
 - **Diffs in the view**: any file's changes open in an inline panel with syntax highlighting and an
   overview ruler of every change — or Ctrl/Cmd + click a second commit to compare two commits.
+  ↑/↓ step through the commit's files while a diff is open; Alt + ↑/↓ still move between commits.
 - **Git actions**: checkout, branch, merge, rebase, cherry-pick, revert, reset, tag, and the stash
   actions, from the commit's context menu; drag one branch chip onto another to merge, rebase or
   fast-forward; fetch, pull, push and force-push ask before running. Merge options, squash and

@@ -10,6 +10,7 @@
 		files,
 		loading,
 		fileView,
+		activePath,
 		onopenDiff,
 		onmenu,
 	}: {
@@ -18,6 +19,7 @@
 		files: FileChange[];
 		loading: boolean;
 		fileView: FileViewMode;
+		activePath: string | null;
 		onopenDiff: (path: string) => void;
 		onmenu: (event: MouseEvent, file: FileChange) => void;
 	} = $props();
@@ -38,11 +40,16 @@
 		{#if files.length === 0}
 			<p class="hint">No differences.</p>
 		{:else if fileView === 'tree'}
-			<FileTree nodes={tree} onopen={onopenDiff} {onmenu} />
+			<FileTree nodes={tree} {activePath} onopen={onopenDiff} {onmenu} />
 		{:else}
 			<ul>
 				{#each files as file (file.path)}
-					<FileRow {file} onopen={onopenDiff} onmenu={(event) => onmenu(event, file)} />
+					<FileRow
+						{file}
+						active={file.path === activePath}
+						onopen={onopenDiff}
+						onmenu={(event) => onmenu(event, file)}
+					/>
 				{/each}
 			</ul>
 		{/if}

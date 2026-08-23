@@ -14,6 +14,7 @@
 		working,
 		ahead,
 		fileView,
+		activePath,
 		onaction,
 		onopenFile,
 		onmenu,
@@ -23,6 +24,7 @@
 		working: WorkingTreeStatus | null;
 		ahead: number;
 		fileView: FileViewMode;
+		activePath: string | null;
 		/** Right-click on a file; the section's own actions ride along into the menu. */
 		onmenu: (event: MouseEvent, file: FileChange, listActions: FileMenuAction[]) => void;
 		onaction: (action: WorkingTreeAction, path?: string, message?: string) => void;
@@ -143,6 +145,7 @@
 		{:else if fileView === 'tree'}
 			<FileTree
 				nodes={buildFileTree(listFiles)}
+				{activePath}
 				{actions}
 				onopen={onopenFile}
 				onaction={(id, path) => onaction(id as WorkingTreeAction, path)}
@@ -153,6 +156,7 @@
 				{#each listFiles as file (file.path)}
 					<FileRow
 						{file}
+						active={file.path === activePath}
 						{actions}
 						onopen={onopenFile}
 						onaction={(id, path) => onaction(id as WorkingTreeAction, path)}

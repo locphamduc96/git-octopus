@@ -31,6 +31,7 @@
 	import { buildRefPayload } from './lib/refPayload';
 	import type { RefTarget } from './lib/graphMenu';
 	import { nextRowIndex } from './lib/keyNav';
+	import { buildPanelFiles, stepPath } from './lib/panelFiles';
 	import {
 		DEFAULT_VIEW_SETTINGS,
 		mergePreferences,
@@ -406,7 +407,22 @@
 	/** How far PageUp/PageDown jump; roughly one screen of rows. */
 	const PAGE_JUMP = 20;
 
-	/** ↑/↓ move the selection, Shift extends it from the anchor, Home/End jump to the edges. */
+	/** The panel's files in the order they are drawn — what ↑/↓ walk while a diff is open. */
+	const listPanelFiles = $derived(
+		buildPanelFiles({
+			mode: panelMode,
+			working,
+			details,
+			listComparisonFiles: comparison.files,
+			fileView,
+		})
+	);
+
+	/**
+	 * ↑/↓ move the selection, Shift extends it from the anchor, Home/End jump to the edges. While a
+	 * diff is open the same keys walk the panel's files instead — the thing on screen is the thing
+	 * being browsed — and Alt hands them back to the graph without closing the diff.
+	 */
 	function navigateByKey(event: KeyboardEvent): void {
 		const target = event.target as HTMLElement | null;
 		if (
@@ -415,7 +431,14 @@
 		)
 			return;
 		const listKeys = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'];
-		if (!listKeys.includes(event.key) || visibleRows.length === 0) return;
+		if (!listKeys.includes(event.key)) return;
+		if (diffTarget && !event.altKey && listPanelFiles.length > 0) {
+			event.preventDefault();
+			const path = stepPath(listPanelFiles, diffTarget.path, event.key, PAGE_JUMP);
+			if (path !== null) openPanelFile(path);
+			return;
+		}
+		if (visibleRows.length === 0) return;
 		event.preventDefault();
 
 		const fromHash = rangeEnd ?? selectedHash;
@@ -426,6 +449,13 @@
 		if (event.shiftKey && selectedHash) selectRangeTo(hash);
 		else select(hash);
 		scrollTo(hash);
+	}
+
+	/** Open a panel file by whichever route the panel's current mode uses. */
+	function openPanelFile(path: string): void {
+		if (panelMode === 'changes') openWorkingFile(path);
+		else if (panelMode === 'commit') openDiff(path);
+		else openCompareDiff(path);
 	}
 
 	function toggleColumn(column: keyof ColumnVisibility): void {
@@ -1481,6 +1511,7 @@
 				{ahead}
 				{behind}
 				{comparison}
+				activePath={diffTarget?.path ?? null}
 				onpush={() =>
 					postToHost({ type: 'repoAction', repoPath: activeRepo ?? '', action: 'push' })}
 				onpushForce={() =>
