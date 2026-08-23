@@ -4,8 +4,6 @@
 	import type {
 		BranchActionId,
 		GraphFilters,
-		BranchCleanupOutcome,
-		BranchInventoryEntry,
 		BranchRef,
 		Commit,
 		CommitActionId,
@@ -49,6 +47,7 @@
 	import { planReveal } from './lib/revealPlan';
 	import { selectRange } from './lib/squashRange';
 	import { fileIconTheme, setFileIconTheme } from './lib/stores/fileIcons.svelte';
+	import { branchCleanup } from './lib/stores/branchCleanup.svelte';
 	import { identity } from './lib/stores/identity.svelte';
 	import { prefs } from './lib/stores/prefs.svelte';
 	import { session } from './lib/stores/session.svelte';
@@ -141,22 +140,6 @@
 
 	function cancelUi(): void {
 		if (uiRequest) replyUi({ requestId: uiRequest.requestId, cancelled: true });
-	}
-
-	let cleanupOpen = $state(false);
-	let cleanupInventory = $state<{
-		listBranches: BranchInventoryEntry[];
-		mergedBase: string | null;
-	} | null>(null);
-	let cleanupResults = $state<BranchCleanupOutcome[] | null>(null);
-
-	function openCleanup(): void {
-		// Always re-scan: branches move between openings, and a stale list would offer to delete a
-		// branch that has since been pushed to.
-		cleanupInventory = null;
-		cleanupResults = null;
-		cleanupOpen = true;
-		postToHost({ type: 'loadBranchInventory' });
 	}
 
 	let comparison = $state<ComparisonState>({
@@ -364,9 +347,6 @@
 					// open diff — closes now, so no stale payload can be stamped with the new repo.
 					if (session.activeRepo !== null && message.activeRepo !== session.activeRepo) {
 						resetForRepo();
-						cleanupOpen = false;
-						cleanupInventory = null;
-						cleanupResults = null;
 						pendingCheckout = null;
 						pendingHeadReveal = null;
 						// Questions asked over the old repository die with it.
@@ -494,17 +474,6 @@
 				}
 				case 'fastForwardCheck': {
 					fastForward = { nonce: message.nonce, canFastForward: message.canFastForward };
-					break;
-				}
-				case 'branchInventory': {
-					cleanupInventory = {
-						listBranches: message.listBranches,
-						mergedBase: message.mergedBase,
-					};
-					break;
-				}
-				case 'branchCleanupResult': {
-					cleanupResults = message.listResults;
 					break;
 				}
 				case 'uiRequest': {
@@ -1079,26 +1048,14 @@
 		<IdentityDialog onsave={identity.add} onclose={identity.closeAdd} />
 	{/if}
 
-	{#if cleanupOpen}
+	{#if branchCleanup.open}
 		<BranchCleanupDialog
-			listBranches={cleanupInventory?.listBranches ?? []}
-			mergedBase={cleanupInventory?.mergedBase ?? null}
-			loading={cleanupInventory === null}
-			listResults={cleanupResults}
-			ondelete={(listNames, force) =>
-				postToHost({
-					type: 'cleanupBranches',
-					repoPath: session.repoPath,
-					listNames,
-					// The tips as this dialog showed them: the host refuses a branch that moved since.
-					mapExpectedTips: Object.fromEntries(
-						(cleanupInventory?.listBranches ?? [])
-							.filter((branch) => listNames.includes(branch.name))
-							.map((branch) => [branch.name, branch.hash])
-					),
-					force,
-				})}
-			onclose={() => (cleanupOpen = false)}
+			listBranches={branchCleanup.listBranches}
+			mergedBase={branchCleanup.mergedBase}
+			loading={branchCleanup.loading}
+			listResults={branchCleanup.listResults}
+			ondelete={branchCleanup.deleteBranches}
+			onclose={branchCleanup.close}
 		/>
 	{/if}
 
@@ -1164,7 +1121,7 @@
 					suggestedIdentity={identity.warningFor}
 					onapplyIdentity={identity.apply}
 					onaddIdentity={identity.openAdd}
-					oncleanup={openCleanup}
+					oncleanup={branchCleanup.openDialog}
 					onidentity={openSettings}
 				/>
 
