@@ -27,6 +27,7 @@
 	import { layoutCommits } from '@git-octopus/graph-layout';
 	import { onHostMessage, postToHost, readState, writeState, STATE_VERSION } from './lib/bridge';
 	import { buildHostFilters, commitsReplyMatches, loadSignature } from './lib/commitsGuard';
+	import { dispatchHostMessage, resetForRepo } from './lib/hostRouter';
 	import { buildDiffKey, isCacheableDiffKey } from './lib/diffKey';
 	import { buildRefPayload } from './lib/refPayload';
 	import type { RefTarget } from './lib/graphMenu';
@@ -469,6 +470,8 @@
 
 	onMount(() => {
 		const off = onHostMessage((message: HostToWebview) => {
+			// A domain that owns this message answers it in its own file; nothing below has to know.
+			if (dispatchHostMessage(message)) return;
 			switch (message.type) {
 				case 'commits': {
 					if (!commitsReplyMatches(message, hostFilters(), graphLimit)) break;
@@ -476,6 +479,7 @@
 					// over the old one — the keyed graph (menus, drag state), dialogs, selection, the
 					// open diff — closes now, so no stale payload can be stamped with the new repo.
 					if (activeRepo !== null && message.activeRepo !== activeRepo) {
+						resetForRepo();
 						cleanupOpen = false;
 						cleanupInventory = null;
 						cleanupResults = null;
