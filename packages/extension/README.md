@@ -44,6 +44,34 @@ View a Git graph of your repository and perform Git actions from it, inside Visu
 - **Find** with Ctrl+F, several repositories in one workspace, and a view you can open as an editor
   tab.
 
+## Managing multiple Git identities
+
+If you commit under more than one name — a work address, a personal one, one per client — the
+**Identity** tab in the view's settings keeps them as saved identities and applies the right one to
+each repository.
+
+- **Save an identity** with a label, name and email. The tab offers to save the one you are
+  committing with right now when no saved identity carries that email yet, and the **This
+  workspace** table below lets you save an account a repository already uses.
+- **Apply it to a repository** with one click. The identity is written to that repository's own
+  config; your global Git config is never changed, and the global identity stays visible as a
+  card you can switch back to.
+- **Match by remote**: give an identity one or more patterns, comma-separated, and a repository
+  whose remote URL contains one of them — `github.com/client-a, gitlab.client-a.io` — gets that
+  identity suggested on the control bar, one click away, whenever it is committing as something
+  else.
+- **Auto-apply identity by remote** (off by default) goes one step further: a repository with no
+  identity of its own whose remote matches exactly one saved identity gets it applied and says so.
+  Two matches means no guess — you only get the warning.
+- **A question before a wrong commit**: when a repository's remote suggests a different identity
+  from the one about to commit, the Commit button asks first — switch to the suggested identity
+  and commit, or commit as you are. Cancelling keeps your message.
+- **This workspace**: with two or more repositories open, the Identity tab lists each one with the
+  email it commits as, marking the ones that override the global identity.
+
+Identities live in your VS Code settings on this machine (`gitOctopus.identities`) and are never
+sent anywhere by the extension.
+
 ## Screenshots
 
 **Inline diff with syntax highlighting and the change ruler**

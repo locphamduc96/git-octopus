@@ -411,6 +411,21 @@ export interface SaveIdentitiesMessage {
 	listIdentities: GitIdentity[];
 }
 
+/** Ask for every workspace repository's effective identity (sent when settings open). */
+export interface LoadWorkspaceIdentitiesMessage {
+	type: 'loadWorkspaceIdentities';
+}
+
+export interface WorkspaceIdentityEntry {
+	repoPath: string;
+	repoName: string;
+	/** Effective values, null when unset. */
+	name: string | null;
+	email: string | null;
+	/** True when the repo's local config overrides the global identity. */
+	overridden: boolean;
+}
+
 /** One local branch, with everything the cleanup dialog needs to judge whether it can go. */
 export interface BranchInventoryEntry {
 	name: string;
@@ -555,6 +570,7 @@ export type WebviewToHost =
 	| LoadIdentityMessage
 	| IdentityActionMessage
 	| SaveIdentitiesMessage
+	| LoadWorkspaceIdentitiesMessage
 	| LoadBranchInventoryMessage
 	| CleanupBranchesMessage
 	| UiReplyMessage;
@@ -706,6 +722,11 @@ export interface ErrorMessage {
 	source?: WebviewToHost['type'];
 }
 
+export interface WorkspaceIdentitiesMessage {
+	type: 'workspaceIdentities';
+	listRepos: WorkspaceIdentityEntry[];
+}
+
 /** Messages sent from the extension host to the webview. */
 export type HostToWebview =
 	| CommitsMessage
@@ -717,6 +738,7 @@ export type HostToWebview =
 	| FileIconsMessage
 	| ColorThemeMessage
 	| IdentityMessage
+	| WorkspaceIdentitiesMessage
 	| FastForwardCheckMessage
 	| RevealCommitMessage
 	| BranchInventoryMessage

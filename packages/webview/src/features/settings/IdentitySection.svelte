@@ -1,13 +1,15 @@
 <script lang="ts">
-	import type { GitIdentity } from '@git-octopus/shared';
+	import type { GitIdentity, WorkspaceIdentityEntry } from '@git-octopus/shared';
 	import IconButton from '../../lib/ui/IconButton.svelte';
 	import { remoteHost } from '../../lib/identity';
-	import { cardBadges } from '../../lib/identityCards';
+	import { cardBadges, unsavedCurrentIdentity } from '../../lib/identityCards';
 	import type { RepoIdentityState } from '../../lib/viewSettings';
+	import { buildWorkspaceRows, canSaveEntry } from '../../lib/workspaceIdentityRows';
 
 	let {
 		identity,
 		listIdentities,
+		listWorkspaceIdentities,
 		suggestedIdentity,
 		onapplyIdentity,
 		onclearIdentityOverride,
@@ -15,6 +17,7 @@
 	}: {
 		identity: RepoIdentityState | null;
 		listIdentities: GitIdentity[];
+		listWorkspaceIdentities: WorkspaceIdentityEntry[];
 		/** The identity the repo's remote suggests when it differs from the one in use. */
 		suggestedIdentity: GitIdentity | null;
 		onapplyIdentity: (identity: GitIdentity) => void;
@@ -39,6 +42,21 @@
 
 	function startAddIdentity(): void {
 		draft = { label: '', name: '', email: '', hostPattern: '' };
+		editing = 'new';
+	}
+
+	const unsavedCurrent = $derived(unsavedCurrentIdentity(identity, listIdentities));
+	const listWorkspaceRows = $derived(buildWorkspaceRows(listWorkspaceIdentities));
+
+	function startSaveEntry(entry: WorkspaceIdentityEntry): void {
+		if (entry.email === null) return;
+		draft = { label: '', name: entry.name ?? '', email: entry.email, hostPattern: '' };
+		editing = 'new';
+	}
+
+	function startSaveCurrentIdentity(): void {
+		if (unsavedCurrent === null) return;
+		draft = { label: '', name: unsavedCurrent.name, email: unsavedCurrent.email, hostPattern: '' };
 		editing = 'new';
 	}
 
@@ -167,6 +185,21 @@
 			</div>
 		{/if}
 
+		<!-- The invitation for a fresh install: the account already committing here, not yet a
+		     card. Hidden while a form is open so it cannot compete with the form it opens. -->
+		{#if unsavedCurrent && editing === null}
+			<div class="card fixed">
+				<div class="card-head">
+					<b class="fg">{unsavedCurrent.name || '(no name)'}</b>
+					<span class="card-actions">
+						<button class="mini" onclick={startSaveCurrentIdentity}>Save…</button>
+					</span>
+				</div>
+				<span class="card-line">{unsavedCurrent.email}</span>
+				<span class="card-line note">Currently committing as this — not saved yet</span>
+			</div>
+		{/if}
+
 		{#each listIdentities as item, index (item.label + item.email)}
 			{@const badges = cardBadges(identity, item, overridden)}
 			<div class="card" class:in-use={badges.showInUse}>
@@ -217,6 +250,26 @@
 
 	{#if editing === null}
 		<button class="linkish" onclick={startAddIdentity}>+ Add identity…</button>
+	{/if}
+
+	{#if listWorkspaceRows.length > 0}
+		<h4 class="ws-title">This workspace</h4>
+		<table class="ws">
+			<tbody>
+				{#each listWorkspaceRows as row (row.repoPath)}
+					<tr>
+						<td class="ws-repo fg" title={row.repoPath}>{row.repoName}</td>
+						<td class="ws-email" title={row.name ?? ''}>{row.email ?? '(no email)'}</td>
+						<td class="ws-badge">
+							{#if row.overridden}<span class="pill">override</span>{/if}
+							{#if editing === null && canSaveEntry(row, listIdentities)}
+								<button class="mini" onclick={() => startSaveEntry(row)}>Save…</button>
+							{/if}
+						</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
 	{/if}
 </section>
 
@@ -338,5 +391,37 @@
 	.id-form-actions {
 		display: flex;
 		gap: var(--gg-space-1);
+	}
+	.ws-title {
+		margin: var(--gg-space-2) 0 0;
+		font-size: 0.85em;
+		font-weight: 600;
+	}
+	.ws {
+		border-collapse: collapse;
+		width: 100%;
+		table-layout: fixed;
+		font-size: 0.85em;
+	}
+	.ws td {
+		padding: 1px 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.ws-repo {
+		width: 40%;
+		padding-right: var(--gg-space-2);
+	}
+	.ws-email {
+		color: var(--gg-fg-muted);
+	}
+	.ws-badge {
+		width: 8em;
+		text-align: right;
+		white-space: nowrap;
+	}
+	.ws-badge > * + * {
+		margin-left: var(--gg-space-1);
 	}
 </style>

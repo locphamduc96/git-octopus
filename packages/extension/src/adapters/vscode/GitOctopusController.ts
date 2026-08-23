@@ -6,6 +6,7 @@ import type {
 	HostToWebview,
 	RepoInfo,
 	WebviewToHost,
+	WorkspaceIdentityEntry,
 } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import {
@@ -520,6 +521,13 @@ export class GitOctopusController {
 				if (this.repoMismatch(message)) return;
 				if (cwd && (await this.repoActions.run(message, cwd, prompt))) await this.refresh();
 				return;
+			case 'loadWorkspaceIdentities': {
+				void webview.postMessage({
+					type: 'workspaceIdentities',
+					listRepos: await this.readWorkspaceIdentities(),
+				} satisfies HostToWebview);
+				return;
+			}
 			// Per-view queries: the answer belongs to the panel that asked. Broadcasting it would
 			// overwrite the other panels' selection with this one's.
 			case 'loadCommitDetails':
@@ -554,6 +562,35 @@ export class GitOctopusController {
 		const base = (await getCurrentBranch(this.executor, cwd)) ?? 'HEAD';
 		const inventory = await getBranchInventory(this.executor, cwd, base);
 		void webview.postMessage({ type: 'branchInventory', ...inventory } satisfies HostToWebview);
+	}
+
+	/**
+	 * One entry per workspace repository. A repository that fails to answer (deleted underneath
+	 * us, broken config) becomes a blank row rather than taking the whole table down with it.
+	 */
+	private async readWorkspaceIdentities(): Promise<WorkspaceIdentityEntry[]> {
+		return Promise.all(
+			this.repos.map(async (repo): Promise<WorkspaceIdentityEntry> => {
+				try {
+					const identity = await getRepoIdentity(this.executor, repo.path);
+					return {
+						repoPath: repo.path,
+						repoName: repo.name,
+						name: identity.name,
+						email: identity.email,
+						overridden: identity.hasLocalName || identity.hasLocalEmail,
+					};
+				} catch {
+					return {
+						repoPath: repo.path,
+						repoName: repo.name,
+						name: null,
+						email: null,
+						overridden: false,
+					};
+				}
+			})
+		);
 	}
 
 	private async sendIdentity(): Promise<void> {

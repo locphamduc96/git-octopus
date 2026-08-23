@@ -20,6 +20,7 @@
 		RepoState,
 		SequencerActionMessage,
 		WorkingTreeAction,
+		WorkspaceIdentityEntry,
 		WorkingTreeStatus,
 	} from '@git-octopus/shared';
 	import { UNCOMMITTED_HASH } from '@git-octopus/shared';
@@ -57,6 +58,7 @@
 	import { fontFaceCss } from './lib/fileIcon';
 	import { guessThemeKind, langForPath, tokenizeHunks, type HighlightToken } from './lib/highlight';
 	import { identityMismatch, listMatchedIdentities, matchIdentity } from './lib/identity';
+	import { planCommitGuard } from './lib/commitGuard';
 	import { planAutoApply } from './lib/identityAutoApply';
 	import { planReveal } from './lib/revealPlan';
 	import { selectRange } from './lib/squashRange';
@@ -202,6 +204,16 @@
 	let repoIdentity = $state<RepoIdentityState | null>(null);
 	let listIdentities = $state<GitIdentity[]>([]);
 	let addingIdentity = $state(false);
+	/** Every workspace repository's effective identity, asked for each time settings open. */
+	let listWorkspaceIdentities = $state<WorkspaceIdentityEntry[]>([]);
+	/** The commit-time question: the user is about to commit with an email the remote disagrees with. */
+	let commitGuard = $state<{ suggested: GitIdentity; message?: string } | null>(null);
+	/**
+	 * A commit waiting for the identity switch it asked for. The host handles `identityAction` and
+	 * `workingTreeAction` independently, so posting both at once could commit under the old email;
+	 * the commit goes out only once an `identity` reply shows the switch has landed.
+	 */
+	let pendingCommitAwaitIdentity = $state<{ email: string; message?: string } | null>(null);
 
 	/**
 	 * Questions the host asks this view to render (feature-040). One dialog at a time — the
@@ -439,6 +451,9 @@
 						cleanupResults = null;
 						pendingCheckout = null;
 						pendingHeadReveal = null;
+						listWorkspaceIdentities = [];
+						commitGuard = null;
+						pendingCommitAwaitIdentity = null;
 						// Questions asked over the old repository die with it.
 						for (const item of listUiQueue) {
 							postToHost({ type: 'uiReply', requestId: item.requestId, cancelled: true });
@@ -581,7 +596,22 @@
 						globalEmail: message.globalEmail,
 					};
 					listIdentities = message.listIdentities;
+					if (pendingCommitAwaitIdentity) {
+						const pending = pendingCommitAwaitIdentity;
+						pendingCommitAwaitIdentity = null;
+						if (message.email === pending.email) {
+							postCommit(pending.message);
+						} else {
+							showNotice(
+								`The identity switch did not take effect, so nothing was committed. Your message is still in the box.`
+							);
+						}
+					}
 					maybeAutoApplyIdentity();
+					break;
+				}
+				case 'workspaceIdentities': {
+					listWorkspaceIdentities = message.listRepos;
 					break;
 				}
 				case 'branchInventory': {
@@ -1041,6 +1071,11 @@
 	}
 
 	function workingAction(action: WorkingTreeAction, path?: string, message?: string): void {
+		const plan = planCommitGuard(action, identityWarningFor);
+		if (plan.kind === 'ask') {
+			commitGuard = { suggested: plan.suggested, message };
+			return;
+		}
 		postToHost({
 			type: 'workingTreeAction',
 			repoPath: activeRepo ?? '',
@@ -1048,6 +1083,32 @@
 			path,
 			message,
 		});
+	}
+
+	function postCommit(message?: string): void {
+		postToHost({
+			type: 'workingTreeAction',
+			repoPath: activeRepo ?? '',
+			action: 'commit',
+			message,
+		});
+	}
+
+	function answerCommitGuard(choice: string): void {
+		if (!commitGuard) return;
+		const { suggested, message } = commitGuard;
+		commitGuard = null;
+		if (choice === 'anyway') {
+			postCommit(message);
+			return;
+		}
+		pendingCommitAwaitIdentity = { email: suggested.email, message };
+		applyIdentity(suggested);
+	}
+
+	function openSettings(): void {
+		settingsOpen = true;
+		postToHost({ type: 'loadWorkspaceIdentities' });
 	}
 
 	function runBranchAction(
@@ -1170,11 +1231,32 @@
 		/>
 	{/if}
 
+	{#if commitGuard}
+		<OptionsDialog
+			title="Committing as {repoIdentity?.email ?? 'no email'}"
+			listOptions={[
+				{
+					id: 'switch',
+					label: `Switch to ${commitGuard.suggested.label} (${commitGuard.suggested.email}), then commit`,
+					description: 'Writes the identity to this repository, then commits with it.',
+				},
+				{
+					id: 'anyway',
+					label: `Commit as ${repoIdentity?.email ?? 'no email'}`,
+					description: "This repository's remote suggests a different identity.",
+				},
+			]}
+			onsubmit={(listSelected) => answerCommitGuard(listSelected[0] ?? 'anyway')}
+			oncancel={() => (commitGuard = null)}
+		/>
+	{/if}
+
 	{#if settingsOpen}
 		<SettingsWidget
 			{settings}
 			identity={repoIdentity}
 			{listIdentities}
+			{listWorkspaceIdentities}
 			suggestedIdentity={identityWarningFor}
 			onapplyIdentity={applyIdentity}
 			onclearIdentityOverride={clearIdentityOverride}
@@ -1270,7 +1352,7 @@
 					onbackToPreviousBranch={() => runHeadAction('checkoutPrevious')}
 					onbranchFromHead={() => runHeadAction('createBranch')}
 					onshowHead={() => showHead()}
-					onsettings={() => (settingsOpen = true)}
+					onsettings={openSettings}
 					{identityLabel}
 					{identityWarning}
 					{listIdentities}
@@ -1284,7 +1366,7 @@
 					onapplyIdentity={applyIdentity}
 					onaddIdentity={() => (addingIdentity = true)}
 					oncleanup={openCleanup}
-					onidentity={() => (settingsOpen = true)}
+					onidentity={openSettings}
 				/>
 
 				{#if findOpen}

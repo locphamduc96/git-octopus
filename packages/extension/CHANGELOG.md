@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.18.0
+
+### Identities
+
+- **The Identity tab offers to save the account you are already using.** On a fresh install, or
+  whenever the identity committing in this repository has no saved card yet, a card invites you to
+  save it — one label away from a reusable identity.
+- **This workspace**: with two or more repositories open, the tab lists every repository with the
+  email it commits as and marks the ones overriding the global identity. A repository using an
+  account you have not saved gets a **Save…** of its own.
+- **Commit asks before going out under a mismatched identity.** When the repository's remote
+  suggests a different saved identity, the Commit button offers to switch and then commit, or to
+  commit as you are. Cancelling keeps the message. The switch is confirmed before the commit runs,
+  so the commit can never beat it. Amend is not interrupted.
+- The multi-account flow is now described in the README.
+
+### Fixes
+
+- The branch chip in the changes header had its top and bottom borders clipped; it is drawn as a
+  proper chip now.
+
 ## 0.17.0
 
 ### Refs in the graph

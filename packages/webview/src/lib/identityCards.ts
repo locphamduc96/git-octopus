@@ -34,3 +34,18 @@ export function cardBadges(
 		sameAsGlobal,
 	};
 }
+
+/**
+ * The identity actually committing right now when no saved card covers it yet — the prompt to
+ * save it. Matching is by email alone: a saved card with the same email but another name is the
+ * same account spelled differently, not a second account worth a second card.
+ */
+export function unsavedCurrentIdentity(
+	identity: RepoIdentityState | null,
+	listIdentities: GitIdentity[]
+): { name: string; email: string } | null {
+	if (identity === null || identity.email === null) return null;
+	const email = identity.email;
+	if (listIdentities.some((item) => item.email === email)) return null;
+	return { name: identity.name ?? '', email };
+}

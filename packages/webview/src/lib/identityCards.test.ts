@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GitIdentity } from '@git-octopus/shared';
-import { cardBadges } from './identityCards';
+import { cardBadges, unsavedCurrentIdentity } from './identityCards';
 import type { RepoIdentityState } from './viewSettings';
 
 const work: GitIdentity = { label: 'Work', name: 'locpd2', email: 'locpd2@vng.com.vn' };
@@ -62,6 +62,35 @@ describe('cardBadges', () => {
 			showInUse: false,
 			applyDisabled: false,
 			sameAsGlobal: false,
+		});
+	});
+});
+
+describe('unsavedCurrentIdentity', () => {
+	it('offers the effective identity when no saved card has its email', () => {
+		expect(unsavedCurrentIdentity(repoIdentity(), [personal])).toEqual({
+			name: 'locpd2',
+			email: 'locpd2@vng.com.vn',
+		});
+	});
+
+	it('stays quiet once a card with that email exists, even under another name', () => {
+		const renamed: GitIdentity = { ...work, name: 'Loc P.D.' };
+		expect(unsavedCurrentIdentity(repoIdentity(), [renamed])).toBeNull();
+	});
+
+	it('has nothing to offer without a repository identity', () => {
+		expect(unsavedCurrentIdentity(null, [])).toBeNull();
+	});
+
+	it('has nothing to offer when the effective email is unset', () => {
+		expect(unsavedCurrentIdentity(repoIdentity({ email: null }), [])).toBeNull();
+	});
+
+	it('fills an unset name with an empty string so the form can take it as-is', () => {
+		expect(unsavedCurrentIdentity(repoIdentity({ name: null }), [])).toEqual({
+			name: '',
+			email: 'locpd2@vng.com.vn',
 		});
 	});
 });

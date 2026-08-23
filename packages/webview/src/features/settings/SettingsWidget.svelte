@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { CommitOrder, GitIdentity } from '@git-octopus/shared';
+	import type { CommitOrder, GitIdentity, WorkspaceIdentityEntry } from '@git-octopus/shared';
 	import IconButton from '../../lib/ui/IconButton.svelte';
 	import IdentitySection from './IdentitySection.svelte';
 	import type {
@@ -16,6 +16,7 @@
 		settings,
 		identity,
 		listIdentities,
+		listWorkspaceIdentities,
 		suggestedIdentity,
 		onapplyIdentity,
 		onclearIdentityOverride,
@@ -26,6 +27,7 @@
 		settings: ViewSettings;
 		identity: RepoIdentityState | null;
 		listIdentities: GitIdentity[];
+		listWorkspaceIdentities: WorkspaceIdentityEntry[];
 		/** The identity the repo's remote suggests when it differs from the one in use. */
 		suggestedIdentity: GitIdentity | null;
 		onapplyIdentity: (identity: GitIdentity) => void;
@@ -333,6 +335,7 @@
 				<IdentitySection
 					{identity}
 					{listIdentities}
+					{listWorkspaceIdentities}
 					{suggestedIdentity}
 					{onapplyIdentity}
 					{onclearIdentityOverride}

@@ -39,6 +39,11 @@ from the commit menu, asked in the view's own dialogs · right-click a chip to a
 hover the ref column to read every name in full · a Git identity per repository, matched to the
 remote · find (Ctrl+F) · several repositories in one workspace.
 
+Several Git accounts? Save an identity per client in the Identity tab, apply one to a repository
+without touching your global config, match identities to remotes by pattern, and get asked before a
+commit goes out under the wrong email. Details in the
+[extension README](packages/extension/README.md#managing-multiple-git-identities).
+
 ## Screenshots
 
 Taken against a demo repository; the full set lives in [docs/screenshots](docs/screenshots).
