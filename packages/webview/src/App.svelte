@@ -20,7 +20,7 @@
 	} from '@git-octopus/shared';
 	import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 	import { layoutCommits } from '@git-octopus/graph-layout';
-	import { onHostMessage, postToHost, readState, writeState, STATE_VERSION } from './lib/bridge';
+	import { onHostMessage, postToHost, readState, updateState, STATE_VERSION } from './lib/bridge';
 	import { buildHostFilters, commitsReplyMatches, loadSignature } from './lib/commitsGuard';
 	import { dispatchHostMessage, resetForRepo, type RoutedByStore } from './lib/hostRouter';
 	import { buildRefPayload } from './lib/refPayload';
@@ -181,7 +181,7 @@
 
 	// Only what belongs to this window: the rest lives in the host's global state.
 	$effect(() => {
-		writeState({ version: STATE_VERSION, widths: prefs.widths, panelRatio });
+		updateState({ widths: prefs.widths, panelRatio });
 	});
 
 	const stacked = $derived(shellWidth < STACK_BREAKPOINT);

@@ -2,11 +2,14 @@ import * as vscode from 'vscode';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type {
+	AgentId,
 	AgentInventoryMessage,
 	CommitPlanExecutedMessage,
 	CommitPlanResultMessage,
+	CommitPlanStateMessage,
 	ExecuteCommitPlanMessage,
 	GenerateCommitPlanMessage,
+	SaveAiSettingsMessage,
 	FileChange,
 } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
@@ -17,22 +20,35 @@ import { classifyChanges, type ChangeEntry } from '../../core/agent/classifyChan
 import { buildCommitPrompt, type PromptFile } from '../../core/agent/commitPrompt.js';
 import { parseCommitPlan } from '../../core/agent/planParser.js';
 import { LIST_AGENT_PROVIDERS, providerById } from '../../core/agent/agentProviders.js';
+import { PlanCache, type PlanResult } from '../../core/agent/planCache.js';
 import { AgentProcessRunner, CANCELLED } from '../process/agentProcessRunner.js';
 
 export const STATE_AI_AGENT = 'gitOctopus.aiAgent';
+/** The agents whose CLI has an effort/thinking flag, and thus a declared `*Thinking` setting. */
+const SET_THINKING_AGENTS = new Set<string>(['claude', 'codex']);
 export const STATE_AI_CONSENT = 'gitOctopus.aiConsent';
 
 /**
  * The AI-commit orchestrator: detects agent CLIs, turns the working tree into a prompt, runs the
  * chosen agent once, and executes an approved plan. The agent only ever produces text — every
  * `git` call in this flow is made here, through the same executor as every other action.
+ *
+ * Generation state lives here, not in the webview: the run and its outcome are cached per
+ * repository (see {@link PlanCache}), so a view destroyed mid-run — or one that never saw the
+ * run start — can ask for `commitPlanState` and catch up.
  */
 export class CommitAgentService {
+	private readonly cache = new PlanCache();
+
 	public constructor(
 		private readonly executor: GitExecutor,
 		private readonly globalState: vscode.Memento,
 		private readonly runner: AgentProcessRunner = new AgentProcessRunner()
 	) {}
+
+	private aiConfig(): vscode.WorkspaceConfiguration {
+		return vscode.workspace.getConfiguration('gitOctopus.aiCommit');
+	}
 
 	public async detect(): Promise<AgentInventoryMessage> {
 		const listAgents = await Promise.all(
@@ -46,12 +62,43 @@ export class CommitAgentService {
 				};
 			})
 		);
+		const config = this.aiConfig();
+		const readByAgent = (suffix: string): Partial<Record<AgentId, string>> =>
+			Object.fromEntries(
+				LIST_AGENT_PROVIDERS.map((provider) => [
+					provider.id,
+					config.get<string>(`${provider.id}${suffix}`, ''),
+				])
+			);
 		return {
 			type: 'agentInventory',
 			listAgents,
 			savedAgentId: providerById(this.globalState.get<string>(STATE_AI_AGENT))?.id ?? null,
 			consented: this.globalState.get<boolean>(STATE_AI_CONSENT, false),
+			mapModels: readByAgent('Model'),
+			mapThinking: readByAgent('Thinking'),
 		};
+	}
+
+	/** The settings tab's save: write the preference keys, and switch agent when asked to. */
+	public async saveSettings(message: SaveAiSettingsMessage): Promise<void> {
+		const config = this.aiConfig();
+		for (const provider of LIST_AGENT_PROVIDERS) {
+			const model = message.mapModels[provider.id];
+			if (model !== undefined) {
+				await config.update(`${provider.id}Model`, model.trim(), vscode.ConfigurationTarget.Global);
+			}
+			const thinking = message.mapThinking[provider.id];
+			// Only agents with a declared *Thinking setting — an undeclared key refuses the update.
+			if (thinking !== undefined && SET_THINKING_AGENTS.has(provider.id)) {
+				await config.update(
+					`${provider.id}Thinking`,
+					thinking,
+					vscode.ConfigurationTarget.Global
+				);
+			}
+		}
+		if (message.agentId) await this.select(message.agentId);
 	}
 
 	/** Record the pick and, with it, the user's consent to sending diffs to that agent. */
@@ -61,30 +108,53 @@ export class CommitAgentService {
 		await this.globalState.update(STATE_AI_CONSENT, true);
 	}
 
-	public cancel(nonce: number): void {
-		this.runner.cancel(nonce);
+	/** What the host holds for this repository — a fresh webview's first question. */
+	public state(repoPath: string): CommitPlanStateMessage {
+		const entry = this.cache.get(repoPath);
+		if (!entry) return { type: 'commitPlanState', repoPath, status: 'idle' };
+		return {
+			type: 'commitPlanState',
+			repoPath,
+			status: entry.status,
+			generationId: entry.generationId,
+			...(entry.result ?? {}),
+		};
+	}
+
+	/** Kill the run in flight for this repository, if any. */
+	public cancel(repoPath: string): void {
+		const running = this.cache.runningId(repoPath);
+		if (running !== null) this.runner.cancel(running);
 	}
 
 	public async generate(
 		message: GenerateCommitPlanMessage,
 		cwd: string
 	): Promise<CommitPlanResultMessage> {
-		const fail = (error: string, needsLogin?: boolean): CommitPlanResultMessage => ({
-			type: 'commitPlanResult',
-			nonce: message.nonce,
-			error,
-			...(needsLogin ? { needsLogin } : {}),
-		});
+		// Asking again supersedes the run in flight: its answer would only be noise now.
+		this.cancel(message.repoPath);
+		const generationId = this.cache.begin(message.repoPath);
 
+		const result = await this.runGeneration(cwd, generationId);
+		if (result === 'cancelled') {
+			// Nothing worth replaying: a rehydrating view should see idle, not a dead run.
+			this.cache.clear(message.repoPath, generationId);
+			return { type: 'commitPlanResult', repoPath: message.repoPath, generationId, error: 'Cancelled.' };
+		}
+		this.cache.complete(message.repoPath, generationId, result);
+		return { type: 'commitPlanResult', repoPath: message.repoPath, generationId, ...result };
+	}
+
+	private async runGeneration(cwd: string, generationId: number): Promise<PlanResult | 'cancelled'> {
 		const provider = providerById(this.globalState.get<string>(STATE_AI_AGENT));
-		if (!provider) return fail('No agent selected.');
+		if (!provider) return { error: 'No agent selected.' };
 
 		const working = await getStatus(this.executor, cwd);
 		const listChanges = dedupeByPath([...working.staged, ...working.unstaged]);
-		if (listChanges.length === 0) return fail('There are no changes to commit.');
+		if (listChanges.length === 0) return { error: 'There are no changes to commit.' };
 
 		if ((await getHeadHash(this.executor, cwd)) === null) {
-			return fail('The repository has no commits yet — make the first commit manually.');
+			return { error: 'The repository has no commits yet — make the first commit manually.' };
 		}
 
 		const prompt = await this.buildPrompt(cwd, listChanges);
@@ -93,38 +163,39 @@ export class CommitAgentService {
 		let stderr: string;
 		let code: number | null;
 		try {
-			const spec = provider.runSpec();
+			// The user's own CLI default may be an expensive model; these pins are how they cap it.
+			const config = this.aiConfig();
+			const model = config.get<string>(`${provider.id}Model`, '').trim();
+			const thinking = config.get<string>(`${provider.id}Thinking`, '').trim();
+			const spec = provider.runSpec(model || undefined, thinking || undefined);
 			({ stdout, stderr, code } = await this.runner.run(
 				spec.bin,
-				spec.listArgs,
+				spec.promptInArgs ? [...spec.listArgs, prompt] : spec.listArgs,
 				cwd,
-				prompt,
-				message.nonce
+				spec.promptInArgs ? '' : prompt,
+				generationId
 			));
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
-			if (detail === CANCELLED) return fail('Cancelled.');
-			return fail(redactSecrets(detail));
+			if (detail === CANCELLED) return 'cancelled';
+			return { error: redactSecrets(detail) };
 		}
 
 		const combined = `${stderr}\n${stdout}`;
-		if (code !== 0) {
-			if (provider.needsLogin(combined)) {
-				return fail(`${provider.label} is not logged in on this machine.`, true);
-			}
-			const detail = (stderr.trim() || stdout.trim() || `exit code ${code}`).slice(0, 400);
-			return fail(`${provider.label} failed: ${redactSecrets(detail)}`);
-		}
 		if (provider.needsLogin(combined)) {
-			return fail(`${provider.label} is not logged in on this machine.`, true);
+			return { error: `${provider.label} is not logged in on this machine.`, needsLogin: true };
+		}
+		if (code !== 0) {
+			const detail = (stderr.trim() || stdout.trim() || `exit code ${code}`).slice(0, 400);
+			return { error: `${provider.label} failed: ${redactSecrets(detail)}` };
 		}
 
 		const parsed = parseCommitPlan(
 			provider.extractText(stdout),
 			listChanges.map((change) => change.path)
 		);
-		if (parsed.error) return fail(parsed.error);
-		return { type: 'commitPlanResult', nonce: message.nonce, plan: parsed.plan };
+		if (parsed.error) return { error: parsed.error };
+		return { plan: parsed.plan };
 	}
 
 	/**
@@ -175,6 +246,8 @@ export class CommitAgentService {
 			const detail = error instanceof Error ? error.message : String(error);
 			return fail(committed, redactSecrets(detail));
 		}
+		// The plan is spent; a rehydrating view must not be offered commits that already exist.
+		this.cache.clear(message.repoPath);
 		return { type: 'commitPlanExecuted', nonce: message.nonce, committed, total };
 	}
 

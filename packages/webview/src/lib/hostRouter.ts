@@ -25,6 +25,7 @@ export const LIST_ROUTED_BY_STORE = [
 	'colorTheme',
 	'agentInventory',
 	'commitPlanResult',
+	'commitPlanState',
 	'commitPlanExecuted',
 ] as const satisfies readonly HostToWebview['type'][];
 

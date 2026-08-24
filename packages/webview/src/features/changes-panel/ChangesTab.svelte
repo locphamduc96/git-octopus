@@ -119,7 +119,10 @@
 					? 'AI commit — nothing has changed yet'
 					: 'AI commit — let an agent CLI draft the message, or a split into several commits'}
 				disabled={changes.length + untracked.length + staged.length + conflicts.length === 0}
-				onclick={() => aiCommit.openDialog()}
+				onclick={() =>
+				aiCommit.openDialog([
+					...new Set([...conflicts, ...changes, ...untracked, ...staged].map((f) => f.path)),
+				])}
 			/>
 		</span>
 		<button

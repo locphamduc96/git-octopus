@@ -119,6 +119,9 @@ export class GitOctopusController {
 	/** Notified whenever the active repository or branch changes (drives the status bar item). */
 	public onRepoState?: (state: { repoName: string | null; branch: string | null }) => void;
 
+	/** Notified with the working-tree change count (drives the view badges, like SCM's). */
+	public onChangeCount?: (count: number) => void;
+
 	/** The repository everything currently acts on — the sidebar tree reads from here. */
 	public get activeRepoPath(): string | null {
 		return this.activeRepo;
@@ -229,17 +232,26 @@ export class GitOctopusController {
 	 * graph, and nothing runs at all while no webview can see the result.
 	 */
 	public async autoRefresh(kind: RefreshKind): Promise<void> {
+		const enabled = vscode.workspace
+			.getConfiguration('gitOctopus')
+			.get<boolean>('autoRefresh', true);
 		const decision = decideRefresh(kind, {
-			enabled: vscode.workspace.getConfiguration('gitOctopus').get<boolean>('autoRefresh', true),
+			enabled,
 			hasWebview: this.listWebviews.length > 0,
 			visible: this.visible,
 			refreshing: this.refreshing,
 			missed: this.missed,
 			queued: this.queued,
 		});
-		if (decision.action === 'drop') return;
+		if (decision.action === 'drop') {
+			// The graph can wait for a viewer; the badge cannot — SCM's count stays live with
+			// every view closed, so ours does too. A user who turned auto-refresh off is left alone.
+			if (enabled) void this.probeChangeCount();
+			return;
+		}
 		if (decision.action === 'defer') {
 			this.missed = decision.missed;
+			void this.probeChangeCount();
 			return;
 		}
 		if (decision.action === 'queue') {
@@ -259,6 +271,24 @@ export class GitOctopusController {
 		}
 	}
 
+	/**
+	 * First badge value of the session, run on activation: the count must show on the activity
+	 * bar the way Source Control's does, before any of our views has ever been opened.
+	 */
+	public async primeChangeCount(): Promise<void> {
+		await this.discoverRepos();
+		await this.probeChangeCount();
+	}
+
+	/** Refresh only the badge count — for moments when no view is there to show anything more. */
+	private async probeChangeCount(): Promise<void> {
+		if (!this.activeRepo) return;
+		const reply = await loadStatus(this.repoContext());
+		if (reply.type !== 'statusUpdate') return;
+		this.lastChangeCount = reply.changeCount;
+		this.onChangeCount?.(reply.changeCount);
+	}
+
 	/** The working tree only — no history walk, no graph re-layout. */
 	private async refreshStatus(): Promise<void> {
 		const repoForRequest = this.activeRepo;
@@ -268,6 +298,7 @@ export class GitOctopusController {
 		if (this.activeRepo !== repoForRequest) return;
 		const previous = { changeCount: this.lastChangeCount, headHash: this.lastHeadHash };
 		this.lastChangeCount = reply.changeCount;
+		this.onChangeCount?.(reply.changeCount);
 		if (needsFullReload(previous, { changeCount: reply.changeCount, headHash: reply.headHash })) {
 			await this.refresh();
 			return;
@@ -526,18 +557,33 @@ export class GitOctopusController {
 			case 'detectAgents':
 				void webview.postMessage(await this.commitAgent.detect());
 				return;
+			case 'saveAiSettings': {
+				await this.commitAgent.saveSettings(message);
+				// Every view re-reads the same truth, so the settings tab and any open dialog agree.
+				const inventory = await this.commitAgent.detect();
+				for (const view of this.listWebviews) void view.postMessage(inventory);
+				return;
+			}
 			case 'selectAgent':
 				// The fresh inventory is the ack: the webview starts generating only once it says
 				// the pick and the consent are stored, so the two messages cannot race.
 				await this.commitAgent.select(message.agentId);
 				void webview.postMessage(await this.commitAgent.detect());
 				return;
-			case 'generateCommitPlan':
+			case 'generateCommitPlan': {
 				if (!cwd || this.repoMismatch(message)) return;
-				void webview.postMessage(await this.commitAgent.generate(message, cwd));
+				// Broadcast, not reply: the view that asked may be gone by the time the agent
+				// answers, and every attached view (panel, editor tab) shows the same plan.
+				const result = await this.commitAgent.generate(message, cwd);
+				for (const view of this.listWebviews) void view.postMessage(result);
 				return;
+			}
 			case 'cancelCommitPlan':
-				this.commitAgent.cancel(message.nonce);
+				this.commitAgent.cancel(message.repoPath);
+				return;
+			case 'loadCommitPlanState':
+				// Per-view query: the answer describes host state, and only the asker is catching up.
+				void webview.postMessage(this.commitAgent.state(message.repoPath));
 				return;
 			case 'executeCommitPlan': {
 				if (!cwd || this.repoMismatch(message)) return;
@@ -654,6 +700,7 @@ export class GitOctopusController {
 				? reply.working.staged.length + reply.working.unstaged.length
 				: 0;
 			this.lastHeadHash = reply.headHash;
+			this.onChangeCount?.(this.lastChangeCount);
 			this.onRepoState?.({ repoName: reply.repoName, branch: reply.currentBranch });
 		}
 		for (const webview of this.listWebviews) {

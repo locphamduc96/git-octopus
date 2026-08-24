@@ -48,6 +48,17 @@ export interface PersistedState {
 	version: number;
 	widths: { ref: number; author: number; commit: number; date: number };
 	panelRatio: number;
+	/** The AI commit plan being edited, so a destroyed webview hands it back — see `stores/aiCommit`. */
+	aiCommit?: PersistedAiCommit;
+}
+
+export interface PersistedAiCommit {
+	repoPath: string;
+	/** The host generation the plan came from; null when it outlived the host (window reload). */
+	generationId: number | null;
+	/** An `EditablePlan`; typed loosely because storage outlives any one version's shape. */
+	plan: unknown;
+	mode: 'single' | 'split';
 }
 
 export function readState(): Partial<PersistedState> {
@@ -56,4 +67,14 @@ export function readState(): Partial<PersistedState> {
 
 export function writeState(state: PersistedState): void {
 	vscode.setState(state);
+}
+
+/**
+ * Merge a patch over what is stored. Every writer must come through here (or send the whole
+ * object): a plain `setState` from one domain would silently drop the others' keys.
+ */
+export function updateState(patch: Partial<PersistedState>): void {
+	const stored = readState();
+	const base = stored.version === STATE_VERSION ? stored : {};
+	vscode.setState({ ...base, ...patch, version: STATE_VERSION });
 }

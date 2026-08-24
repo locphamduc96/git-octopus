@@ -549,7 +549,15 @@ export interface UiDismissMessage {
  * detect and choose an agent, then to generate or execute a commit plan. Every git mutation stays
  * in the host's own services — the agent never touches the repository.
  */
-export type AgentId = 'claude' | 'codex';
+export const LIST_AGENT_IDS = [
+	'claude',
+	'codex',
+	'gemini',
+	'copilot',
+	'opencode',
+	'qwen',
+] as const;
+export type AgentId = (typeof LIST_AGENT_IDS)[number];
 
 export interface AgentInfo {
 	id: AgentId;
@@ -577,13 +585,21 @@ export interface GenerateCommitPlanMessage {
 	 * action when it does not match the active repository.
 	 */
 	repoPath: string;
-	/** Echoed back in the result, so a reply that outlived its dialog is ignorable. */
-	nonce: number;
 }
 
 export interface CancelCommitPlanMessage {
 	type: 'cancelCommitPlan';
-	nonce: number;
+	repoPath: string;
+}
+
+/**
+ * Ask what the host knows about this repository's AI commit plan. The generation itself lives
+ * host-side (the agent process outlives any webview), so a freshly created view asks this to
+ * pick up a run still in flight or a result that arrived while no view was there to hear it.
+ */
+export interface LoadCommitPlanStateMessage {
+	type: 'loadCommitPlanState';
+	repoPath: string;
 }
 
 /** One commit to create: the files to stage and the full message (`subject[\n\nbody]`). */
@@ -611,6 +627,19 @@ export interface AgentInventoryMessage {
 	savedAgentId: AgentId | null;
 	/** Whether the user has already accepted that their diff is sent to an agent. */
 	consented: boolean;
+	/** Per-agent model pin from settings; empty string = the CLI's own default. */
+	mapModels: Partial<Record<AgentId, string>>;
+	/** Per-agent thinking/effort level from settings; empty string = the CLI's own default. */
+	mapThinking: Partial<Record<AgentId, string>>;
+}
+
+/** Save the AI-commit preferences from the settings tab; answered with a fresh inventory. */
+export interface SaveAiSettingsMessage {
+	type: 'saveAiSettings';
+	/** Also switch to this agent (and record consent); absent = keep the current one. */
+	agentId?: AgentId;
+	mapModels: Partial<Record<AgentId, string>>;
+	mapThinking: Partial<Record<AgentId, string>>;
 }
 
 /** What the agent proposed: the whole change as one commit, and (optionally) a split. */
@@ -621,10 +650,28 @@ export interface CommitPlanDraft {
 
 export interface CommitPlanResultMessage {
 	type: 'commitPlanResult';
-	nonce: number;
+	repoPath: string;
+	/**
+	 * Host-issued and monotonic, replacing any webview-side counter: it stays comparable across
+	 * webview reloads, which an in-memory nonce cannot.
+	 */
+	generationId: number;
 	plan?: CommitPlanDraft;
 	error?: string;
 	/** The CLI refused for want of a login — the dialog offers a terminal instead of a retry. */
+	needsLogin?: boolean;
+}
+
+/** The answer to {@link LoadCommitPlanStateMessage}: what the host holds for this repository. */
+export interface CommitPlanStateMessage {
+	type: 'commitPlanState';
+	repoPath: string;
+	status: 'idle' | 'running' | 'done';
+	/** Present unless idle. */
+	generationId?: number;
+	/** The cached result, present when status is 'done' — the same fields the broadcast carried. */
+	plan?: CommitPlanDraft;
+	error?: string;
 	needsLogin?: boolean;
 }
 
@@ -669,8 +716,10 @@ export type WebviewToHost =
 	| UiReplyMessage
 	| DetectAgentsMessage
 	| SelectAgentMessage
+	| SaveAiSettingsMessage
 	| GenerateCommitPlanMessage
 	| CancelCommitPlanMessage
+	| LoadCommitPlanStateMessage
 	| ExecuteCommitPlanMessage;
 
 /** An operation paused mid-flight (usually on conflicts), waiting to be continued or aborted. */
@@ -846,4 +895,5 @@ export type HostToWebview =
 	| ErrorMessage
 	| AgentInventoryMessage
 	| CommitPlanResultMessage
+	| CommitPlanStateMessage
 	| CommitPlanExecutedMessage;

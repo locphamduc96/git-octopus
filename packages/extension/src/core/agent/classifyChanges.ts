@@ -57,16 +57,13 @@ const LIST_ASSET_PATTERNS = [
  * A pattern without a slash matches the basename anywhere in the tree.
  */
 export function globToRegExp(pattern: string): RegExp {
-	// Wildcards go through placeholders: a replacement containing `*` must not be re-replaced
-	// by the next, narrower rule.
+	// One pass over all wildcard forms at once: a replacement containing `*` must never be
+	// seen again by a narrower rule.
 	const escaped = pattern
 		.replace(/[.+^${}()|[\]\\]/g, '\\$&')
-		.replace(/\*\*\//g, '\u0000')
-		.replace(/\*\*/g, '\u0001')
-		.replace(/\*/g, '[^/]*')
-		.replace(/\?/g, '[^/]')
-		.replace(/\u0000/g, '(?:.*/)?')
-		.replace(/\u0001/g, '.*');
+		.replace(/\*\*\/|\*\*|\*|\?/g, (wildcard) =>
+			wildcard === '**/' ? '(?:.*/)?' : wildcard === '**' ? '.*' : wildcard === '*' ? '[^/]*' : '[^/]'
+		);
 	const anchored = pattern.includes('/') ? `^${escaped}$` : `(?:^|/)${escaped}$`;
 	return new RegExp(anchored);
 }

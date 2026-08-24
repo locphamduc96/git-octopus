@@ -29,6 +29,9 @@
 		"theme": "dark"
 	},
 	"main": "./dist/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/locphamduc96/git-octopus.git"
@@ -64,7 +67,6 @@
 			],
 			"git-octopus-sidebar": [
 				{
-					"type": "webview",
 					"id": "git-octopus.launcher",
 					"name": "Git Octopus"
 				},
@@ -262,6 +264,48 @@
 					"type": "boolean",
 					"default": true,
 					"markdownDescription": "Reload the graph when the repository changes on disk — commits made in a terminal, files edited by another tool, or a branch checked out elsewhere. Only a moved `HEAD` reloads history; anything else re-reads the working tree alone."
+				},
+				"gitOctopus.aiCommit.claudeModel": {
+					"type": "string",
+					"default": "",
+					"markdownDescription": "Model the Claude CLI uses for AI commit generation, passed as `--model` (e.g. `haiku`, `sonnet`, or a full model id). Empty = the CLI's own default. Commit messages are a light task — `haiku` is usually plenty and much cheaper than the default."
+				},
+				"gitOctopus.aiCommit.codexModel": {
+					"type": "string",
+					"default": "",
+					"markdownDescription": "Model the Codex CLI uses for AI commit generation, passed as `-m` (e.g. `gpt-5-mini`). Empty = the CLI's own default."
+				},
+				"gitOctopus.aiCommit.claudeThinking": {
+					"type": "string",
+					"enum": ["", "low", "medium", "high", "xhigh", "max"],
+					"default": "",
+					"markdownDescription": "Effort level the Claude CLI uses for AI commit generation, passed as `--effort`. Empty = the CLI's own default. `low` is plenty for commit messages."
+				},
+				"gitOctopus.aiCommit.codexThinking": {
+					"type": "string",
+					"enum": ["", "minimal", "low", "medium", "high"],
+					"default": "",
+					"markdownDescription": "Reasoning effort the Codex CLI uses for AI commit generation, passed as `-c model_reasoning_effort=`. Empty = the CLI's own default."
+				},
+				"gitOctopus.aiCommit.geminiModel": {
+					"type": "string",
+					"default": "",
+					"markdownDescription": "Model the Gemini CLI uses for AI commit generation, passed as `-m` (e.g. `gemini-2.5-flash`). Empty = the CLI's own default."
+				},
+				"gitOctopus.aiCommit.copilotModel": {
+					"type": "string",
+					"default": "",
+					"markdownDescription": "Model the Copilot CLI uses for AI commit generation, passed as `--model`. Empty = the CLI's own default."
+				},
+				"gitOctopus.aiCommit.opencodeModel": {
+					"type": "string",
+					"default": "",
+					"markdownDescription": "Model OpenCode uses for AI commit generation, passed as `-m` in `provider/model` form. Empty = the CLI's own default."
+				},
+				"gitOctopus.aiCommit.qwenModel": {
+					"type": "string",
+					"default": "",
+					"markdownDescription": "Model Qwen Code uses for AI commit generation, passed as `-m`. Empty = the CLI's own default."
 				},
 				"gitOctopus.aiCommit.excludePatterns": {
 					"type": "array",

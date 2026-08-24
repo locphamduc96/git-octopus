@@ -6,11 +6,14 @@
 		onclose,
 		body,
 		actions,
+		wide = false,
 	}: {
 		title: string;
 		onclose: () => void;
 		body: Snippet;
 		actions: Snippet;
+		/** A roomier card for content-heavy dialogs (editable lists, multi-field forms). */
+		wide?: boolean;
 	} = $props();
 </script>
 
@@ -21,7 +24,7 @@
 />
 
 <div class="backdrop">
-	<div class="card" role="dialog" aria-modal="true" aria-label={title}>
+	<div class="card" class:wide role="dialog" aria-modal="true" aria-label={title}>
 		<header>
 			<span class="title">{title}</span>
 		</header>
@@ -52,6 +55,10 @@
 		border: 1px solid var(--gg-border);
 		border-radius: 6px;
 		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+	}
+	/* Only the width widens; the shell above is every dialog's. */
+	.card.wide {
+		width: min(760px, 100%);
 	}
 	.title {
 		font-weight: 600;
