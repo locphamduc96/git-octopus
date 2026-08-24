@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.19.0
+
+### AI commit
+
+- **A wand beside Commit writes the commit for you.** It drives an agent CLI you already have
+  installed and logged in — Claude Code, Codex CLI, Gemini CLI, Copilot CLI, OpenCode or Qwen Code
+  — so no API key is ever stored in the extension. Agents missing from your `PATH` are listed but
+  cannot be picked.
+- **One commit, or a split into several.** When the changes cover more than one thing, the plan
+  comes back as several commits: a tab per commit, each with its own subject, body and file list.
+  A file can be moved to another commit from a dropdown, and one click collapses the whole plan
+  back into a single commit. Nothing is written until you approve it.
+- **The commits are created in the order shown**, each with only its own files staged. If one
+  fails, the run stops and says "created 3 of 5" — what was committed is real and is never rolled
+  back. A plan whose files no longer match the working tree is refused rather than committed
+  against changed content.
+- **The run outlives the dialog.** The agent runs host-side, so you can hide the dialog, switch
+  panel tabs or close the view while it thinks; reopening shows the result. A finished plan is
+  restored as long as the changed files are the same, and can be regenerated for a fresh one.
+  Cancelling kills the process, and an agent that never answers is given up on after 120 seconds.
+- **What leaves your machine is bounded and visible.** Every changed file is named to the agent,
+  but only source diffs ride along: files over 50 KB are described, not read, each diff is cut at
+  400 lines, and the whole prompt is capped. Generated or editor-owned files — `.meta`, `.scene`,
+  `.prefab`, lockfiles, `dist/`, minified output — and binaries are sent by name only. The dialog
+  says so before you pick an agent; picking one is what records your consent.
+- **Never send this file**: `gitOctopus.aiCommit.excludePatterns` takes glob patterns whose
+  content is never sent, whatever their type. The files are still named, so the agent can put them
+  in the right commit.
+- **Settings → AI** holds the agent, the model and the thinking level, each remembered per agent,
+  so Claude on `haiku` and Codex on `gpt-5-mini` can both be configured and switched between.
+  Commit messages are a light task; the CLI's own default model is usually far more than they
+  need. The same values are settable as `gitOctopus.aiCommit.claudeModel`, `codexModel`,
+  `geminiModel`, `copilotModel`, `opencodeModel`, `qwenModel`, `claudeThinking` and
+  `codexThinking`.
+
+### The changed-file count, where Source Control puts it
+
+- **The activity-bar icon carries the same red badge**, and so does the panel view's title: the
+  number of files changed in the active repository. It is primed when VS Code starts, so the count
+  is there before the graph has ever been opened, and it follows edits made outside the editor.
+
+### Fixes
+
+- The view no longer resets when another tab in the Panel covers it — an open AI commit plan, the
+  scroll depth and the selected commit survive going away and coming back.
+
 ## 0.18.0
 
 ### Identities

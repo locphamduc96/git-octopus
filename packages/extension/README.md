@@ -37,6 +37,11 @@ View a Git graph of your repository and perform Git actions from it, inside Visu
   branch you left.
 - **Remotes that ask for credentials** work without a terminal: git's prompt is answered through
   VS Code, and nothing secret reaches a log or notification.
+- **AI commit**, opt-in: the wand beside Commit hands your changes to an agent CLI you already have
+  installed and logged in — Claude Code, Codex, Gemini, Copilot, OpenCode or Qwen Code — and it
+  writes the message, or a split into several commits you can edit, regroup and approve before
+  anything is written. No API key is stored; generated assets, binaries and any glob you exclude
+  are sent by name only.
 - **Branch cleanup**: scan local branches by age, see which are merged or have lost their remote,
   and delete a batch in one pass — every result comes back with the hash to undo it.
 - **Git identities per repository**: keep an identity per client, each with one or more remote
