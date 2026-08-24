@@ -6,6 +6,7 @@
 	import IconButton from '../../lib/ui/IconButton.svelte';
 	import ConfirmDialog from '../../lib/ui/ConfirmDialog.svelte';
 	import CommitDialog from './CommitDialog.svelte';
+	import { aiCommit } from '../../lib/stores/aiCommit.svelte';
 	import { buildFileTree, type FileViewMode } from '../../lib/fileTree';
 	import type { FileMenuAction } from '../../lib/fileMenu';
 	import { tooltip } from '../../lib/ui/tooltip';
@@ -109,6 +110,15 @@
 			label="Stage all"
 			title="Stage all — include every changed and untracked file in the next commit"
 			onclick={() => onaction('stageAll')}
+		/>
+		<IconButton
+			name="wand"
+			label="AI commit"
+			title={changes.length + untracked.length + staged.length + conflicts.length === 0
+				? 'AI commit — nothing has changed yet'
+				: 'AI commit — let an agent CLI draft the message, or a split into several commits'}
+			disabled={changes.length + untracked.length + staged.length + conflicts.length === 0}
+			onclick={() => aiCommit.openDialog()}
 		/>
 		<button
 			class="primary"

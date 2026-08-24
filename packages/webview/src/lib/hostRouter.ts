@@ -23,6 +23,9 @@ export const LIST_ROUTED_BY_STORE = [
 	'viewSettings',
 	'fileDiff',
 	'colorTheme',
+	'agentInventory',
+	'commitPlanResult',
+	'commitPlanExecuted',
 ] as const satisfies readonly HostToWebview['type'][];
 
 export type RoutedByStore = (typeof LIST_ROUTED_BY_STORE)[number];

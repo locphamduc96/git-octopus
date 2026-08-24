@@ -8,6 +8,8 @@
 	import { fade } from 'svelte/transition';
 	import { motionMs } from '../../lib/ui/motion';
 	import ChangesSkeleton from './ChangesSkeleton.svelte';
+	import AiCommitDialog from './AiCommitDialog.svelte';
+	import { aiCommit } from '../../lib/stores/aiCommit.svelte';
 	import ChangesTab from './ChangesTab.svelte';
 	import CommitTab from './CommitTab.svelte';
 	import CompareTab from './CompareTab.svelte';
@@ -263,6 +265,12 @@
 		{/if}
 	</div>
 </aside>
+
+<!-- Outside the tab slots: a hidden slot is `visibility: hidden` + `inert`, and the dialog must
+     float over whichever tab is showing, not vanish with the one that opened it. -->
+{#if aiCommit.open}
+	<AiCommitDialog />
+{/if}
 
 {#if menu}
 	<ContextMenu

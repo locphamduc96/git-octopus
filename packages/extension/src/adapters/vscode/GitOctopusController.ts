@@ -30,6 +30,7 @@ import type { DiffService } from './DiffService.js';
 import type { CommitActionService } from './CommitActionService.js';
 import type { WorkingTreeService } from './WorkingTreeService.js';
 import type { RepoActionService } from './RepoActionService.js';
+import type { CommitAgentService } from './CommitAgentService.js';
 import { gravatarUrl } from '../process/gravatar.js';
 import { buildForWebview, locateIconTheme, type LocatedIconTheme } from './iconThemeReader.js';
 import { renderWebviewHtml } from './webviewShell.js';
@@ -97,6 +98,7 @@ export class GitOctopusController {
 		private readonly actions: CommitActionService,
 		private readonly workingTree: WorkingTreeService,
 		private readonly repoActions: RepoActionService,
+		private readonly commitAgent: CommitAgentService,
 		private readonly workspaceState: vscode.Memento,
 		/** View preferences live here, not in workspace state: they follow the user, not the folder. */
 		private readonly globalState: vscode.Memento
@@ -521,6 +523,29 @@ export class GitOctopusController {
 				if (this.repoMismatch(message)) return;
 				if (cwd && (await this.repoActions.run(message, cwd, prompt))) await this.refresh();
 				return;
+			case 'detectAgents':
+				void webview.postMessage(await this.commitAgent.detect());
+				return;
+			case 'selectAgent':
+				// The fresh inventory is the ack: the webview starts generating only once it says
+				// the pick and the consent are stored, so the two messages cannot race.
+				await this.commitAgent.select(message.agentId);
+				void webview.postMessage(await this.commitAgent.detect());
+				return;
+			case 'generateCommitPlan':
+				if (!cwd || this.repoMismatch(message)) return;
+				void webview.postMessage(await this.commitAgent.generate(message, cwd));
+				return;
+			case 'cancelCommitPlan':
+				this.commitAgent.cancel(message.nonce);
+				return;
+			case 'executeCommitPlan': {
+				if (!cwd || this.repoMismatch(message)) return;
+				const reply = await this.commitAgent.execute(message, cwd);
+				void webview.postMessage(reply);
+				if (reply.committed > 0) await this.refresh();
+				return;
+			}
 			case 'loadWorkspaceIdentities': {
 				void webview.postMessage({
 					type: 'workspaceIdentities',

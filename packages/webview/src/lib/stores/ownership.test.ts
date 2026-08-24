@@ -15,6 +15,7 @@ beforeAll(async () => {
 		setState: () => undefined,
 	}));
 	// Registration happens on import, the same way `App.svelte` does it.
+	await import('./aiCommit.svelte');
 	await import('./branchCleanup.svelte');
 	await import('./diffView.svelte');
 	await import('./identity.svelte');

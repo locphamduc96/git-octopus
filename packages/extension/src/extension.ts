@@ -13,6 +13,7 @@ import {
 } from './adapters/vscode/CommitActionService.js';
 import { WorkingTreeService } from './adapters/vscode/WorkingTreeService.js';
 import { RepoActionService } from './adapters/vscode/RepoActionService.js';
+import { CommitAgentService } from './adapters/vscode/CommitAgentService.js';
 import { RepoTreeProvider, type RepoNode } from './adapters/vscode/RepoTreeProvider.js';
 import { RepoWatcher } from './adapters/vscode/RepoWatcher.js';
 import { AskpassServer } from './adapters/askpass/askpassServer.js';
@@ -53,6 +54,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		actions,
 		new WorkingTreeService(executor),
 		new RepoActionService(executor),
+		new CommitAgentService(executor, context.globalState),
 		context.workspaceState,
 		context.globalState
 	);
@@ -102,7 +104,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		vscode.workspace.registerTextDocumentContentProvider(DiffService.scheme, diff),
 		vscode.window.registerWebviewViewProvider(
 			GitOctopusViewProvider.viewType,
-			new GitOctopusViewProvider(controller)
+			new GitOctopusViewProvider(controller),
+			// Keep the webview alive while another panel tab covers it: the view holds live UI
+			// state (an open AI-commit plan, scroll depth), and an agent run in flight would
+			// otherwise post its result to a webview that no longer exists.
+			{ webviewOptions: { retainContextWhenHidden: true } }
 		),
 		vscode.window.registerTreeDataProvider('git-octopus.repoTree', tree),
 		// An activity-bar icon can only open its own sidebar, never the bottom panel. This stub view

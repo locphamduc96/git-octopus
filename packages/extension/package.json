@@ -263,6 +263,14 @@
 					"default": true,
 					"markdownDescription": "Reload the graph when the repository changes on disk — commits made in a terminal, files edited by another tool, or a branch checked out elsewhere. Only a moved `HEAD` reloads history; anything else re-reads the working tree alone."
 				},
+				"gitOctopus.aiCommit.excludePatterns": {
+					"type": "array",
+					"default": [],
+					"markdownDescription": "Files whose content must never be sent to an AI agent by the AI-commit feature. Glob patterns matched against repository-relative paths (`**` crosses directories, a pattern without `/` matches the file name anywhere). Matched files are still listed to the agent by name so they can be placed in a commit.",
+					"items": {
+						"type": "string"
+					}
+				},
 				"gitOctopus.identities": {
 					"type": "array",
 					"default": [],

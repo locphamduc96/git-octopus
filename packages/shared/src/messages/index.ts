@@ -544,6 +544,99 @@ export interface UiDismissMessage {
 	requestId: string;
 }
 
+/**
+ * AI commit (feature 053). The agent CLI is a pure text generator: the webview asks the host to
+ * detect and choose an agent, then to generate or execute a commit plan. Every git mutation stays
+ * in the host's own services — the agent never touches the repository.
+ */
+export type AgentId = 'claude' | 'codex';
+
+export interface AgentInfo {
+	id: AgentId;
+	label: string;
+	/** First line of `--version`, when the binary was found. */
+	version?: string;
+	state: 'ready' | 'missing';
+}
+
+/** Ask the host which agent CLIs exist on PATH (opens or refreshes the picker). */
+export interface DetectAgentsMessage {
+	type: 'detectAgents';
+}
+
+/** Persist the chosen agent. Sending it is also the record of the user's diff-consent. */
+export interface SelectAgentMessage {
+	type: 'selectAgent';
+	agentId: AgentId;
+}
+
+export interface GenerateCommitPlanMessage {
+	type: 'generateCommitPlan';
+	/**
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository.
+	 */
+	repoPath: string;
+	/** Echoed back in the result, so a reply that outlived its dialog is ignorable. */
+	nonce: number;
+}
+
+export interface CancelCommitPlanMessage {
+	type: 'cancelCommitPlan';
+	nonce: number;
+}
+
+/** One commit to create: the files to stage and the full message (`subject[\n\nbody]`). */
+export interface CommitPlanGroup {
+	listFiles: string[];
+	message: string;
+}
+
+export interface ExecuteCommitPlanMessage {
+	type: 'executeCommitPlan';
+	/**
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository.
+	 */
+	repoPath: string;
+	nonce: number;
+	/** Committed in order; the host stops at the first failure and reports how far it got. */
+	listGroups: CommitPlanGroup[];
+}
+
+export interface AgentInventoryMessage {
+	type: 'agentInventory';
+	listAgents: AgentInfo[];
+	/** The agent picked last time, or null before any pick. */
+	savedAgentId: AgentId | null;
+	/** Whether the user has already accepted that their diff is sent to an agent. */
+	consented: boolean;
+}
+
+/** What the agent proposed: the whole change as one commit, and (optionally) a split. */
+export interface CommitPlanDraft {
+	listGroups: { listFiles: string[]; subject: string; body?: string }[];
+	single: { subject: string; body?: string };
+}
+
+export interface CommitPlanResultMessage {
+	type: 'commitPlanResult';
+	nonce: number;
+	plan?: CommitPlanDraft;
+	error?: string;
+	/** The CLI refused for want of a login — the dialog offers a terminal instead of a retry. */
+	needsLogin?: boolean;
+}
+
+export interface CommitPlanExecutedMessage {
+	type: 'commitPlanExecuted';
+	nonce: number;
+	/** Commits actually created before the run finished or stopped. */
+	committed: number;
+	total: number;
+	error?: string;
+}
+
 /** Messages sent from the webview to the extension host. */
 export type WebviewToHost =
 	| LoadCommitsMessage
@@ -573,7 +666,12 @@ export type WebviewToHost =
 	| LoadWorkspaceIdentitiesMessage
 	| LoadBranchInventoryMessage
 	| CleanupBranchesMessage
-	| UiReplyMessage;
+	| UiReplyMessage
+	| DetectAgentsMessage
+	| SelectAgentMessage
+	| GenerateCommitPlanMessage
+	| CancelCommitPlanMessage
+	| ExecuteCommitPlanMessage;
 
 /** An operation paused mid-flight (usually on conflicts), waiting to be continued or aborted. */
 export type RepoState = 'rebasing' | 'merging' | 'cherryPicking' | 'reverting';
@@ -745,4 +843,7 @@ export type HostToWebview =
 	| BranchCleanupResultMessage
 	| UiRequestMessage
 	| UiDismissMessage
-	| ErrorMessage;
+	| ErrorMessage
+	| AgentInventoryMessage
+	| CommitPlanResultMessage
+	| CommitPlanExecutedMessage;
