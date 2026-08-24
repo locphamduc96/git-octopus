@@ -111,15 +111,17 @@
 			title="Stage all — include every changed and untracked file in the next commit"
 			onclick={() => onaction('stageAll')}
 		/>
-		<IconButton
-			name="wand"
-			label="AI commit"
-			title={changes.length + untracked.length + staged.length + conflicts.length === 0
-				? 'AI commit — nothing has changed yet'
-				: 'AI commit — let an agent CLI draft the message, or a split into several commits'}
-			disabled={changes.length + untracked.length + staged.length + conflicts.length === 0}
-			onclick={() => aiCommit.openDialog()}
-		/>
+		<span class="ai">
+			<IconButton
+				name="wand"
+				label="AI commit"
+				title={changes.length + untracked.length + staged.length + conflicts.length === 0
+					? 'AI commit — nothing has changed yet'
+					: 'AI commit — let an agent CLI draft the message, or a split into several commits'}
+				disabled={changes.length + untracked.length + staged.length + conflicts.length === 0}
+				onclick={() => aiCommit.openDialog()}
+			/>
+		</span>
 		<button
 			class="primary"
 			onclick={() => (dialog = 'commit')}
@@ -260,8 +262,12 @@
 		opacity: 0.5;
 		cursor: default;
 	}
-	.toolbar .primary {
+	/* The right-hand cluster: the wand carries the auto margin, Commit rides beside it. */
+	.toolbar .ai {
 		margin-left: auto;
+		display: inline-flex;
+	}
+	.toolbar .primary {
 		background: var(--vscode-button-background);
 		color: var(--vscode-button-foreground);
 		border-color: transparent;
