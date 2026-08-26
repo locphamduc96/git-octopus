@@ -115,6 +115,8 @@
 
 	let pushMenu = $state<{ x: number; y: number } | null>(null);
 	let identityMenu = $state<{ x: number; y: number } | null>(null);
+	/** The ⋯ menu: the rare actions, out of the bar so the bar reads as three clusters. */
+	let moreMenu = $state<{ x: number; y: number } | null>(null);
 
 	const identityItems = $derived(
 		buildIdentityMenu({
@@ -219,66 +221,67 @@
 		/>
 	{/if}
 
+	{#if commitCount > 0}
+		<span class="count">{commitCount} commits</span>
+	{/if}
+
 	{#if notice}<span class="notice">{notice}</span>{/if}
 
 	<span class="spacer"></span>
 
-	<!-- Three groups, read left to right: what the graph holds, what talks to the remote, and what
-	     configures the view. The dividers are the only thing telling them apart. -->
+	<!-- Three clusters, read left to right: WHERE (repo · branch · count, on the far left),
+	     SYNC (the one bordered block that talks to the remote), TOOLS (search · settings · ⋯).
+	     Rare actions live behind ⋯ so the bar itself stays three readable shapes. -->
 	<div class="actions">
-		{#if commitCount > 0}
-			<span class="count">{commitCount} commits</span>
-			<span class="divider"></span>
-		{/if}
-		<IconButton
-			name="cloud-download"
-			label="Fetch"
-			title="Fetch — download commits from all remotes and prune deleted branches"
-			onclick={onfetch}
-		/>
-		<!-- Not disabled at zero behind: the right-click strategies (rebase / ff-only) are exactly
-		     what you reach for regardless of the count shown. -->
-		<button
-			onclick={onpull}
-			oncontextmenu={(event) => {
-				event.preventDefault();
-				pullMenu = { x: event.clientX, y: event.clientY };
-			}}
-			use:tooltip={behind > 0
-				? `Pull — merge ${behind} commit${behind === 1 ? '' : 's'} from the remote into this branch; right-click for rebase / ff-only`
-				: 'Pull — this branch is up to date; right-click for rebase / ff-only'}
-		>
-			<Icon name="arrow-down" label="Pull" />
-			{#if behind > 0}<span class="badge">{behind}</span>{/if}
-		</button>
-		<!-- Never disabled on a zero count: a branch with no upstream yet is exactly the one that
-		     needs publishing, and it reads as 0 ahead. -->
-		<button
-			onclick={onpush}
-			oncontextmenu={(event) => {
-				event.preventDefault();
-				pushMenu = { x: event.clientX, y: event.clientY };
-			}}
-			use:tooltip={ahead > 0
-				? `Push ${ahead} commit${ahead === 1 ? '' : 's'} to the remote — right-click for force push`
-				: 'Push — publish this branch to the remote; right-click for force push'}
-		>
-			<Icon name="arrow-up" label="Push" />
-			{#if ahead > 0}<span class="badge">{ahead}</span>{/if}
-		</button>
-		<IconButton
-			name="refresh"
-			label="Refresh"
-			title="Refresh — reload the graph and working tree (Ctrl/Cmd + R)"
-			onclick={onrefresh}
-		/>
-
-		<span class="divider"></span>
-
-		{#if identityLabel}
+		<span class="sync">
 			<button
-				class="identity"
-				class:warning={identityWarning !== null}
+				onclick={onfetch}
+				use:tooltip={'Fetch — download commits from all remotes and prune deleted branches'}
+			>
+				<Icon name="cloud-download" />
+				<span class="sync-label">Fetch</span>
+			</button>
+			<span class="sync-sep"></span>
+			<!-- Not disabled at zero behind: the right-click strategies (rebase / ff-only) are exactly
+			     what you reach for regardless of the count shown. -->
+			<button
+				onclick={onpull}
+				oncontextmenu={(event) => {
+					event.preventDefault();
+					pullMenu = { x: event.clientX, y: event.clientY };
+				}}
+				use:tooltip={behind > 0
+					? `Pull — merge ${behind} commit${behind === 1 ? '' : 's'} from the remote into this branch; right-click for rebase / ff-only`
+					: 'Pull — this branch is up to date; right-click for rebase / ff-only'}
+			>
+				<Icon name="arrow-down" />
+				<span class="sync-label">Pull</span>
+				{#if behind > 0}<span class="badge">{behind}</span>{/if}
+			</button>
+			<span class="sync-sep"></span>
+			<!-- Never disabled on a zero count: a branch with no upstream yet is exactly the one that
+			     needs publishing, and it reads as 0 ahead. -->
+			<button
+				onclick={onpush}
+				oncontextmenu={(event) => {
+					event.preventDefault();
+					pushMenu = { x: event.clientX, y: event.clientY };
+				}}
+				use:tooltip={ahead > 0
+					? `Push ${ahead} commit${ahead === 1 ? '' : 's'} to the remote — right-click for force push`
+					: 'Push — publish this branch to the remote; right-click for force push'}
+			>
+				<Icon name="arrow-up" />
+				<span class="sync-label">Push</span>
+				{#if ahead > 0}<span class="badge">{ahead}</span>{/if}
+			</button>
+		</span>
+
+		<!-- Only surfaces on a warning: day to day the identity lives in Settings and behind ⋯,
+		     but a mismatch with the remote must not hide in a menu. -->
+		{#if identityLabel && identityWarning !== null}
+			<button
+				class="identity warning"
 				onclick={(event) => {
 					const rect = event.currentTarget.getBoundingClientRect();
 					identityMenu = { x: rect.left, y: rect.bottom + 2 };
@@ -289,14 +292,16 @@
 			</button>
 		{/if}
 		<IconButton name="search" label="Find commits" onclick={onfind} />
-		<IconButton
-			name="trash"
-			label="Clean up branches"
-			title="Clean up branches — delete local branches older than a chosen age"
-			onclick={oncleanup}
-		/>
-		<IconButton name="terminal" label="Open terminal" onclick={onterminal} />
 		<IconButton name="settings-gear" label="Settings" onclick={onsettings} />
+		<IconButton
+			name="ellipsis"
+			label="More actions"
+			title="More — refresh, identity, terminal, branch cleanup"
+			onclick={(event) => {
+				const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+				moreMenu = { x: rect.right, y: rect.bottom + 2 };
+			}}
+		/>
 	</div>
 </div>
 
@@ -376,6 +381,28 @@
 		items={identityItems}
 		onselect={onIdentitySelect}
 		onclose={() => (identityMenu = null)}
+	/>
+{/if}
+
+{#if moreMenu}
+	<ContextMenu
+		x={moreMenu.x}
+		y={moreMenu.y}
+		items={[
+			{ id: 'refresh', label: 'Refresh graph' },
+			...(identityLabel ? [{ id: 'identity', label: `Git identity — ${identityLabel}` }] : []),
+			{ id: 'terminal', label: 'Open Terminal' },
+			{ id: 'cleanup', label: 'Clean Up Branches…' },
+		]}
+		onselect={(id) => {
+			const at = moreMenu;
+			moreMenu = null;
+			if (id === 'refresh') onrefresh();
+			else if (id === 'identity' && at) identityMenu = at;
+			else if (id === 'terminal') onterminal();
+			else if (id === 'cleanup') oncleanup();
+		}}
+		onclose={() => (moreMenu = null)}
 	/>
 {/if}
 
@@ -509,17 +536,30 @@
 	.actions {
 		display: flex;
 		align-items: center;
-		gap: 1px;
+		gap: var(--gg-space-1);
 		flex: none;
 		margin-left: auto;
 	}
-	/* Hairline, barely there: it groups the buttons without competing with them. */
-	.divider {
+	/* The remote talks through one bordered block: Fetch · Pull · Push read as a unit. */
+	.sync {
+		display: inline-flex;
+		align-items: stretch;
+		border: 1px solid var(--gg-border);
+		border-radius: var(--gg-radius-item);
+		overflow: hidden;
+		margin-right: var(--gg-space-1);
+	}
+	.sync button {
+		border-radius: 0;
+		padding: 0 var(--gg-space-2);
+		gap: 4px;
+	}
+	.sync-sep {
 		width: 1px;
-		height: 14px;
-		margin: 0 var(--gg-space-2);
-		background: var(--gg-fg-muted);
-		opacity: 0.35;
+		background: var(--gg-border);
+	}
+	.sync-label {
+		font-size: 0.9em;
 	}
 	/*
 	 * The buttons that are not plain icons — a badge beside the glyph, or a label after it. Same

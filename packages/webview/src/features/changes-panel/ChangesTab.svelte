@@ -138,12 +138,30 @@
 	</div>
 
 	<div class="sections">
-		{#if conflicts.length > 0}
-			{@render section('Conflicts', conflicts, stageActions, stageMenu)}
+		<!-- Only the sections that exist: an empty one is nothing to act on, so it says nothing.
+		     A clean tree gets one line instead of a column of "No files". -->
+		{#if working !== null && conflicts.length + changes.length + untracked.length + staged.length === 0}
+			<div class="clean">
+				<Icon name="check" />
+				<span>Working tree clean</span>
+				{#if ahead > 0}
+					<span class="clean-sub">{ahead} commit{ahead === 1 ? '' : 's'} ready to push</span>
+				{/if}
+			</div>
+		{:else}
+			{#if conflicts.length > 0}
+				{@render section('Conflicts', conflicts, stageActions, stageMenu)}
+			{/if}
+			{#if changes.length > 0}
+				{@render section('Changes', changes, stageActions, stageMenu)}
+			{/if}
+			{#if untracked.length > 0}
+				{@render section('Untracked', untracked, stageActions, stageMenu)}
+			{/if}
+			{#if staged.length > 0}
+				{@render section('Staged Changes', staged, unstageActions, unstageMenu)}
+			{/if}
 		{/if}
-		{@render section('Changes', changes, stageActions, stageMenu)}
-		{@render section('Untracked', untracked, stageActions, stageMenu)}
-		{@render section('Staged Changes', staged, unstageActions, unstageMenu)}
 	</div>
 </div>
 
@@ -322,5 +340,21 @@
 		padding: 2px var(--gg-space-3);
 		color: var(--gg-fg-muted);
 		font-size: 0.9em;
+	}
+	.clean {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--gg-space-1);
+		padding: var(--gg-space-4) var(--gg-space-3);
+		color: var(--gg-fg-muted);
+	}
+	.clean :global(.codicon) {
+		color: var(--vscode-testing-iconPassed, #3fb950);
+		font-size: 20px;
+	}
+	.clean-sub {
+		font-size: 0.85em;
+		opacity: 0.8;
 	}
 </style>

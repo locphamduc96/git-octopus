@@ -1054,7 +1054,6 @@
 								widths={prefs.widths}
 								{scrollTarget}
 								compareHash={comparison.toHash}
-								dateFormat={prefs.settings.dateFormat}
 								dateType={prefs.settings.dateType}
 								graphStyle={prefs.settings.graphStyle}
 								rowDensity={prefs.settings.rowDensity}

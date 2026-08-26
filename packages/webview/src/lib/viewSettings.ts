@@ -1,15 +1,13 @@
 import type { CommitOrder } from '@git-octopus/shared';
-import type { DateFormat } from './commitDate';
 import type { FileViewMode } from './fileTree';
 import type { GraphStyle } from './graphPath';
 
 /**
- * Owned by `lib/commitDate` / `lib/graphPath`, where the behaviour lives; re-exported here so
- * settings consumers have one import for the whole settings surface. `GraphStyle` in particular
- * must never be re-declared: a re-declaration once drifted out of sync and silently dropped
- * `'curved'` behind an `as` cast.
+ * Owned by `lib/graphPath`, where the behaviour lives; re-exported here so settings consumers
+ * have one import for the whole settings surface. `GraphStyle` in particular must never be
+ * re-declared: a re-declaration once drifted out of sync and silently dropped `'curved'` behind
+ * an `as` cast.
  */
-export type { DateFormat } from './commitDate';
 export type { GraphStyle } from './graphPath';
 
 /** How tall a commit row is drawn — named for the space around the text, not a pixel count. */
@@ -24,7 +22,6 @@ export type DateType = 'commit' | 'author';
 export interface ViewSettings {
 	commitLimit: number;
 	commitOrder: CommitOrder;
-	dateFormat: DateFormat;
 	dateType: DateType;
 	graphStyle: GraphStyle;
 	rowDensity: RowDensity;
@@ -82,14 +79,13 @@ export type ColumnKey = keyof ColumnWidths;
 export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
 	commitLimit: 300,
 	commitOrder: 'date',
-	dateFormat: 'dateTime',
 	dateType: 'commit',
 	graphStyle: 'rounded',
 	rowDensity: 'comfortable',
 	diffTarget: 'panel',
 	diffMode: 'compact',
 	fetchAvatars: false,
-	highlightBranchOnHover: true,
+	highlightBranchOnHover: false,
 	muteMergeCommits: false,
 	showTicketBadge: true,
 	showTypeBadge: true,

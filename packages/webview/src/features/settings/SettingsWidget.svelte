@@ -5,7 +5,6 @@
 	import IdentitySection from './IdentitySection.svelte';
 	import { aiCommit } from '../../lib/stores/aiCommit.svelte';
 	import type {
-		DateFormat,
 		DateType,
 		DiffTarget,
 		GraphStyle,
@@ -40,13 +39,6 @@
 	} = $props();
 
 	const listLimits = [100, 300, 500, 1000];
-	const listDateFormats: { value: DateFormat; label: string }[] = [
-		{ value: 'dateTime', label: 'Date & Time' },
-		{ value: 'dayTime', label: 'Today / Yesterday & Time' },
-		{ value: 'dateOnly', label: 'Date Only' },
-		{ value: 'iso', label: 'ISO Date & Time' },
-		{ value: 'relative', label: 'Relative' },
-	];
 	const listOrders: { value: CommitOrder; label: string }[] = [
 		{ value: 'date', label: 'Commit date' },
 		{ value: 'authorDate', label: 'Author date' },
@@ -413,17 +405,6 @@
 						>
 							<option value="commit">Commit date</option>
 							<option value="author">Author date</option>
-						</select>
-					</div>
-					<div class="row">
-						<span class="row-label">Date format</span>
-						<select
-							value={settings.dateFormat}
-							onchange={(event) => set('dateFormat', event.currentTarget.value as DateFormat)}
-						>
-							{#each listDateFormats as format (format.value)}
-								<option value={format.value}>{format.label}</option>
-							{/each}
 						</select>
 					</div>
 					<div class="row">

@@ -16,7 +16,6 @@
 	import { formatSubject, parseSubject, typeColour } from '../../lib/commitSubject';
 	import type { RefChip } from '../../lib/graphChips';
 	import { buildChips, chipRef, chipRemote, isDropTarget, splitChips } from '../../lib/graphChips';
-	import type { DateFormat } from '../../lib/commitDate';
 	import { formatCommitDate } from '../../lib/commitDate';
 	import { authorTooltip } from '../../lib/authorTooltip';
 	import {
@@ -54,7 +53,6 @@
 		columns,
 		widths,
 		compareHash,
-		dateFormat,
 		dateType,
 		graphStyle,
 		rowDensity,
@@ -87,7 +85,6 @@
 		columns: ColumnVisibility;
 		widths: ColumnWidths;
 		compareHash: string | null;
-		dateFormat: DateFormat;
 		/** Which of the commit's two dates the Date column shows. */
 		dateType: DateType;
 		graphStyle: GraphStyle;
@@ -338,7 +335,8 @@
 		});
 	}
 
-	const fmtDate = (epochSeconds: number): string => formatCommitDate(epochSeconds, dateFormat);
+	// Not a setting: Today/Yesterday + time is the one format the column ships with.
+	const fmtDate = (epochSeconds: number): string => formatCommitDate(epochSeconds, 'dayTime');
 
 	const setSelected = $derived(new Set(listSelectedHashes));
 	/** The multi-selected commits in row order — the unit the "Squash n" menu item acts on. */
