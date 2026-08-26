@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.2
+
+- AI commit now only commits the staged files. With nothing staged, the wand asks whether to
+  stage all changes and continue, instead of silently taking the whole working tree.
+- Generated subjects use a bare Conventional Commits prefix (`feat:`, `fix:`, `chore:`, …) —
+  never a scoped one like `feat(home):`. Extra context belongs in the rest of the subject or
+  in the body.
+
 ## 0.19.1
 
 - The graph now shows the working tree as soon as its tab comes forward. A file changed while

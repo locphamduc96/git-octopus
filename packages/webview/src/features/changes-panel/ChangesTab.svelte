@@ -34,7 +34,7 @@
 		onpushForce: () => void;
 	} = $props();
 
-	type Dialog = 'commit' | 'push' | 'forcePush' | 'undo';
+	type Dialog = 'commit' | 'push' | 'forcePush' | 'undo' | 'aiNoStaged';
 
 	let dialog = $state<Dialog | null>(null);
 
@@ -117,12 +117,12 @@
 				label="AI commit"
 				title={changes.length + untracked.length + staged.length + conflicts.length === 0
 					? 'AI commit — nothing has changed yet'
-					: 'AI commit — let an agent CLI draft the message, or a split into several commits'}
+					: 'AI commit — let an agent CLI draft the message for the staged files, or a split into several commits'}
 				disabled={changes.length + untracked.length + staged.length + conflicts.length === 0}
 				onclick={() =>
-				aiCommit.openDialog([
-					...new Set([...conflicts, ...changes, ...untracked, ...staged].map((f) => f.path)),
-				])}
+					staged.length === 0
+						? (dialog = 'aiNoStaged')
+						: aiCommit.openDialog([...new Set(staged.map((f) => f.path))])}
 			/>
 		</span>
 		<button
@@ -204,6 +204,20 @@
 		onconfirm={() => {
 			dialog = null;
 			onpushForce();
+		}}
+		oncancel={() => (dialog = null)}
+	/>
+{:else if dialog === 'aiNoStaged'}
+	<ConfirmDialog
+		title="AI commit"
+		message="AI commit only includes staged files, and nothing is staged yet. Stage all changes and continue?"
+		confirmLabel="Stage all & continue"
+		onconfirm={() => {
+			dialog = null;
+			onaction('stageAll');
+			aiCommit.openDialog([
+				...new Set([...conflicts, ...changes, ...untracked].map((f) => f.path)),
+			]);
 		}}
 		oncancel={() => (dialog = null)}
 	/>

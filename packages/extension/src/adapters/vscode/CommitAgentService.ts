@@ -29,7 +29,7 @@ const SET_THINKING_AGENTS = new Set<string>(['claude', 'codex']);
 export const STATE_AI_CONSENT = 'gitOctopus.aiConsent';
 
 /**
- * The AI-commit orchestrator: detects agent CLIs, turns the working tree into a prompt, runs the
+ * The AI-commit orchestrator: detects agent CLIs, turns the staged changes into a prompt, runs the
  * chosen agent once, and executes an approved plan. The agent only ever produces text — every
  * `git` call in this flow is made here, through the same executor as every other action.
  *
@@ -150,8 +150,8 @@ export class CommitAgentService {
 		if (!provider) return { error: 'No agent selected.' };
 
 		const working = await getStatus(this.executor, cwd);
-		const listChanges = dedupeByPath([...working.staged, ...working.unstaged]);
-		if (listChanges.length === 0) return { error: 'There are no changes to commit.' };
+		const listChanges = dedupeByPath(working.staged);
+		if (listChanges.length === 0) return { error: 'There are no staged changes to commit.' };
 
 		if ((await getHeadHash(this.executor, cwd)) === null) {
 			return { error: 'The repository has no commits yet — make the first commit manually.' };
@@ -221,17 +221,15 @@ export class CommitAgentService {
 			}
 		}
 
-		// The plan was drawn over a working tree that may since have moved on. A planned file
-		// that is no longer changed would make `git add` stage nothing and the commit lie.
+		// The plan was drawn over the staged files, which may since have moved on. A planned file
+		// that is no longer staged is no longer something the user chose to commit.
 		const working = await getStatus(this.executor, cwd);
-		const setCurrent = new Set(
-			[...working.staged, ...working.unstaged].map((change) => change.path)
-		);
+		const setCurrent = new Set(working.staged.map((change) => change.path));
 		const listGone = message.listGroups
 			.flatMap((group) => group.listFiles)
 			.filter((file) => !setCurrent.has(file));
 		if (listGone.length > 0) {
-			return fail(0, 'The working tree changed since this plan was made — generate it again.');
+			return fail(0, 'The staged files changed since this plan was made — generate it again.');
 		}
 
 		let committed = 0;

@@ -100,6 +100,7 @@ export function buildCommitPrompt(input: PromptInput): string {
 		'- "groups": split the changes into the smallest set of coherent commits (1 or more). Every changed file must appear in exactly one group. Group by purpose, not by folder. Keep a generated file with the change that caused it (a lockfile with its dependency change, a *.meta with its asset).',
 		'- "single": the message to use if everything is committed as one commit instead.',
 		'- Subjects: imperative mood, at most 72 characters, no trailing period. Match the style of the recent subjects listed below when there are any.',
+		'- Subjects start with a bare Conventional Commits type prefix: "feat: ", "fix: ", "chore: ", "refactor: ", "docs: ", "test: ", "perf: ", "build: ", "ci: " or "style: ". Never add a scope in parentheses — write "feat: …", not "feat(home): …" — even when the recent subjects use scopes. Put that extra context in the rest of the subject or in the body instead.',
 		'- Body: optional; explain why, wrapped at 72 characters. Omit or use "" when the subject says it all.',
 		'- Do not invent files. Use the paths exactly as listed.'
 	);

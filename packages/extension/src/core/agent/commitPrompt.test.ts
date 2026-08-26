@@ -30,6 +30,16 @@ describe('buildCommitPrompt', () => {
 		expect(prompt).toContain('Branch: feat/x');
 	});
 
+	it('forbids scoped Conventional Commits prefixes in the rules', () => {
+		const prompt = buildCommitPrompt({
+			branch: null,
+			listRecentSubjects: [],
+			listFiles: [source('src/a.ts', '+++ a')],
+		});
+		expect(prompt).toContain('Never add a scope in parentheses');
+		expect(prompt).toContain('not "feat(home): …"');
+	});
+
 	it('cuts a single oversized diff instead of letting it flood the prompt', () => {
 		const diff = Array.from({ length: MAX_DIFF_LINES_PER_FILE + 50 }, (_, i) => `+line ${i}`).join(
 			'\n'
