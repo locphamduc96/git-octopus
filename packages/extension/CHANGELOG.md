@@ -1,6 +1,31 @@
 # Changelog
 
-## 0.19.2
+## 0.19.8
+
+### AI commit
+
+- The plan editor is now a master–detail view: every commit of the plan sits on a rail to the
+  left, the one being edited opens on the right — no more numbered-tab paging.
+- Generating shows the run's real stages — files collected (with +/− counts), diffs prepared
+  and redacted, the agent writing (with elapsed time) — instead of placeholder bars.
+- The mode switch (split / one commit) moved into the dialog header as a neutral segmented
+  control; the primary button is the only blue element left.
+
+### Settings
+
+- The dialog got a sidebar: categories on the left, rows with hairline separators and one
+  aligned control column on the right, at a fixed size that no longer jumps between tabs.
+- Row height is picked from three little pictures of the densities, not a dropdown.
+- AI commit settings show every agent CLI as a card with a ready / not-found status dot, and
+  model and thinking levels as one-click preset chips.
+- Identity was reorganised: saved identities in a two-column card grid with the one in use
+  accented, the workspace list as a real table with override/global chips, and the auto-apply
+  switch moved to the bottom of the tab.
+
+### Graph & diff
+
+- Jumping between changes in the diff view briefly highlights the run of lines it landed on.
+- The selected commit row is a square full-width band — no rounded corners.
 
 - AI commit now only commits the staged files. With nothing staged, the wand asks whether to
   stage all changes and continue, instead of silently taking the whole working tree.
