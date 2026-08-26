@@ -5,6 +5,8 @@ import type {
 	AgentId,
 	AgentInventoryMessage,
 	CommitPlanExecutedMessage,
+	CommitPlanProgress,
+	CommitPlanProgressMessage,
 	CommitPlanResultMessage,
 	CommitPlanStateMessage,
 	ExecuteCommitPlanMessage,
@@ -117,6 +119,7 @@ export class CommitAgentService {
 			repoPath,
 			status: entry.status,
 			generationId: entry.generationId,
+			...(entry.status === 'running' && entry.progress ? { progress: entry.progress } : {}),
 			...(entry.result ?? {}),
 		};
 	}
@@ -129,13 +132,25 @@ export class CommitAgentService {
 
 	public async generate(
 		message: GenerateCommitPlanMessage,
-		cwd: string
+		cwd: string,
+		onProgress?: (message: CommitPlanProgressMessage) => void
 	): Promise<CommitPlanResultMessage> {
 		// Asking again supersedes the run in flight: its answer would only be noise now.
 		this.cancel(message.repoPath);
 		const generationId = this.cache.begin(message.repoPath);
 
-		const result = await this.runGeneration(cwd, generationId);
+		const report = (progress: CommitPlanProgress): void => {
+			// Cached first: a view that arrives between broadcast and result still catches up.
+			if (this.cache.progress(message.repoPath, generationId, progress)) {
+				onProgress?.({
+					type: 'commitPlanProgress',
+					repoPath: message.repoPath,
+					generationId,
+					progress,
+				});
+			}
+		};
+		const result = await this.runGeneration(cwd, generationId, report);
 		if (result === 'cancelled') {
 			// Nothing worth replaying: a rehydrating view should see idle, not a dead run.
 			this.cache.clear(message.repoPath, generationId);
@@ -145,7 +160,11 @@ export class CommitAgentService {
 		return { type: 'commitPlanResult', repoPath: message.repoPath, generationId, ...result };
 	}
 
-	private async runGeneration(cwd: string, generationId: number): Promise<PlanResult | 'cancelled'> {
+	private async runGeneration(
+		cwd: string,
+		generationId: number,
+		report: (progress: CommitPlanProgress) => void
+	): Promise<PlanResult | 'cancelled'> {
 		const provider = providerById(this.globalState.get<string>(STATE_AI_AGENT));
 		if (!provider) return { error: 'No agent selected.' };
 
@@ -156,8 +175,10 @@ export class CommitAgentService {
 		if ((await getHeadHash(this.executor, cwd)) === null) {
 			return { error: 'The repository has no commits yet — make the first commit manually.' };
 		}
+		report({ stage: 'collected', fileCount: listChanges.length });
 
-		const prompt = await this.buildPrompt(cwd, listChanges);
+		const { prompt, additions, deletions } = await this.buildPrompt(cwd, listChanges);
+		report({ stage: 'prompted', fileCount: listChanges.length, additions, deletions });
 
 		let stdout: string;
 		let stderr: string;
@@ -249,7 +270,10 @@ export class CommitAgentService {
 		return { type: 'commitPlanExecuted', nonce: message.nonce, committed, total };
 	}
 
-	private async buildPrompt(cwd: string, listChanges: FileChange[]): Promise<string> {
+	private async buildPrompt(
+		cwd: string,
+		listChanges: FileChange[]
+	): Promise<{ prompt: string; additions: number; deletions: number }> {
 		const listExcludePatterns = vscode.workspace
 			.getConfiguration('gitOctopus.aiCommit')
 			.get<string[]>('excludePatterns', []);
@@ -296,7 +320,14 @@ export class CommitAgentService {
 				.catch(() => [] as string[]),
 		]);
 
-		return buildCommitPrompt({ branch, listRecentSubjects, listFiles });
+		let additions = 0;
+		let deletions = 0;
+		for (const change of listChanges) {
+			const counts = mapCounts.get(change.path);
+			additions += counts?.additions ?? 0;
+			deletions += counts?.deletions ?? 0;
+		}
+		return { prompt: buildCommitPrompt({ branch, listRecentSubjects, listFiles }), additions, deletions };
 	}
 }
 

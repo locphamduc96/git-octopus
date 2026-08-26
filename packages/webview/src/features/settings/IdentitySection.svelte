@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { GitIdentity, WorkspaceIdentityEntry } from '@git-octopus/shared';
+	import Icon from '../../lib/ui/Icon.svelte';
 	import IconButton from '../../lib/ui/IconButton.svelte';
 	import { remoteHost } from '../../lib/identity';
 	import { cardBadges, unsavedCurrentIdentity } from '../../lib/identityCards';
@@ -96,11 +97,6 @@
 		onsaveIdentities(listIdentities.filter((item) => item !== target));
 	}
 
-	const identitySource = $derived(
-		identity && (identity.hasLocalName || identity.hasLocalEmail)
-			? 'set for this repository'
-			: 'inherited from the global Git config'
-	);
 </script>
 
 {#snippet identityForm()}
@@ -142,20 +138,13 @@
 
 <section>
 	{#if identity}
-		<p class="note">
-			Committing as <b class="fg"
-				>{identity.name ?? '(no name)'} &lt;{identity.email ?? 'no email'}&gt;</b
-			>
-			— {identitySource}.
-		</p>
 		{#if suggestedIdentity}
 			<p class="note warn">
 				This repository's remote suggests “{suggestedIdentity.label}” ({suggestedIdentity.email}).
 			</p>
 		{/if}
-		<!-- Only reachable when there is no global identity to switch back to; otherwise the
-		     global card's own Apply does this, and two controls for one action read as two
-		     different actions. -->
+		<!-- Only reachable when there is no global card to Apply from; otherwise that card is
+		     the way back, and two controls for one action read as two different actions. -->
 		{#if overridden && !hasGlobal}
 			<button class="linkish" onclick={onclearIdentityOverride}>
 				Clear the repository override (fall back to global)
@@ -163,15 +152,24 @@
 		{/if}
 	{/if}
 
+	<div class="sec-head">
+		<span class="sec-title">Saved identities</span>
+		<span class="spacer"></span>
+		{#if editing === null}
+			<button class="linkish" onclick={startAddIdentity}>+ Add identity…</button>
+		{/if}
+	</div>
+
 	<div class="cards">
 		<!-- A fixture, not a list entry: the global identity cannot be edited or deleted from
-		     here, and it stays visible while a repository override hides it — an override you
-		     cannot see past is a switch with no way back. -->
+		     here, and it stays visible while a repository override hides it — the banner's
+		     "Use global instead" is the way back to it. -->
 		{#if hasGlobal}
 			<div class="card fixed" class:in-use={!overridden}>
 				<div class="card-head">
+					<Icon name="globe" />
 					<b class="fg">{identity?.globalName || '(no name)'}</b>
-					{#if !overridden}<span class="pill">In use</span>{/if}
+					{#if !overridden}<span class="pill accent">in use</span>{/if}
 					<span class="card-actions">
 						<button class="mini" onclick={onclearIdentityOverride} disabled={!overridden}>
 							Apply
@@ -202,13 +200,13 @@
 
 		{#each listIdentities as item, index (item.label + item.email)}
 			{@const badges = cardBadges(identity, item, overridden)}
-			<div class="card" class:in-use={badges.showInUse}>
+			<div class="card" class:in-use={badges.showInUse} class:editing={editing === index}>
 				{#if editing === index}
 					{@render identityForm()}
 				{:else}
 					<div class="card-head">
 						<b class="fg">{item.label}</b>
-						{#if badges.showInUse}<span class="pill">In use</span>{/if}
+						{#if badges.showInUse}<span class="pill accent">in use</span>{/if}
 						<span class="card-actions">
 							<button
 								class="mini"
@@ -244,32 +242,34 @@
 		{/each}
 
 		{#if editing === 'new'}
-			<div class="card">{@render identityForm()}</div>
+			<div class="card editing">{@render identityForm()}</div>
 		{/if}
 	</div>
 
-	{#if editing === null}
-		<button class="linkish" onclick={startAddIdentity}>+ Add identity…</button>
-	{/if}
-
 	{#if listWorkspaceRows.length > 0}
-		<h4 class="ws-title">This workspace</h4>
-		<table class="ws">
-			<tbody>
-				{#each listWorkspaceRows as row (row.repoPath)}
-					<tr>
-						<td class="ws-repo fg" title={row.repoPath}>{row.repoName}</td>
-						<td class="ws-email" title={row.name ?? ''}>{row.email ?? '(no email)'}</td>
-						<td class="ws-badge">
-							{#if row.overridden}<span class="pill">override</span>{/if}
-							{#if editing === null && canSaveEntry(row, listIdentities)}
-								<button class="mini" onclick={() => startSaveEntry(row)}>Save…</button>
-							{/if}
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
+		<div class="sec-head">
+			<span class="sec-title">This workspace</span>
+		</div>
+		<div class="ws-box">
+			{#each listWorkspaceRows as row (row.repoPath)}
+				<div class="ws-row">
+					<span class="ws-repo fg" title={row.repoPath}>{row.repoName}</span>
+					<span class="ws-email" title={row.name ?? ''}>{row.email ?? '(no email)'}</span>
+					<span class="ws-scope">
+						{#if row.overridden}
+							<span class="pill accent">override</span>
+						{:else}
+							<span class="pill">global</span>
+						{/if}
+					</span>
+					<span class="ws-action">
+						{#if editing === null && canSaveEntry(row, listIdentities)}
+							<button class="linkish" onclick={() => startSaveEntry(row)}>Save…</button>
+						{/if}
+					</span>
+				</div>
+			{/each}
+		</div>
 	{/if}
 </section>
 
@@ -301,10 +301,32 @@
 		color: var(--gg-accent);
 		cursor: pointer;
 	}
-	.cards {
+	.linkish:hover {
+		text-decoration: underline;
+	}
+	.spacer {
+		flex: 1;
+	}
+	.sec-head {
 		display: flex;
-		flex-direction: column;
+		align-items: center;
 		gap: var(--gg-space-2);
+		margin-top: var(--gg-space-2);
+	}
+	.sec-title {
+		font-size: 0.75em;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--gg-fg-muted);
+	}
+	.cards {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: var(--gg-space-2);
+	}
+	/* The form needs the full row; a half-width form is a cramped form. */
+	.card.editing {
+		grid-column: 1 / -1;
 	}
 	.card {
 		display: flex;
@@ -317,6 +339,7 @@
 	}
 	.card.in-use {
 		border-color: var(--gg-accent);
+		background: color-mix(in srgb, var(--gg-accent) 5%, transparent);
 	}
 	/* Reads as part of the panel rather than an entry of the list, which is what it is. */
 	.card.fixed {
@@ -344,11 +367,16 @@
 		font-size: 0.85em;
 	}
 	.pill {
+		flex: none;
 		font-size: 0.75em;
-		padding: 0 var(--gg-space-1);
+		padding: 0 var(--gg-space-2);
 		border-radius: 8px;
-		background: var(--vscode-badge-background);
-		color: var(--vscode-badge-foreground);
+		background: color-mix(in srgb, var(--gg-fg) 10%, transparent);
+		color: var(--gg-fg-muted);
+	}
+	.pill.accent {
+		background: color-mix(in srgb, var(--gg-accent) 15%, transparent);
+		color: var(--gg-accent);
 	}
 	.id-form label {
 		display: flex;
@@ -392,36 +420,33 @@
 		display: flex;
 		gap: var(--gg-space-1);
 	}
-	.ws-title {
-		margin: var(--gg-space-2) 0 0;
-		font-size: 0.85em;
-		font-weight: 600;
-	}
-	.ws {
-		border-collapse: collapse;
-		width: 100%;
-		table-layout: fixed;
+	.ws-box {
+		border: 1px solid var(--gg-border);
+		border-radius: var(--gg-radius-item);
+		overflow: hidden;
 		font-size: 0.85em;
 	}
-	.ws td {
-		padding: 1px 0;
+	.ws-row {
+		display: grid;
+		grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto auto;
+		gap: var(--gg-space-2);
+		align-items: center;
+		padding: 3px var(--gg-space-3);
+	}
+	.ws-row + .ws-row {
+		border-top: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
+	}
+	.ws-repo,
+	.ws-email {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.ws-repo {
-		width: 40%;
-		padding-right: var(--gg-space-2);
-	}
 	.ws-email {
 		color: var(--gg-fg-muted);
 	}
-	.ws-badge {
-		width: 8em;
+	.ws-action {
+		min-width: 3.2em;
 		text-align: right;
-		white-space: nowrap;
-	}
-	.ws-badge > * + * {
-		margin-left: var(--gg-space-1);
 	}
 </style>

@@ -1,4 +1,9 @@
-import { LIST_AGENT_IDS, type AgentId, type AgentInventoryMessage } from '@git-octopus/shared';
+import {
+	LIST_AGENT_IDS,
+	type AgentId,
+	type AgentInventoryMessage,
+	type CommitPlanProgress,
+} from '@git-octopus/shared';
 import { postToHost, readState, updateState, STATE_VERSION, type PersistedAiCommit } from '../bridge';
 import { onHostType, onRepoReset } from '../hostRouter';
 import { session } from './session.svelte';
@@ -29,6 +34,8 @@ let plan = $state<EditablePlan | null>(null);
 let mode = $state<CommitMode>('split');
 let error = $state<{ message: string; needsLogin: boolean } | null>(null);
 let executed = $state<{ committed: number; total: number; error?: string } | null>(null);
+/** How far the run in flight has come — drives the step list in the generating view. */
+let progress = $state<CommitPlanProgress | null>(null);
 /** Which host generation `plan` came from; null when it survived a window reload the host did not. */
 let planGenerationId: number | null = null;
 /** True when the plan on screen was restored from a previous run rather than freshly generated. */
@@ -91,6 +98,7 @@ function startGenerate(): void {
 	plan = null;
 	error = null;
 	executed = null;
+	progress = null;
 	postToHost({ type: 'generateCommitPlan', repoPath: session.repoPath });
 }
 
@@ -112,6 +120,7 @@ onHostType('commitPlanState', (message) => {
 	stateResolved = true;
 	if (message.status === 'running') {
 		phase = 'generating';
+		progress = message.progress ?? null;
 		return;
 	}
 	if (message.status === 'done') {
@@ -157,6 +166,11 @@ onHostType('commitPlanState', (message) => {
 	maybeAutoGenerate();
 });
 
+onHostType('commitPlanProgress', (message) => {
+	if (message.repoPath !== session.repoPath) return;
+	progress = message.progress;
+});
+
 onHostType('commitPlanResult', (message) => {
 	if (!open || phase !== 'generating' || message.repoPath !== session.repoPath) return;
 	// Every cancellation was ordered from this side (explicit, or superseded by a re-ask), so a
@@ -196,6 +210,7 @@ onRepoReset(() => {
 	planGenerationId = null;
 	error = null;
 	executed = null;
+	progress = null;
 });
 
 export const aiCommit = {
@@ -223,6 +238,9 @@ export const aiCommit = {
 	get restored(): boolean {
 		return restored;
 	},
+	get progress(): CommitPlanProgress | null {
+		return progress;
+	},
 
 	openDialog(listChangedPaths: string[] = []): void {
 		open = true;
@@ -231,6 +249,7 @@ export const aiCommit = {
 		planGenerationId = null;
 		error = null;
 		executed = null;
+		progress = null;
 		inventory = null;
 		stateResolved = false;
 		restored = false;

@@ -24,6 +24,7 @@ export const LIST_ROUTED_BY_STORE = [
 	'fileDiff',
 	'colorTheme',
 	'agentInventory',
+	'commitPlanProgress',
 	'commitPlanResult',
 	'commitPlanState',
 	'commitPlanExecuted',

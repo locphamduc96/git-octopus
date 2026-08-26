@@ -648,6 +648,26 @@ export interface CommitPlanDraft {
 	single: { subject: string; body?: string };
 }
 
+/**
+ * How far a generation in flight has come. 'collected' = the changed files are known;
+ * 'prompted' = diffs are gathered and redacted, the agent is now writing. The counts ride on
+ * the stage that produced them.
+ */
+export interface CommitPlanProgress {
+	stage: 'collected' | 'prompted';
+	fileCount: number;
+	additions?: number;
+	deletions?: number;
+}
+
+/** Broadcast while a generation runs, so every open view can show the same step list. */
+export interface CommitPlanProgressMessage {
+	type: 'commitPlanProgress';
+	repoPath: string;
+	generationId: number;
+	progress: CommitPlanProgress;
+}
+
 export interface CommitPlanResultMessage {
 	type: 'commitPlanResult';
 	repoPath: string;
@@ -669,6 +689,8 @@ export interface CommitPlanStateMessage {
 	status: 'idle' | 'running' | 'done';
 	/** Present unless idle. */
 	generationId?: number;
+	/** The latest progress of a run still in flight, so a rehydrating view catches up mid-run. */
+	progress?: CommitPlanProgress;
 	/** The cached result, present when status is 'done' — the same fields the broadcast carried. */
 	plan?: CommitPlanDraft;
 	error?: string;
@@ -894,6 +916,7 @@ export type HostToWebview =
 	| UiDismissMessage
 	| ErrorMessage
 	| AgentInventoryMessage
+	| CommitPlanProgressMessage
 	| CommitPlanResultMessage
 	| CommitPlanStateMessage
 	| CommitPlanExecutedMessage;

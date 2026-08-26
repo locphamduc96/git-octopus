@@ -1103,6 +1103,8 @@
 	.row.selected {
 		background: var(--vscode-list-activeSelectionBackground);
 		color: var(--vscode-list-activeSelectionForeground);
+		/* The selection reads as a full-width band, not a pill. */
+		border-radius: 0;
 	}
 	.row.selected .subject,
 	.row.selected .muted {

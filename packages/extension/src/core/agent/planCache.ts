@@ -1,4 +1,4 @@
-import type { CommitPlanDraft } from '@git-octopus/shared';
+import type { CommitPlanDraft, CommitPlanProgress } from '@git-octopus/shared';
 
 /**
  * What the host remembers about each repository's AI commit generation.
@@ -19,6 +19,8 @@ export interface PlanCacheEntry {
 	generationId: number;
 	status: 'running' | 'done';
 	result?: PlanResult;
+	/** The latest progress of a running generation, replayed to views that arrive mid-run. */
+	progress?: CommitPlanProgress;
 }
 
 export class PlanCache {
@@ -40,6 +42,14 @@ export class PlanCache {
 		const entry = this.mapByRepo.get(repoPath);
 		if (!entry || entry.generationId !== generationId) return false;
 		this.mapByRepo.set(repoPath, { generationId, status: 'done', result });
+		return true;
+	}
+
+	/** Record progress of the run in flight; ignored once the run is done or superseded. */
+	public progress(repoPath: string, generationId: number, progress: CommitPlanProgress): boolean {
+		const entry = this.mapByRepo.get(repoPath);
+		if (!entry || entry.generationId !== generationId || entry.status !== 'running') return false;
+		entry.progress = progress;
 		return true;
 	}
 

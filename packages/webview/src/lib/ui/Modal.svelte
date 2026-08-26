@@ -6,12 +6,15 @@
 		onclose,
 		body,
 		actions,
+		headerExtra,
 		wide = false,
 	}: {
 		title: string;
 		onclose: () => void;
 		body: Snippet;
 		actions: Snippet;
+		/** Rendered in the header after the title — a count, a mode switch. */
+		headerExtra?: Snippet;
 		/** A roomier card for content-heavy dialogs (editable lists, multi-field forms). */
 		wide?: boolean;
 	} = $props();
@@ -27,6 +30,7 @@
 	<div class="card" class:wide role="dialog" aria-modal="true" aria-label={title}>
 		<header>
 			<span class="title">{title}</span>
+			{#if headerExtra}{@render headerExtra()}{/if}
 		</header>
 		<div class="body">{@render body()}</div>
 		<footer>{@render actions()}</footer>
@@ -60,8 +64,14 @@
 	.card.wide {
 		width: min(760px, 100%);
 	}
+	header {
+		display: flex;
+		align-items: center;
+		gap: var(--gg-space-2);
+	}
 	.title {
 		font-weight: 600;
+		flex: none;
 	}
 	.body {
 		display: flex;

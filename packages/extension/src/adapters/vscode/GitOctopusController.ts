@@ -577,7 +577,9 @@ export class GitOctopusController {
 				if (!cwd || this.repoMismatch(message)) return;
 				// Broadcast, not reply: the view that asked may be gone by the time the agent
 				// answers, and every attached view (panel, editor tab) shows the same plan.
-				const result = await this.commitAgent.generate(message, cwd);
+				const result = await this.commitAgent.generate(message, cwd, (progress) => {
+					for (const view of this.listWebviews) void view.postMessage(progress);
+				});
 				for (const view of this.listWebviews) void view.postMessage(result);
 				return;
 			}

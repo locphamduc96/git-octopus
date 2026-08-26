@@ -178,10 +178,36 @@
 		nextTarget !== undefined && changeScrollTop(nextTarget) > scrollTop
 	);
 
+	/**
+	 * The run of changed lines the jump landed on, flashed briefly so the eye finds it. One overlay
+	 * element rather than a per-row class: it spans the whole run, and re-keying it by `seq` is what
+	 * restarts the fade when the user steps again before the previous flash has finished.
+	 */
+	let flash = $state<{ start: number; end: number; seq: number } | null>(null);
+	let flashTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function changeRunEnd(startIndex: number): number {
+		let end = startIndex;
+		while (end + 1 < listRows.length) {
+			const row = listRows[end + 1];
+			if (row.kind !== 'line' || row.line.kind === 'context') break;
+			end++;
+		}
+		return end;
+	}
+
+	function flashChange(startIndex: number): void {
+		clearTimeout(flashTimer);
+		flash = { start: startIndex, end: changeRunEnd(startIndex), seq: (flash?.seq ?? 0) + 1 };
+		// Matches the CSS: held for 250ms, faded over 350ms — gone from the DOM once it has faded.
+		flashTimer = setTimeout(() => (flash = null), 600);
+	}
+
 	function goToChange(step: 1 | -1): void {
 		const target = step === 1 ? nextTarget : prevTarget;
 		if (target === undefined || !viewport) return;
 		viewport.scrollTo({ top: changeScrollTop(target) });
+		flashChange(target);
 	}
 
 	/**
@@ -204,6 +230,8 @@
 		// otherwise virtualise from the previous file's offset and draw a blank screenful.
 		scrollTop = top;
 		viewport?.scrollTo({ top });
+		// Landing on the first change is a jump the user did not steer, so it flashes like one.
+		if (first !== undefined) flashChange(first);
 	});
 
 	const fileName = $derived(path.split('/').pop() ?? path);
@@ -306,6 +334,15 @@
 							</div>
 						{/if}
 					{/each}
+					{#if flash}
+						{#key flash.seq}
+							<div
+								class="flash"
+								style="top:{flash.start * ROW_H}px; height:{(flash.end - flash.start + 1) *
+									ROW_H}px"
+							></div>
+						{/key}
+					{/if}
 				</div>
 			</div>
 
@@ -556,5 +593,26 @@
 	.row.gap {
 		background: var(--vscode-diffEditor-diagonalFill, rgba(128, 128, 128, 0.12));
 		color: var(--gg-fg-muted);
+	}
+	/* The jump landing: VS Code's own reveal tint over the run, plus a bar so the block reads even
+	   where the add/del row colours drown the tint. Held, then faded — never blinked away. */
+	.flash {
+		position: absolute;
+		left: 0;
+		right: 0;
+		background: var(--vscode-editor-rangeHighlightBackground, rgba(255, 255, 255, 0.07));
+		border-left: 3px solid var(--vscode-focusBorder, #007fd4);
+		box-sizing: border-box;
+		pointer-events: none;
+		animation: gg-flash-fade 600ms var(--gg-ease) forwards;
+	}
+	@keyframes gg-flash-fade {
+		0%,
+		41% {
+			opacity: 1;
+		}
+		100% {
+			opacity: 0;
+		}
 	}
 </style>
