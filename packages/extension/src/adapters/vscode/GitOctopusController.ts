@@ -285,7 +285,10 @@ export class GitOctopusController {
 		if (!this.activeRepo) return;
 		const reply = await loadStatus(this.repoContext());
 		if (reply.type !== 'statusUpdate') return;
-		this.lastChangeCount = reply.changeCount;
+		// Badge only. `lastChangeCount` is what the views are currently painted with, and it is the
+		// baseline `needsFullReload` compares against — moving it here would make the deferred
+		// refresh see no change when the view comes back, leaving the graph without its
+		// "Uncommitted Changes" row until something forced a full reload.
 		this.onChangeCount?.(reply.changeCount);
 	}
 

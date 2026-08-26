@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.19.1
+
+- The graph now shows the working tree as soon as its tab comes forward. A file changed while
+  another Panel tab covered the view was counted on the badge but left out of the graph, so the
+  **Uncommitted Changes** row only appeared after the view was reloaded.
+
 ## 0.19.0
 
 ### AI commit
