@@ -71,6 +71,13 @@ export class GitOctopusController {
 	private readonly mapWebviewLimit = new Map<vscode.Webview, number>();
 	/** Working-tree state as last reported, so a row appearing or vanishing can be detected. */
 	private lastChangeCount = 0;
+	/**
+	 * Orders the concurrent status reads. An action's refresh and the watcher's probes run in
+	 * parallel, and a snapshot taken before a commit can resolve after the one taken behind it —
+	 * writing yesterday's count over the badge. Each read takes a ticket before awaiting and only
+	 * applies if no newer read has started since.
+	 */
+	private statusSeq = 0;
 	/** HEAD as of the last full load, so a status refresh can tell when history moved under it. */
 	private lastHeadHash: string | null = null;
 	/** Per-webview visibility — the Panel view and any editor tabs each report their own. */
@@ -283,8 +290,9 @@ export class GitOctopusController {
 	/** Refresh only the badge count — for moments when no view is there to show anything more. */
 	private async probeChangeCount(): Promise<void> {
 		if (!this.activeRepo) return;
+		const seq = ++this.statusSeq;
 		const reply = await loadStatus(this.repoContext());
-		if (reply.type !== 'statusUpdate') return;
+		if (reply.type !== 'statusUpdate' || seq !== this.statusSeq) return;
 		// Badge only. `lastChangeCount` is what the views are currently painted with, and it is the
 		// baseline `needsFullReload` compares against — moving it here would make the deferred
 		// refresh see no change when the view comes back, leaving the graph without its
@@ -295,8 +303,9 @@ export class GitOctopusController {
 	/** The working tree only — no history walk, no graph re-layout. */
 	private async refreshStatus(): Promise<void> {
 		const repoForRequest = this.activeRepo;
+		const seq = ++this.statusSeq;
 		const reply = await loadStatus(this.repoContext());
-		if (reply.type !== 'statusUpdate') return;
+		if (reply.type !== 'statusUpdate' || seq !== this.statusSeq) return;
 		// Same rule as send(): an answer about a repository the user switched away from is dropped.
 		if (this.activeRepo !== repoForRequest) return;
 		const previous = { changeCount: this.lastChangeCount, headHash: this.lastHeadHash };
@@ -694,13 +703,16 @@ export class GitOctopusController {
 	private async send(message: WebviewToHost): Promise<void> {
 		if (this.listWebviews.length === 0) return;
 		const repoForRequest = this.activeRepo;
+		const seq = message.type === 'loadCommits' ? ++this.statusSeq : null;
 		const reply = await routeMessage(message, this.repoContext(), this.filters);
 		if (!reply) return;
 		// The active repository moved while this request was in flight. Its answer describes a
 		// repository nobody is looking at any more — posting it would paint the old repo's graph
 		// over the new one when the slow reply lands last.
 		if (this.activeRepo !== repoForRequest) return;
-		if (reply.type === 'commits') {
+		// The graph itself still posts below — only the badge and its baseline are skipped when a
+		// newer status read has started, so a slow load cannot write an old count over a new one.
+		if (reply.type === 'commits' && seq === this.statusSeq) {
 			this.lastChangeCount = reply.working
 				? reply.working.staged.length + reply.working.unstaged.length
 				: 0;

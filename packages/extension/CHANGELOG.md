@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.19.13
+
+### Fixed
+
+- **Opening a file diff could freeze the whole view.** The jump-highlight added in 0.19.8 read and
+  wrote the same state inside one Svelte effect, which threw the runtime into an infinite update
+  loop the moment a diff with changes opened — every click dead until the window was reloaded.
+  The highlight itself is unchanged; the loop is gone.
+- **The changed-files badge could stick after a commit or push.** Concurrent status reads could
+  resolve out of order, letting a pre-commit snapshot overwrite the badge with a stale count.
+  Status reads are now sequenced and late answers are dropped.
+
+### Changed
+
+- The Date column always shows **Today / Yesterday + time** (older commits keep date + time); the
+  separate date-format setting is gone.
+- A clean working tree shows one **“Working tree clean”** line — with the number of commits ready
+  to push — instead of three empty sections; only sections with files render.
+- New-install defaults: branch-line hover highlight starts off.
+
 ## 0.19.8
 
 ### AI commit

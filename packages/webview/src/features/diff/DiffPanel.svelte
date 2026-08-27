@@ -185,6 +185,12 @@
 	 */
 	let flash = $state<{ start: number; end: number; seq: number } | null>(null);
 	let flashTimer: ReturnType<typeof setTimeout> | undefined;
+	/**
+	 * Plain counter, deliberately NOT `$state` and never read from `flash`: `flashChange` runs
+	 * inside the landing `$effect`, and reading `flash` there made it a dependency of the very
+	 * effect that writes it — an infinite update loop that killed the whole view on open.
+	 */
+	let flashSeq = 0;
 
 	function changeRunEnd(startIndex: number): number {
 		let end = startIndex;
@@ -198,7 +204,7 @@
 
 	function flashChange(startIndex: number): void {
 		clearTimeout(flashTimer);
-		flash = { start: startIndex, end: changeRunEnd(startIndex), seq: (flash?.seq ?? 0) + 1 };
+		flash = { start: startIndex, end: changeRunEnd(startIndex), seq: ++flashSeq };
 		// Matches the CSS: held for 250ms, faded over 350ms — gone from the DOM once it has faded.
 		flashTimer = setTimeout(() => (flash = null), 600);
 	}
