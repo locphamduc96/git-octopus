@@ -8,6 +8,7 @@ const readyInventory = {
 	consented: true,
 	mapModels: { claude: '' },
 	mapThinking: { claude: '' },
+	language: '',
 } as const satisfies HostToWebview;
 
 const idleState = { type: 'commitPlanState', repoPath: '', status: 'idle' } as const satisfies HostToWebview;
@@ -200,6 +201,39 @@ describe('aiCommit', () => {
 		expect(aiCommit.phase).toBe('done');
 		expect(aiCommit.executed).toEqual({ committed: 2, total: 2, error: undefined });
 		expect(storedState()?.aiCommit).toBeUndefined();
+	});
+
+	it('saves one setting at a time, and still sends both maps so the host reads no opinion', async () => {
+		const { aiCommit, listSent } = await loadAiCommit();
+
+		aiCommit.saveAiSettings({ language: 'Vietnamese' });
+		expect(listSent.at(-1)).toEqual({
+			type: 'saveAiSettings',
+			mapModels: {},
+			mapThinking: {},
+			language: 'Vietnamese',
+		});
+
+		aiCommit.saveAiSettings({ agentId: 'codex' });
+		expect(listSent.at(-1)).toEqual({
+			type: 'saveAiSettings',
+			agentId: 'codex',
+			mapModels: {},
+			mapThinking: {},
+		});
+
+		aiCommit.saveAiSettings({ mapModels: { claude: 'haiku' } });
+		expect(listSent.at(-1)).toEqual({
+			type: 'saveAiSettings',
+			mapModels: { claude: 'haiku' },
+			mapThinking: {},
+		});
+	});
+
+	it('tells the host to clear the language, which an absent language must not do', async () => {
+		const { aiCommit, listSent } = await loadAiCommit();
+		aiCommit.saveAiSettings({ language: '' });
+		expect(listSent.at(-1)).toHaveProperty('language', '');
 	});
 
 	it('closes and forgets the runtime state when the view moves to another repository', async () => {

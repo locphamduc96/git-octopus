@@ -129,6 +129,29 @@ export class CommitActionService {
 			case 'addTag': {
 				const name = await this.askName(prompt, `Name for the new tag at ${short}`);
 				if (!name) return false;
+				const listKind = await prompt.pickOptions({
+					title: `Tag ${name} — choose type`,
+					listOptions: [
+						{ id: 'lightweight', label: 'Lightweight', picked: true },
+						{ id: 'annotated', label: 'Annotated — carries a message' },
+					],
+				});
+				if (!listKind) return false;
+				if (listKind[0] === 'annotated') {
+					const text = (
+						await prompt.inputText({
+							title: `Message for tag ${name}`,
+							multiline: true,
+							required: true,
+						})
+					)?.trim();
+					if (!text) return false;
+					return this.runGit(
+						['tag', '-a', name, '-m', text, message.hash],
+						cwd,
+						`Created tag ${name}.`
+					);
+				}
 				return this.runGit(['tag', name, message.hash], cwd, `Created tag ${name}.`);
 			}
 			case 'merge': {
@@ -336,8 +359,10 @@ export class CommitActionService {
 			case 'stashDrop':
 			case 'stashBranch':
 				return this.runStashAction(message, cwd, prompt);
-			case 'deleteBranch': {
-				const branch = await this.pickOne(prompt, message.branches, 'Delete which branch?');
+			case 'deleteBranch':
+				return this.deleteLocalBranch(message, cwd, prompt);
+			case 'renameBranch': {
+				const branch = await this.pickOne(prompt, message.branches, 'Rename which branch?');
 				if (!branch) return false;
 				if (
 					!(await this.proveRefStillAt(
@@ -348,11 +373,57 @@ export class CommitActionService {
 					))
 				)
 					return false;
-				return this.runGit(['branch', '-d', branch], cwd, `Deleted branch ${branch}.`);
+				const name = (
+					await prompt.inputText({
+						title: `Rename ${branch}`,
+						prompt: 'New name for the branch.',
+						value: branch,
+						required: true,
+					})
+				)?.trim();
+				if (!name || name === branch) return false;
+				return this.runGit(['branch', '-m', branch, name], cwd, `Renamed ${branch} to ${name}.`);
 			}
 			default:
 				return false;
 		}
+	}
+
+	/**
+	 * `branch -d` first, always: the force variant is offered only after git itself has refused
+	 * for the one reason force answers — commits that exist nowhere else. Any other failure is
+	 * reported as-is, and the offer names the loss before the danger-styled button confirms it.
+	 */
+	private async deleteLocalBranch(
+		message: CommitActionMessage,
+		cwd: string,
+		prompt: UserPrompt
+	): Promise<boolean> {
+		const branch = await this.pickOne(prompt, message.branches, 'Delete which branch?');
+		if (!branch) return false;
+		if (!(await this.proveRefStillAt(`refs/heads/${branch}`, `branch ${branch}`, message.hash, cwd)))
+			return false;
+		try {
+			await this.executor.run(['branch', '-d', branch], cwd);
+			vscode.window.showInformationMessage(`Git Octopus: Deleted branch ${branch}.`);
+			return true;
+		} catch (err) {
+			const raw = redactSecrets(err instanceof Error ? err.message : String(err));
+			if (!/not fully merged/i.test(raw)) {
+				vscode.window.showErrorMessage(`Git Octopus: ${friendlyGitError(raw) ?? raw}`);
+				return false;
+			}
+		}
+		if (
+			!(await this.confirm(
+				prompt,
+				`${branch} is not fully merged — commits that exist only on it will be lost. Force delete?`,
+				'Force delete',
+				true
+			))
+		)
+			return false;
+		return this.runGit(['branch', '-D', branch], cwd, `Deleted branch ${branch}.`);
 	}
 
 	/**

@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { buildRefPayload } from './refPayload';
+import type { Commit, Ref } from '@git-octopus/shared';
+import { buildRefPayload, commitRefPayload, commitStashName } from './refPayload';
 import type { RefChip } from './graphChips';
+
+function commit(listRefs: Ref[]): Commit {
+	return {
+		hash: 'abc1234',
+		parents: [],
+		author: { name: 'A', email: 'a@example.com' },
+		committedAt: 0,
+		authoredAt: 0,
+		subject: 'subject',
+		refs: listRefs,
+	};
+}
 
 function chip(over: Partial<RefChip> = {}): RefChip {
 	return {
@@ -64,5 +77,81 @@ describe('buildRefPayload', () => {
 			listRemoteBranches: [],
 			listTags: [],
 		});
+	});
+});
+
+describe('commitRefPayload', () => {
+	it('sends a local branch as a branch', () => {
+		expect(commitRefPayload(commit([{ kind: 'branch', name: 'main' }]))).toEqual({
+			listBranches: ['main'],
+			listRemoteBranches: [],
+			listTags: [],
+		});
+	});
+
+	it('sends a remote branch as a remote branch, and not also as a local one', () => {
+		expect(
+			commitRefPayload(commit([{ kind: 'branch', name: 'main', remote: 'origin' }]))
+		).toEqual({
+			listBranches: [],
+			listRemoteBranches: [{ remote: 'origin', branch: 'main' }],
+			listTags: [],
+		});
+	});
+
+	it('sends a tag as a tag', () => {
+		expect(commitRefPayload(commit([{ kind: 'tag', name: 'v1' }]))).toEqual({
+			listBranches: [],
+			listRemoteBranches: [],
+			listTags: ['v1'],
+		});
+	});
+
+	it('keeps every ref of a mixed commit, and drops stash and HEAD from all three lists', () => {
+		expect(
+			commitRefPayload(
+				commit([
+					{ kind: 'head' },
+					{ kind: 'branch', name: 'main' },
+					{ kind: 'branch', name: 'main', remote: 'origin' },
+					{ kind: 'branch', name: 'main', remote: 'upstream' },
+					{ kind: 'tag', name: 'v1' },
+					{ kind: 'stash', name: 'stash@{0}' },
+				])
+			)
+		).toEqual({
+			listBranches: ['main'],
+			listRemoteBranches: [
+				{ remote: 'origin', branch: 'main' },
+				{ remote: 'upstream', branch: 'main' },
+			],
+			listTags: ['v1'],
+		});
+	});
+
+	it('sends three empty lists for a commit carrying no ref', () => {
+		expect(commitRefPayload(commit([]))).toEqual({
+			listBranches: [],
+			listRemoteBranches: [],
+			listTags: [],
+		});
+	});
+
+	it('counts a branch with an empty remote as local, never as a remote naming nothing', () => {
+		expect(commitRefPayload(commit([{ kind: 'branch', name: 'main', remote: '' }]))).toEqual({
+			listBranches: ['main'],
+			listRemoteBranches: [],
+			listTags: [],
+		});
+	});
+});
+
+describe('commitStashName', () => {
+	it('names the stash a stash commit stands for', () => {
+		expect(commitStashName(commit([{ kind: 'stash', name: 'stash@{2}' }]))).toBe('stash@{2}');
+	});
+
+	it('names nothing for a commit that is not a stash', () => {
+		expect(commitStashName(commit([{ kind: 'branch', name: 'main' }]))).toBeUndefined();
 	});
 });

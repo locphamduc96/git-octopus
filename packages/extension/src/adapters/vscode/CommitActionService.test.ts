@@ -312,3 +312,148 @@ describe('returning to the previous branch', () => {
 		expect(git.ran('checkout')).toBe(false);
 	});
 });
+
+describe('rename branch', () => {
+	const prompting = (name: string | undefined): UserPrompt => ({
+		...SILENT_PROMPT,
+		inputText: () => Promise.resolve(name),
+	});
+
+	it('renames through `branch -m`, old name first', async () => {
+		const git = new FakeGit();
+		const done = await makeService(git).run(
+			makeMessage({ action: 'renameBranch', branches: ['feature'] }),
+			'/repo',
+			prompting('feature-renamed')
+		);
+		expect(done).toBe(true);
+		expect(git.callsTo('branch')).toEqual([['branch', '-m', 'feature', 'feature-renamed']]);
+	});
+
+	it('does nothing when the name is unchanged or dismissed', async () => {
+		for (const answer of ['feature', '   ', undefined]) {
+			const git = new FakeGit();
+			await makeService(git).run(
+				makeMessage({ action: 'renameBranch', branches: ['feature'] }),
+				'/repo',
+				prompting(answer)
+			);
+			expect(git.ran('branch')).toBe(false);
+		}
+	});
+});
+
+describe('add tag', () => {
+	const choosing = (kind: string, text?: string): UserPrompt => ({
+		confirm: () => Promise.resolve(true),
+		// First ask is the tag name, second (annotated only) is the message.
+		inputText: (request) => Promise.resolve(request.multiline ? text : 'v1'),
+		pickOptions: () => Promise.resolve([kind]),
+	});
+
+	it('creates a lightweight tag exactly as before', async () => {
+		const git = new FakeGit();
+		await makeService(git).run(
+			makeMessage({ action: 'addTag', hash: 'abc123' }),
+			'/repo',
+			choosing('lightweight')
+		);
+		expect(git.callsTo('tag')).toEqual([['tag', 'v1', 'abc123']]);
+	});
+
+	it('creates an annotated tag with the entered message', async () => {
+		const git = new FakeGit();
+		await makeService(git).run(
+			makeMessage({ action: 'addTag', hash: 'abc123' }),
+			'/repo',
+			choosing('annotated', 'Release v1')
+		);
+		expect(git.callsTo('tag')).toEqual([['tag', '-a', 'v1', '-m', 'Release v1', 'abc123']]);
+	});
+
+	it('creates nothing when the annotated message is dismissed', async () => {
+		const git = new FakeGit();
+		await makeService(git).run(
+			makeMessage({ action: 'addTag', hash: 'abc123' }),
+			'/repo',
+			choosing('annotated', undefined)
+		);
+		expect(git.ran('tag')).toBe(false);
+	});
+});
+
+describe('delete branch, force offered only on the unmerged refusal', () => {
+	/** A git that refuses `branch -d` the way the real one refuses an unmerged branch. */
+	class RefusingGit extends FakeGit {
+		public constructor(private readonly refusal: string) {
+			super();
+		}
+
+		public override run(args: string[]): Promise<string> {
+			if (args[0] === 'branch' && args[1] === '-d') {
+				this.listCalls.push(args);
+				return Promise.reject(new Error(this.refusal));
+			}
+			return super.run(args);
+		}
+	}
+
+	const UNMERGED = "error: the branch 'feature' is not fully merged";
+
+	it('deletes with `-d` alone when git accepts it', async () => {
+		const git = new FakeGit();
+		const done = await makeService(git).run(
+			makeMessage({ action: 'deleteBranch', branches: ['feature'] }),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(done).toBe(true);
+		expect(git.callsTo('branch')).toEqual([['branch', '-d', 'feature']]);
+	});
+
+	it('offers force on the unmerged refusal and runs `-D` once confirmed', async () => {
+		const git = new RefusingGit(UNMERGED);
+		const listConfirms: string[] = [];
+		const done = await makeService(git).run(
+			makeMessage({ action: 'deleteBranch', branches: ['feature'] }),
+			'/repo',
+			{
+				...SILENT_PROMPT,
+				confirm: (request) => {
+					listConfirms.push(`${request.confirmLabel}|${request.danger}`);
+					return Promise.resolve(true);
+				},
+			}
+		);
+		expect(done).toBe(true);
+		expect(git.callsTo('branch')).toEqual([
+			['branch', '-d', 'feature'],
+			['branch', '-D', 'feature'],
+		]);
+		// The offer must be the danger-styled one, not another default Yes.
+		expect(listConfirms).toEqual(['Force delete|true']);
+	});
+
+	it('stops at the refusal when the force offer is declined', async () => {
+		const git = new RefusingGit(UNMERGED);
+		const done = await makeService(git).run(
+			makeMessage({ action: 'deleteBranch', branches: ['feature'] }),
+			'/repo',
+			{ ...SILENT_PROMPT, confirm: () => Promise.resolve(false) }
+		);
+		expect(done).toBe(false);
+		expect(git.callsTo('branch')).toEqual([['branch', '-d', 'feature']]);
+	});
+
+	it('never offers force for any other failure', async () => {
+		const git = new RefusingGit('fatal: some unrelated failure');
+		const done = await makeService(git).run(
+			makeMessage({ action: 'deleteBranch', branches: ['feature'] }),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(done).toBe(false);
+		expect(git.callsTo('branch')).toEqual([['branch', '-d', 'feature']]);
+		expect(recorded.listErrors.join(' ')).toContain('unrelated failure');
+	});
+});

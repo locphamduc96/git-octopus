@@ -53,6 +53,28 @@ describe('buildCommitPrompt', () => {
 		expect(prompt).not.toContain(`+line ${MAX_DIFF_LINES_PER_FILE + 10}`);
 	});
 
+	it('names the chosen language and keeps the type prefix English', () => {
+		const prompt = buildCommitPrompt({
+			branch: null,
+			listRecentSubjects: ['sửa lỗi nút play'],
+			listFiles: [source('src/a.ts', '+one')],
+			language: 'English',
+		});
+		expect(prompt).toContain('Write every subject and body in English');
+		expect(prompt).toContain('Keep the Conventional Commits type prefix in English.');
+	});
+
+	it('says nothing about language when none is set, so the recent subjects decide', () => {
+		const listFiles = [source('src/a.ts', '+one')];
+		expect(
+			buildCommitPrompt({ branch: null, listRecentSubjects: [], listFiles })
+		).not.toContain('Write every subject and body in');
+		// Whitespace is not a language: it must read as "no preference", not as an empty rule.
+		expect(
+			buildCommitPrompt({ branch: null, listRecentSubjects: [], listFiles, language: '  ' })
+		).not.toContain('Write every subject and body in');
+	});
+
 	it('spends the total budget on the smallest diffs first', () => {
 		const small = source('src/small.ts', '+one line');
 		const huge = source('src/huge.ts', '+x'.repeat(MAX_TOTAL_DIFF_CHARS));

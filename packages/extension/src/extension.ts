@@ -65,7 +65,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	void watcher.start();
 
 	// The same red badge Source Control wears: working-tree change count, on the panel view's
-	// title and on the activity-bar icon (via the launcher view living in that container).
+	// title and as a count on the status bar item — the only two places left to show it now that
+	// Git Octopus contributes no activity-bar icon.
 	let lastBadgeCount = 0;
 	let listBadgeViews: vscode.WebviewView[] = [];
 	const applyBadge = (view: vscode.WebviewView): void => {
@@ -84,47 +85,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			listBadgeViews = listBadgeViews.filter((item) => item !== view);
 		});
 	};
-	// An activity-bar icon can only open its own sidebar, never the bottom panel. This stub view
-	// is what the icon opens: the moment it shows, it hands the sidebar back to the Explorer and
-	// forwards to the panel. A tree view rather than a webview, because a TreeView exists from
-	// activation — which is what lets its badge show on the icon before anything was ever opened.
-	const launcher = vscode.window.createTreeView('git-octopus.launcher', {
-		treeDataProvider: {
-			getTreeItem: (item: vscode.TreeItem) => item,
-			getChildren: () => [],
-		},
-	});
-	launcher.message = 'Opening Git Octopus…';
-	launcher.onDidChangeVisibility(({ visible }) => {
-		if (!visible) return;
-		void (async () => {
-			await vscode.commands.executeCommand('workbench.view.explorer');
-			await vscode.commands.executeCommand('git-octopus.view.focus');
-		})();
-	});
+	const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+	statusBar.command = 'git-octopus.focus';
+	/** Branch name when there is one, else the repository's; null while no repository is open. */
+	let statusLabel: string | null = null;
+	const renderStatusBar = (): void => {
+		if (statusLabel === null) {
+			statusBar.hide();
+			return;
+		}
+		const changed = `${lastBadgeCount} file${lastBadgeCount === 1 ? '' : 's'} changed`;
+		statusBar.text =
+			lastBadgeCount > 0
+				? `$(git-branch) ${statusLabel} ●${lastBadgeCount}`
+				: `$(git-branch) ${statusLabel}`;
+		statusBar.tooltip = lastBadgeCount > 0 ? `${changed} — open Git Octopus` : 'Open Git Octopus';
+		statusBar.show();
+	};
 
 	controller.onChangeCount = (count) => {
 		if (count === lastBadgeCount) return;
 		lastBadgeCount = count;
 		for (const view of listBadgeViews) applyBadge(view);
-		launcher.badge =
-			count > 0 ? { value: count, tooltip: `${count} file${count === 1 ? '' : 's'} changed` } : undefined;
+		renderStatusBar();
 	};
 
 	// The badge must not wait for a view to open — prime it now, and start watching the
 	// repository it found so later edits keep it honest.
 	void controller.primeChangeCount().then(() => watcher.watch(controller.activeRepoPath));
 
-	const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-	statusBar.command = 'git-octopus.focus';
-	statusBar.tooltip = 'Open Git Octopus';
 	controller.onRepoState = ({ repoName, branch }) => {
 		if (!repoName) {
-			statusBar.hide();
+			statusLabel = null;
+			renderStatusBar();
 			return;
 		}
-		statusBar.text = `$(git-branch) ${branch ?? repoName}`;
-		statusBar.show();
+		statusLabel = branch ?? repoName;
+		renderStatusBar();
 		// The graph just reloaded, so whatever it changed is what the tree should now show.
 		tree.refresh();
 		// Cheap when unchanged, and this is the one place that fires on every repository switch.
@@ -162,7 +159,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			{ webviewOptions: { retainContextWhenHidden: true } }
 		),
 		vscode.window.registerTreeDataProvider('git-octopus.repoTree', tree),
-		launcher,
 		vscode.commands.registerCommand(
 			'git-octopus.revealCommit',
 			(hash: string) => void controller.revealCommit(hash)

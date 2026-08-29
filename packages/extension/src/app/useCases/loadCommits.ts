@@ -47,8 +47,12 @@ export async function loadCommits(
 		// Read before the walk: the decoration parser needs the configured remotes to know where a
 		// remote's name ends, and a remote may have a slash in it.
 		const listRemoteNames = await getRemoteNames(ctx.executor, ctx.cwd);
+		// A branch filter means "walk this ref alone". Stash hashes are extra walk roots, and each
+		// drags in the ancestry of whatever branch it was made on — so they sit out while filtered.
 		const listStashes =
-			(filters.showStashes ?? true) ? await getStashes(ctx.executor, ctx.cwd) : [];
+			(filters.showStashes ?? true) && !filters.branch
+				? await getStashes(ctx.executor, ctx.cwd)
+				: [];
 		// One commit past the limit answers "is there more?" without a second log walk.
 		const [
 			listRaw,
@@ -89,10 +93,15 @@ export async function loadCommits(
 			}
 		}
 		const changeCount = working.staged.length + working.unstaged.length;
+		// The synthetic node hangs off HEAD's commit. Under a branch filter that commit may not be
+		// in the walk at all, and a node whose parent never appears drags an open lane down the whole
+		// graph — so it only shows when the filtered history actually contains its anchor.
+		const headInWalk =
+			!filters.branch || listHistory.some((commit) => commit.hash === headHash);
 		// `working` is still sent either way — the changes panel needs it even when the graph
 		// does not show the synthetic node.
 		const listCommits =
-			changeCount > 0 && (filters.showUncommitted ?? true)
+			changeCount > 0 && (filters.showUncommitted ?? true) && headInWalk
 				? [makeUncommittedNode(headHash, changeCount), ...listHistory]
 				: listHistory;
 		return {

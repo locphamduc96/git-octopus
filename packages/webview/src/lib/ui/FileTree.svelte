@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import type { FileChange } from '@git-octopus/shared';
 	import type { FileTreeNode } from '../fileTree';
@@ -40,11 +41,18 @@
 
 	// Keyboard browsing steps into collapsed folders rather than over them, so a folder that hides
 	// the active file is opened — the user asked for that file, not for the folder to stay shut.
+	//
+	// The active file is the trigger; the set is both walked and deleted from, so it is untracked —
+	// tracked, the deletes would re-run this against a set that has already been trimmed, and every
+	// folder the user collapses by hand would run it too.
 	$effect(() => {
-		if (activePath === null) return;
-		for (const path of setCollapsed) {
-			if (activePath.startsWith(`${path}/`)) setCollapsed.delete(path);
-		}
+		const active = activePath;
+		if (active === null) return;
+		untrack(() => {
+			for (const path of setCollapsed) {
+				if (active.startsWith(`${path}/`)) setCollapsed.delete(path);
+			}
+		});
 	});
 </script>
 

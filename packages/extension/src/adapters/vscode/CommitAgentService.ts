@@ -79,6 +79,7 @@ export class CommitAgentService {
 			consented: this.globalState.get<boolean>(STATE_AI_CONSENT, false),
 			mapModels: readByAgent('Model'),
 			mapThinking: readByAgent('Thinking'),
+			language: config.get<string>('language', ''),
 		};
 	}
 
@@ -99,6 +100,9 @@ export class CommitAgentService {
 					vscode.ConfigurationTarget.Global
 				);
 			}
+		}
+		if (message.language !== undefined) {
+			await config.update('language', message.language.trim(), vscode.ConfigurationTarget.Global);
 		}
 		if (message.agentId) await this.select(message.agentId);
 	}
@@ -327,7 +331,16 @@ export class CommitAgentService {
 			additions += counts?.additions ?? 0;
 			deletions += counts?.deletions ?? 0;
 		}
-		return { prompt: buildCommitPrompt({ branch, listRecentSubjects, listFiles }), additions, deletions };
+		return {
+			prompt: buildCommitPrompt({
+				branch,
+				listRecentSubjects,
+				listFiles,
+				language: this.aiConfig().get<string>('language', ''),
+			}),
+			additions,
+			deletions,
+		};
 	}
 }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import type { BranchCleanupOutcome, BranchInventoryEntry } from '@git-octopus/shared';
 	import Modal from '../../lib/ui/Modal.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
@@ -45,15 +46,22 @@
 
 	// A new threshold brings rows the user has never judged, so those get the default ticking while
 	// every branch already on screen keeps whatever the user did to it.
+	//
+	// The rows are the trigger; the two sets are read and written in the same breath, so they are
+	// untracked — tracking them would re-run this on its own writes, and on every tick the user
+	// makes, for a threshold that has not moved.
 	$effect(() => {
-		const listFresh = listRows.filter((row) => !setTouched.has(row.entry.name));
-		if (listFresh.length === 0) return;
-		const setNext = new Set(setSelected);
-		for (const name of defaultSelection(listFresh)) setNext.add(name);
-		const setNextTouched = new Set(setTouched);
-		for (const row of listRows) setNextTouched.add(row.entry.name);
-		setSelected = setNext;
-		setTouched = setNextTouched;
+		const listCurrent = listRows;
+		untrack(() => {
+			const listFresh = listCurrent.filter((row) => !setTouched.has(row.entry.name));
+			if (listFresh.length === 0) return;
+			const setNext = new Set(setSelected);
+			for (const name of defaultSelection(listFresh)) setNext.add(name);
+			const setNextTouched = new Set(setTouched);
+			for (const row of listCurrent) setNextTouched.add(row.entry.name);
+			setSelected = setNext;
+			setTouched = setNextTouched;
+		});
 	});
 
 	function toggle(name: string): void {

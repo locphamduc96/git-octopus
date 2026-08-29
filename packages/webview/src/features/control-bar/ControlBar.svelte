@@ -22,6 +22,8 @@
 		currentBranch,
 		loading,
 		notice,
+		filterBranch,
+		onclearFilter,
 		onjumpBranch,
 		commitCount,
 		ahead,
@@ -66,6 +68,9 @@
 		loading: boolean;
 		/** Transient message, e.g. when a branch tip sits outside the loaded history. */
 		notice: string | null;
+		/** The ref the graph is filtered down to, or null when it shows everything. */
+		filterBranch: string | null;
+		onclearFilter: () => void;
 		/** Scroll the graph to a branch's commit. Never checks anything out. */
 		onjumpBranch: (branch: BranchRef) => void;
 		commitCount: number;
@@ -217,6 +222,19 @@
 			triggerTitle="Jump to a branch"
 			onchange={onBranchPick}
 		/>
+	{/if}
+
+	{#if filterBranch}
+		<!-- The one place that says the graph is not showing everything — and undoes it. -->
+		<button
+			class="filter-pill"
+			title={`Showing only ${filterBranch} — click to show all branches`}
+			onclick={onclearFilter}
+		>
+			<Icon name="filter" />
+			<span class="filter-name">{filterBranch}</span>
+			<Icon name="close" />
+		</button>
 	{/if}
 
 	{#if notice}<span class="notice">{notice}</span>{/if}
@@ -498,6 +516,30 @@
 		color: var(--vscode-editorWarning-foreground, #cca700);
 		font-size: 0.85em;
 		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	/* Same baseline rule as every text control in this row: `--gg-hit` tall and flex-centered,
+	   so it sits level with the icon buttons regardless of font size. */
+	.filter-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		height: var(--gg-hit);
+		padding: 0 var(--gg-space-2);
+		border: 1px solid var(--vscode-inputOption-activeBorder, var(--gg-border));
+		border-radius: 999px;
+		background: var(--vscode-inputOption-activeBackground, transparent);
+		color: var(--vscode-inputOption-activeForeground, var(--gg-fg));
+		font-size: 0.85em;
+		cursor: pointer;
+		white-space: nowrap;
+		max-width: 220px;
+	}
+	.filter-pill:hover {
+		background: var(--vscode-toolbar-hoverBackground);
+	}
+	.filter-name {
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}

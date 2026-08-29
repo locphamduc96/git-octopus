@@ -1,10 +1,16 @@
 import type { GraphFilters } from '@git-octopus/shared';
 import type { ViewSettings } from './viewSettings';
 
-/** The filter payload sent with every loadCommits — settings the host walk depends on. */
-export function buildHostFilters(settings: ViewSettings): GraphFilters {
+/**
+ * The filter payload sent with every loadCommits — settings the host walk depends on.
+ * `filterBranch` is the view's session-only "show only this branch" choice, not a saved setting.
+ */
+export function buildHostFilters(
+	settings: ViewSettings,
+	filterBranch: string | null = null
+): GraphFilters {
 	return {
-		branch: null,
+		branch: filterBranch,
 		showRemoteBranches: settings.showRemoteBranches,
 		fetchAvatars: settings.fetchAvatars,
 		commitOrder: settings.commitOrder,
@@ -31,6 +37,7 @@ export function commitsReplyMatches(
 	const echoed = reply.filters;
 	if (!echoed) return true;
 	return (
+		(echoed.branch ?? null) === (wanted.branch ?? null) &&
 		echoed.showRemoteBranches === wanted.showRemoteBranches &&
 		(echoed.fetchAvatars ?? false) === wanted.fetchAvatars &&
 		(echoed.commitOrder ?? 'date') === wanted.commitOrder &&

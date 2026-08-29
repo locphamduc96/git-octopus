@@ -328,17 +328,25 @@ export const aiCommit = {
 		postToHost({ type: 'detectAgents' });
 	},
 
-	/** The settings tab's save; the host answers every view with a fresh inventory. */
-	saveAiSettings(
-		agentId: AgentId | null,
-		mapModels: Partial<Record<AgentId, string>>,
-		mapThinking: Partial<Record<AgentId, string>>
-	): void {
+	/**
+	 * The settings tab's save; the host answers every view with a fresh inventory.
+	 *
+	 * Every caller changes one thing, so everything is optional here — but the wire message keeps
+	 * both maps required, and an absent one has to travel as empty rather than as nothing: the host
+	 * merges what it is given, and a missing key would read as "no opinion", not "no change".
+	 */
+	saveAiSettings(input: {
+		agentId?: AgentId;
+		mapModels?: Partial<Record<AgentId, string>>;
+		mapThinking?: Partial<Record<AgentId, string>>;
+		language?: string;
+	}): void {
 		postToHost({
 			type: 'saveAiSettings',
-			...(agentId ? { agentId } : {}),
-			mapModels,
-			mapThinking,
+			...(input.agentId ? { agentId: input.agentId } : {}),
+			mapModels: input.mapModels ?? {},
+			mapThinking: input.mapThinking ?? {},
+			...(input.language === undefined ? {} : { language: input.language }),
 		});
 	},
 

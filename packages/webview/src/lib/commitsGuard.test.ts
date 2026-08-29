@@ -26,6 +26,10 @@ describe('buildHostFilters', () => {
 			showUncommitted: false,
 		});
 	});
+
+	it('carries the session branch filter when one is set', () => {
+		expect(buildHostFilters(DEFAULT_VIEW_SETTINGS, 'feature/x').branch).toBe('feature/x');
+	});
 });
 
 describe('commitsReplyMatches', () => {
@@ -42,6 +46,8 @@ describe('commitsReplyMatches', () => {
 
 	it('drops a reply whose echoed filters differ in any field', () => {
 		const listStale: Partial<GraphFilters>[] = [
+			// An unfiltered walk landing after the view filtered down — the race the pill creates.
+			{ branch: 'feature/x' },
 			{ showRemoteBranches: !wanted.showRemoteBranches },
 			{ fetchAvatars: !wanted.fetchAvatars },
 			{ commitOrder: 'topo' },

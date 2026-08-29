@@ -62,6 +62,13 @@
 		{ id: 'discard', label: 'Discard Changes' },
 	];
 	const unstageMenu = [{ id: 'unstage', label: 'Unstage' }];
+	// Untracked: the pattern alone is enough, and nothing touches the index.
+	const untrackedMenu = [...stageMenu, { id: 'ignore', label: 'Add to .gitignore' }];
+	// Tracked: the pattern is inert until the file leaves the index, so the two have to go together.
+	const trackedMenu = [
+		...stageMenu,
+		{ id: 'ignoreAndUntrack', label: 'Stop Tracking & Add to .gitignore' },
+	];
 
 	function commit(message: string, amend: boolean): void {
 		dialog = null;
@@ -153,10 +160,10 @@
 				{@render section('Conflicts', conflicts, stageActions, stageMenu)}
 			{/if}
 			{#if changes.length > 0}
-				{@render section('Changes', changes, stageActions, stageMenu)}
+				{@render section('Changes', changes, stageActions, trackedMenu)}
 			{/if}
 			{#if untracked.length > 0}
-				{@render section('Untracked', untracked, stageActions, stageMenu)}
+				{@render section('Untracked', untracked, stageActions, untrackedMenu)}
 			{/if}
 			{#if staged.length > 0}
 				{@render section('Staged Changes', staged, unstageActions, unstageMenu)}

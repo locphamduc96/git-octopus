@@ -48,13 +48,6 @@
 					"title": "Git Octopus",
 					"icon": "$(git-branch)"
 				}
-			],
-			"activitybar": [
-				{
-					"id": "git-octopus-sidebar",
-					"title": "Git Octopus",
-					"icon": "$(git-merge)"
-				}
 			]
 		},
 		"views": {
@@ -62,12 +55,6 @@
 				{
 					"type": "webview",
 					"id": "git-octopus.view",
-					"name": "Git Octopus"
-				}
-			],
-			"git-octopus-sidebar": [
-				{
-					"id": "git-octopus.launcher",
 					"name": "Git Octopus"
 				},
 				{
@@ -277,13 +264,26 @@
 				},
 				"gitOctopus.aiCommit.claudeThinking": {
 					"type": "string",
-					"enum": ["", "low", "medium", "high", "xhigh", "max"],
+					"enum": [
+						"",
+						"low",
+						"medium",
+						"high",
+						"xhigh",
+						"max"
+					],
 					"default": "",
 					"markdownDescription": "Effort level the Claude CLI uses for AI commit generation, passed as `--effort`. Empty = the CLI's own default. `low` is plenty for commit messages."
 				},
 				"gitOctopus.aiCommit.codexThinking": {
 					"type": "string",
-					"enum": ["", "minimal", "low", "medium", "high"],
+					"enum": [
+						"",
+						"minimal",
+						"low",
+						"medium",
+						"high"
+					],
 					"default": "",
 					"markdownDescription": "Reasoning effort the Codex CLI uses for AI commit generation, passed as `-c model_reasoning_effort=`. Empty = the CLI's own default."
 				},
@@ -345,6 +345,11 @@
 							}
 						}
 					}
+				},
+				"gitOctopus.aiCommit.language": {
+					"type": "string",
+					"default": "",
+					"markdownDescription": "Language the AI writes commit subjects and bodies in (e.g. `English`, `Tiếng Việt`). Empty = follow the repository's recent commits. The Conventional Commits prefix (`feat:`, `fix:`, …) stays in English either way."
 				}
 			}
 		}

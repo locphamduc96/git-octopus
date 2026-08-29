@@ -71,6 +71,7 @@
 		onmulti,
 		onloadMore,
 		onbranchAction,
+		onfilterBranch,
 		oncheckFastForward,
 		ontoggleColumn,
 		onresizeColumn,
@@ -120,6 +121,8 @@
 			sourceLabel: string,
 			target: string
 		) => void;
+		/** "Show only this branch" picked from a ref menu — reload the graph walking `ref` alone. */
+		onfilterBranch: (ref: string) => void;
 		oncheckFastForward: (source: string, target: string, nonce: number) => void;
 		ontoggleColumn: (column: keyof ColumnVisibility) => void;
 		onresizeColumn: (column: ColumnKey, width: number) => void;
@@ -194,6 +197,16 @@
 	let menu = $state<{ x: number; y: number; commit: Commit; chip?: RefChip } | null>(null);
 	let headerMenu = $state<{ x: number; y: number } | null>(null);
 	let resizing = $state<{ key: ColumnKey; startX: number; startWidth: number } | null>(null);
+
+	/**
+	 * The columns the header menu can hide, in render order. They all sit after Description, so they
+	 * share one shape — see {@link onResizeMove} for why their handles are on the left.
+	 */
+	const LIST_OPTIONAL_COLUMNS: { key: keyof ColumnVisibility; label: string }[] = [
+		{ key: 'author', label: 'Author' },
+		{ key: 'commit', label: 'Commit' },
+		{ key: 'date', label: 'Date' },
+	];
 
 	const cols = $derived(graphWidth(rows));
 	const graphPx = $derived(cols * COL_W + PAD);
@@ -475,6 +488,10 @@
 	}
 
 	function runRefEntry(entry: RefMenuEntry, commit: Commit): void {
+		if (entry.run.type === 'filter') {
+			onfilterBranch(entry.run.ref);
+			return;
+		}
 		if (entry.run.type === 'commit') {
 			onaction(entry.run.action, commit, entry.target);
 			return;
@@ -512,11 +529,15 @@
 		resizing = { key, startX: event.clientX, startWidth: widths[key] };
 	}
 
-	/** The Date column is the last one, so its handle sits on its left edge and inverts the delta. */
+	/**
+	 * Description absorbs the leftover width, so every column after it is pinned to the right edge
+	 * and carries its handle on its left edge — where growing the column means moving the pointer
+	 * left. Only `ref`, which sits before Description, grows the same way the pointer travels.
+	 */
 	function onResizeMove(event: MouseEvent): void {
 		if (!resizing) return;
 		const delta = event.clientX - resizing.startX;
-		const signed = resizing.key === 'date' ? -delta : delta;
+		const signed = resizing.key === 'ref' ? delta : -delta;
 		onresizeColumn(resizing.key, Math.max(MIN_COL_W, resizing.startWidth + signed));
 	}
 
@@ -592,44 +613,27 @@
 		</span>
 		<span class="hcell">
 			<span class="hlabel">Description</span>
-			{#if columns.author || columns.commit || columns.date}<span class="grip"></span>{/if}
 		</span>
-		{#if columns.author}
-			<span class="hcell">
-				<span class="hlabel">Author</span>
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<span
-					class="grip resizable"
-					class:active={resizing?.key === 'author'}
-					title="Drag to resize the Author column"
-					onmousedown={(event) => startResize('author', event)}
-				></span>
-			</span>
-		{/if}
-		{#if columns.commit}
-			<span class="hcell">
-				<span class="hlabel">Commit</span>
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<span
-					class="grip resizable"
-					class:active={resizing?.key === 'commit'}
-					title="Drag to resize the Commit column"
-					onmousedown={(event) => startResize('commit', event)}
-				></span>
-			</span>
-		{/if}
-		{#if columns.date}
-			<span class="hcell">
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<span
-					class="grip left resizable"
-					class:active={resizing?.key === 'date'}
-					title="Drag to resize the Date column"
-					onmousedown={(event) => startResize('date', event)}
-				></span>
-				<span class="hlabel">Date</span>
-			</span>
-		{/if}
+		<!--
+			Description takes the leftover width, so Author, Commit and Date are pinned to the right
+			edge: the divider left of a column is the only one its own width can move. Each of them
+			therefore carries its handle on its left edge, and the decorative divider that used to
+			close the Description cell would now sit in the same gap as that handle.
+		-->
+		{#each LIST_OPTIONAL_COLUMNS as column (column.key)}
+			{#if columns[column.key]}
+				<span class="hcell">
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<span
+						class="grip left resizable"
+						class:active={resizing?.key === column.key}
+						title="Drag to resize the {column.label} column"
+						onmousedown={(event) => startResize(column.key, event)}
+					></span>
+					<span class="hlabel">{column.label}</span>
+				</span>
+			{/if}
+		{/each}
 	</div>
 
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1091,24 +1095,37 @@
 		color: inherit;
 		text-align: left;
 		font: inherit;
-		border-radius: var(--gg-radius-item);
+		/* Below the graph lines (z-index 1) but a stacking context of its own, so the highlight layer
+		   can sit behind the row's text without dropping behind the viewport underneath it. */
+		z-index: 0;
+	}
+	/* The highlight is a layer inset from the row, not the row's own background: that is what buys
+	   the 2px gutter and the rounded corners without a border shifting the column grid. */
+	.row::before {
+		content: '';
+		position: absolute;
+		inset: 2px;
+		z-index: -1;
+		border-radius: 2px;
+		pointer-events: none;
 		/* Short enough that the row still feels like it lights up under the pointer, not after it. */
 		transition: background-color 60ms var(--gg-ease);
 	}
-	.row:hover {
+	.row:hover::before {
 		background: var(--vscode-list-hoverBackground);
 	}
-	.row.selected {
+	.row.selected::before {
 		background: var(--vscode-list-activeSelectionBackground);
+	}
+	.row.selected {
 		color: var(--vscode-list-activeSelectionForeground);
-		/* The selection reads as a full-width band, not a pill. */
-		border-radius: 0;
 	}
 	.row.selected .subject,
 	.row.selected .muted {
 		color: inherit;
 	}
-	.row.compared {
+	/* On the highlight layer, so the compare marker traces the same inset rounded rect. */
+	.row.compared::before {
 		outline: 1px dashed var(--gg-accent);
 		outline-offset: -1px;
 	}

@@ -76,7 +76,10 @@ export function buildMultiMenuItems(listSelectedCommits: Commit[]): MenuItem[] {
  */
 export type RefMenuRun =
 	| { type: 'commit'; action: CommitActionId }
-	| { type: 'branch'; action: BranchActionId; target: string };
+	| { type: 'branch'; action: BranchActionId; target: string }
+	// Handled inside the webview: the graph reloads with `ref` as its only walk root. The ref is
+	// resolved here, at build time, so the entry itself says what `git log` will be handed.
+	| { type: 'filter'; ref: string };
 
 /**
  * The exact ref an action runs on. A chip may stand for a local branch and the same branch on
@@ -202,6 +205,17 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): RefMe
 			{ remote }
 		);
 
+	// Filter by the ref the chip most plainly stands for: the local branch when there is one,
+	// otherwise the first remote's ref — and the label names that ref outright.
+	const filterRef =
+		chip.hasLocal || chip.listRemotes.length === 0 ? chip.name : labelFor(chip.listRemotes[0]);
+	add(
+		'filterBranch',
+		`Show Only ${filterRef}`,
+		{ type: 'filter', ref: filterRef },
+		{ separatorBefore: true }
+	);
+
 	// Merging a branch into itself is a no-op git would refuse; without a current branch there is
 	// nothing to merge *into*, so the pair drops out entirely.
 	if (currentBranch && !chip.checkedOut) {
@@ -218,15 +232,20 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): RefMe
 		});
 	}
 
+	// Renaming the checked-out branch is fine — `branch -m` moves HEAD's ref along with it.
+	if (chip.hasLocal)
+		add(
+			'renameBranch',
+			`Rename ${chip.name}…`,
+			{ type: 'commit', action: 'renameBranch' },
+			{ separatorBefore: true }
+		);
 	// The checked-out branch keeps its delete entry, disabled: git refuses to delete it anyway, and
 	// saying so where the user looked beats a gap they have to explain to themselves.
 	if (chip.hasLocal)
-		add(
-			'deleteBranch',
-			`Delete ${chip.name}…`,
-			{ type: 'commit', action: 'deleteBranch' },
-			{ separatorBefore: true, disabled: chip.checkedOut }
-		);
+		add('deleteBranch', `Delete ${chip.name}…`, { type: 'commit', action: 'deleteBranch' }, {
+			disabled: chip.checkedOut,
+		});
 	chip.listRemotes.forEach((remote, index) =>
 		add(
 			'deleteRemoteBranch',

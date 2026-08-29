@@ -26,6 +26,26 @@ describe('git integration', () => {
 		expect(output.trim()).toBe('true');
 	});
 
+	/**
+	 * The whole point of asking git instead of reading `.gitignore` as text: it is the only thing
+	 * that understands patterns. The exit codes are the contract `WorkingTreeService.isIgnored`
+	 * relies on, so they are pinned here against real git.
+	 */
+	it('answers check-ignore by printing the path, and stays silent with exit 1 when it does not match', async () => {
+		await writeFile(path.join(repo.cwd, '.gitignore'), '*.log\n');
+		const matched = await executor.run(['check-ignore', '--', 'debug.log'], repo.cwd, [1]);
+		expect(matched.trim()).toBe('debug.log');
+
+		const unmatched = await executor.run(['check-ignore', '--', 'notes.txt'], repo.cwd, [1]);
+		expect(unmatched.trim()).toBe('');
+	});
+
+	it('does not swallow a real check-ignore failure — only exit 1 is an answer', async () => {
+		const outside = await createTempRepo();
+		await outside.dispose();
+		await expect(executor.run(['check-ignore', '--', 'x.txt'], outside.cwd, [1])).rejects.toThrow();
+	});
+
 	it('rejects with stderr when git fails', async () => {
 		await expect(executor.run(['rev-parse', '--verify', 'no-such-ref'], repo.cwd)).rejects.toThrow(
 			/no-such-ref|Needed a single revision/

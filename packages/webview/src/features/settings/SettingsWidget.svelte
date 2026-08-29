@@ -3,6 +3,7 @@
 	import IconButton from '../../lib/ui/IconButton.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
 	import IdentitySection from './IdentitySection.svelte';
+	import PresetPicker, { CUSTOM, type PresetOption } from './PresetPicker.svelte';
 	import { aiCommit } from '../../lib/stores/aiCommit.svelte';
 	import type {
 		DateType,
@@ -74,33 +75,32 @@
 	 * exhaustive: a custom provider (or next month's model) goes through Custom, which frees the
 	 * text field.
 	 */
-	const CUSTOM_MODEL = '__custom__';
-	const LIST_FALLBACK_MODELS: { value: string; label: string }[] = [
+	const LIST_FALLBACK_MODELS: PresetOption[] = [
 		{ value: '', label: 'CLI default' },
-		{ value: CUSTOM_MODEL, label: 'Custom…' },
+		{ value: CUSTOM, label: 'Custom…' },
 	];
-	const mapModelOptions: Partial<Record<AgentId, { value: string; label: string }[]>> = {
+	const mapModelOptions: Partial<Record<AgentId, PresetOption[]>> = {
 		claude: [
 			{ value: '', label: 'CLI default' },
 			{ value: 'haiku', label: 'haiku — cheapest, plenty for commits' },
 			{ value: 'sonnet', label: 'sonnet' },
 			{ value: 'opus', label: 'opus' },
 			{ value: 'fable', label: 'fable — most capable, expensive' },
-			{ value: CUSTOM_MODEL, label: 'Custom…' },
+			{ value: CUSTOM, label: 'Custom…' },
 		],
 		codex: [
 			{ value: '', label: 'CLI default' },
 			{ value: 'gpt-5.6-luna', label: 'gpt-5.6-luna — cheap, high-volume' },
 			{ value: 'gpt-5.6-terra', label: 'gpt-5.6-terra — everyday workhorse' },
 			{ value: 'gpt-5.6-sol', label: 'gpt-5.6-sol — frontier, expensive' },
-			{ value: CUSTOM_MODEL, label: 'Custom… (e.g. a custom provider model)' },
+			{ value: CUSTOM, label: 'Custom… (e.g. a custom provider model)' },
 		],
 		gemini: [
 			{ value: '', label: 'CLI default' },
 			{ value: 'gemini-3.1-flash-lite', label: 'gemini-3.1-flash-lite — cheapest' },
 			{ value: 'gemini-3.5-flash', label: 'gemini-3.5-flash — everyday' },
 			{ value: 'gemini-3.1-pro', label: 'gemini-3.1-pro — flagship' },
-			{ value: CUSTOM_MODEL, label: 'Custom…' },
+			{ value: CUSTOM, label: 'Custom…' },
 		],
 	};
 
@@ -112,43 +112,57 @@
 	const listThinkingLevels = $derived(
 		(aiAgentId ? mapThinkingOptions[aiAgentId] : undefined) ?? ['']
 	);
-	let draftModel = $state('');
-	/** True while the user is typing a model the preset list does not know. */
-	let customModel = $state(false);
-	// The draft follows whatever the host reports; a save comes straight back as a fresh
-	// inventory, so the loop settles on the stored value.
-	$effect(() => {
-		const inv = aiCommit.inventory;
-		const id = inv?.savedAgentId;
-		const model = inv && id ? (inv.mapModels[id] ?? '') : '';
-		draftModel = model;
-		const listOptions = id ? (mapModelOptions[id] ?? LIST_FALLBACK_MODELS) : LIST_FALLBACK_MODELS;
-		customModel = id ? model !== '' && !listOptions.some((option) => option.value === model) : false;
-	});
+	/**
+	 * The chips carry the short name only; the trailing "— why you'd pick it" is guidance for the
+	 * list, not a label that fits on a pill.
+	 */
+	const listModelChips = $derived(
+		listModelOptions.map((option) => ({
+			value: option.value,
+			label: option.value === '' ? 'CLI default' : option.label.split(' — ')[0],
+		}))
+	);
+	// One level means the CLI has no effort flag; the note says so and there is nothing to pick.
+	const listThinkingChips = $derived(
+		listThinkingLevels.length > 1
+			? listThinkingLevels.map((level) => ({
+					value: level,
+					label: level === '' ? 'CLI default' : level,
+				}))
+			: []
+	);
+	/**
+	 * Each picker reads its own setting through a derived of its own, never the inventory object.
+	 * That is what keeps a half-typed custom entry alive across a broadcast that did not touch this
+	 * setting: a derived recomputing to the value it already held notifies nobody, so the picker's
+	 * own draft is left standing. Handing the inventory down instead would drop the draft on every
+	 * save of any other setting.
+	 */
+	const savedModel = $derived(aiAgentId ? (aiCommit.inventory?.mapModels[aiAgentId] ?? '') : '');
+	const savedThinking = $derived(
+		aiAgentId ? (aiCommit.inventory?.mapThinking[aiAgentId] ?? '') : ''
+	);
+	const savedLanguage = $derived(aiCommit.inventory?.language ?? '');
 
-	const modelSelectValue = $derived(customModel ? CUSTOM_MODEL : draftModel);
-
-	function pickModelOption(value: string): void {
-		if (value === CUSTOM_MODEL) {
-			customModel = true;
-			return;
-		}
-		customModel = false;
-		draftModel = value;
-		if (aiAgentId) aiCommit.saveAiSettings(null, { [aiAgentId]: value }, {});
-	}
+	/** Presets plus an escape hatch — any language the agent understands is a valid answer. */
+	const LIST_LANGUAGE_OPTIONS: PresetOption[] = [
+		{ value: '', label: 'Match history' },
+		{ value: 'English', label: 'English' },
+		{ value: 'Vietnamese', label: 'Tiếng Việt' },
+		{ value: CUSTOM, label: 'Custom…' },
+	];
 
 	function openTab(next: Tab): void {
 		tab = next;
 		if (next === 'ai') aiCommit.loadInventory();
 	}
 
-	function saveAiModel(): void {
-		if (aiAgentId) aiCommit.saveAiSettings(null, { [aiAgentId]: draftModel }, {});
+	function saveAiModel(value: string): void {
+		if (aiAgentId) aiCommit.saveAiSettings({ mapModels: { [aiAgentId]: value } });
 	}
 
 	function saveAiThinking(value: string): void {
-		if (aiAgentId) aiCommit.saveAiSettings(null, {}, { [aiAgentId]: value });
+		if (aiAgentId) aiCommit.saveAiSettings({ mapThinking: { [aiAgentId]: value } });
 	}
 </script>
 
@@ -461,7 +475,7 @@
 									disabled={agent.state !== 'ready'}
 									role="radio"
 									aria-checked={aiAgentId === agent.id}
-									onclick={() => aiCommit.saveAiSettings(agent.id, {}, {})}
+									onclick={() => aiCommit.saveAiSettings({ agentId: agent.id })}
 								>
 									{#if aiAgentId === agent.id}
 										<span class="agent-check"><Icon name="check" /></span>
@@ -478,77 +492,50 @@
 							{/each}
 						</div>
 
-						<div class="pick-group">
-							<div class="pick-head">
-								Model
-								<span class="note">
-									— {aiAgentId === 'claude'
-										? 'passed as --model; haiku is plenty for commits'
-										: 'the model flag of the chosen CLI; Custom takes any id it accepts'}
-								</span>
-							</div>
-							<div class="chips" role="radiogroup" aria-label="Model">
-								{#each listModelOptions as option (option.value)}
-									<button
-										class="chip"
-										class:on={modelSelectValue === option.value}
-										disabled={aiAgentId === null}
-										role="radio"
-										aria-checked={modelSelectValue === option.value}
-										onclick={() => pickModelOption(option.value)}
-									>
-										{option.value === '' ? 'CLI default' : option.label.split(' — ')[0]}
-									</button>
-								{/each}
-							</div>
-							{#if customModel}
-								<!-- svelte-ignore a11y_autofocus -->
-								<input
-									class="model"
-									autofocus
-									placeholder="model id"
-									disabled={aiAgentId === null}
-									bind:value={draftModel}
-									onchange={saveAiModel}
-									onkeydown={(event) => {
-										if (event.key === 'Enter') saveAiModel();
-									}}
-								/>
-							{/if}
-						</div>
+						<PresetPicker
+							label="Model"
+							listOptions={listModelChips}
+							value={savedModel}
+							disabled={aiAgentId === null}
+							customPlaceholder="model id"
+							onsave={saveAiModel}
+						>
+							{#snippet note()}
+								— {aiAgentId === 'claude'
+									? 'passed as --model; haiku is plenty for commits'
+									: 'the model flag of the chosen CLI; Custom takes any id it accepts'}
+							{/snippet}
+						</PresetPicker>
 
-						<div class="pick-group">
-							<div class="pick-head">
-								Thinking
-								<span class="note">
-									— {aiAgentId === 'codex'
-										? 'reasoning effort (-c model_reasoning_effort)'
-										: aiAgentId === 'claude'
-											? 'effort level (--effort); low is plenty for commits'
-											: 'this CLI has no effort flag; it thinks as it pleases'}
-								</span>
-							</div>
-							{#if listThinkingLevels.length > 1}
-								<div class="chips" role="radiogroup" aria-label="Thinking">
-									{#each listThinkingLevels as level (level)}
-										<button
-											class="chip"
-											class:on={(aiAgentId
-												? (aiCommit.inventory.mapThinking[aiAgentId] ?? '')
-												: '') === level}
-											disabled={aiAgentId === null}
-											role="radio"
-											aria-checked={(aiAgentId
-												? (aiCommit.inventory.mapThinking[aiAgentId] ?? '')
-												: '') === level}
-											onclick={() => saveAiThinking(level)}
-										>
-											{level === '' ? 'CLI default' : level}
-										</button>
-									{/each}
-								</div>
-							{/if}
-						</div>
+						<PresetPicker
+							label="Language"
+							ariaLabel="Commit language"
+							listOptions={LIST_LANGUAGE_OPTIONS}
+							value={savedLanguage}
+							customPlaceholder="language, e.g. Japanese"
+							onsave={(value) => aiCommit.saveAiSettings({ language: value })}
+						>
+							{#snippet note()}
+								— what the subjects and bodies are written in. Match history follows the
+								repository's recent commits; the type prefix (feat:, fix:) stays English.
+							{/snippet}
+						</PresetPicker>
+
+						<PresetPicker
+							label="Thinking"
+							listOptions={listThinkingChips}
+							value={savedThinking}
+							disabled={aiAgentId === null}
+							onsave={saveAiThinking}
+						>
+							{#snippet note()}
+								— {aiAgentId === 'codex'
+									? 'reasoning effort (-c model_reasoning_effort)'
+									: aiAgentId === 'claude'
+										? 'effort level (--effort); low is plenty for commits'
+										: 'this CLI has no effort flag; it thinks as it pleases'}
+							{/snippet}
+						</PresetPicker>
 					{/if}
 				</section>
 			{:else}
@@ -762,56 +749,6 @@
 	}
 	.agent-state.ready .dot {
 		background: var(--vscode-testing-iconPassed, #3fb950);
-	}
-	.pick-group {
-		display: flex;
-		flex-direction: column;
-		gap: var(--gg-space-1);
-		padding: var(--gg-space-2) 0;
-		border-top: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
-	}
-	.pick-head .note {
-		font-size: 0.85em;
-	}
-	.chips {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--gg-space-1);
-	}
-	.chip {
-		padding: 2px 10px;
-		background: transparent;
-		border: 1px solid var(--gg-border);
-		border-radius: 10px;
-		color: var(--gg-fg-muted);
-		font: inherit;
-		font-size: 0.9em;
-		cursor: pointer;
-	}
-	.chip:hover:not(:disabled):not(.on) {
-		background: var(--vscode-toolbar-hoverBackground);
-		color: var(--gg-fg);
-	}
-	.chip.on {
-		border-color: var(--gg-accent);
-		background: color-mix(in srgb, var(--gg-accent) 10%, transparent);
-		color: var(--gg-fg);
-	}
-	.chip:disabled {
-		opacity: 0.5;
-		cursor: default;
-	}
-	input.model {
-		background: var(--vscode-input-background);
-		color: var(--vscode-input-foreground);
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 3px;
-		font: inherit;
-		padding: 2px var(--gg-space-1);
-		width: 170px;
-	}
-	input.model:focus {
-		outline: 1px solid var(--vscode-focusBorder);
 	}
 	select {
 		background: var(--vscode-dropdown-background, var(--gg-bg));

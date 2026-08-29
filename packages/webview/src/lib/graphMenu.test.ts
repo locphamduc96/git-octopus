@@ -148,8 +148,10 @@ describe('buildRefMenu', () => {
 		const menu = buildRefMenu(chip(), 'main');
 		expect(labels(menu.items)).toEqual([
 			'Checkout feature',
+			'Show Only feature',
 			'Merge feature into main…',
 			'Rebase main onto feature…',
+			'Rename feature…',
 			'Delete feature…',
 			'Copy Branch Name',
 		]);
@@ -184,9 +186,38 @@ describe('buildRefMenu', () => {
 		expect(ids(menu.items)).not.toContain('branch:feature:deleteBranch');
 	});
 
+	it('filters by the local name, and by the remote ref when no local branch exists', () => {
+		const local = buildRefMenu(chip(), 'main');
+		expect(local.mapEntries['branch:feature:filterBranch'].run).toEqual({
+			type: 'filter',
+			ref: 'feature',
+		});
+		// Remote-only: git has to be handed a ref that exists, and `feature` alone is not one.
+		const remoteOnly = buildRefMenu(chip({ hasLocal: false, listRemotes: ['origin'] }), 'main');
+		expect(remoteOnly.mapEntries['branch:feature:filterBranch'].run).toEqual({
+			type: 'filter',
+			ref: 'origin/feature',
+		});
+	});
+
+	it('renames only through the local ref, prefilled by the entry that names it', () => {
+		const menu = buildRefMenu(chip(), 'main');
+		expect(menu.mapEntries['branch:feature:renameBranch'].run).toEqual({
+			type: 'commit',
+			action: 'renameBranch',
+		});
+		const remoteOnly = buildRefMenu(chip({ hasLocal: false, listRemotes: ['origin'] }), 'main');
+		expect(ids(remoteOnly.items)).not.toContain('branch:feature:renameBranch');
+	});
+
 	it('disables delete on the checked-out branch and drops checkout/merge/rebase', () => {
 		const menu = buildRefMenu(chip({ name: 'main', checkedOut: true }), 'main');
-		expect(labels(menu.items)).toEqual(['Delete main…', 'Copy Branch Name']);
+		expect(labels(menu.items)).toEqual([
+			'Show Only main',
+			'Rename main…',
+			'Delete main…',
+			'Copy Branch Name',
+		]);
 		expect(menu.items.find((item) => item.id === 'branch:main:deleteBranch')?.disabled).toBe(true);
 		// A disabled entry must resolve to nothing, so no dispatch can be built from its id.
 		expect(resolveMenuSelection(menu.items, 'branch:main:deleteBranch')).toBeNull();
@@ -200,8 +231,10 @@ describe('buildRefMenu', () => {
 			'Checkout upstream/feature as local branch',
 			'Fetch origin/feature into feature…',
 			'Fetch upstream/feature into feature…',
+			'Show Only feature',
 			'Merge feature into main…',
 			'Rebase main onto feature…',
+			'Rename feature…',
 			'Delete feature…',
 			'Delete origin/feature…',
 			'Delete upstream/feature…',

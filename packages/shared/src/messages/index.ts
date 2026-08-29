@@ -162,6 +162,7 @@ export type CommitActionId =
 	| 'openOnRemote'
 	| 'copyRemoteUrl'
 	| 'deleteBranch'
+	| 'renameBranch'
 	| 'checkoutBranch'
 	| 'checkoutRemote'
 	| 'checkoutPrevious'
@@ -304,6 +305,8 @@ export type WorkingTreeAction =
 	| 'stageAll'
 	| 'unstageAll'
 	| 'discard'
+	| 'ignore'
+	| 'ignoreAndUntrack'
 	| 'stash'
 	| 'commit'
 	| 'amend'
@@ -631,6 +634,8 @@ export interface AgentInventoryMessage {
 	mapModels: Partial<Record<AgentId, string>>;
 	/** Per-agent thinking/effort level from settings; empty string = the CLI's own default. */
 	mapThinking: Partial<Record<AgentId, string>>;
+	/** Language the AI writes commits in; empty string = follow the repository's recent subjects. */
+	language: string;
 }
 
 /** Save the AI-commit preferences from the settings tab; answered with a fresh inventory. */
@@ -640,6 +645,8 @@ export interface SaveAiSettingsMessage {
 	agentId?: AgentId;
 	mapModels: Partial<Record<AgentId, string>>;
 	mapThinking: Partial<Record<AgentId, string>>;
+	/** Absent = leave the language as it is; empty string = follow the recent subjects. */
+	language?: string;
 }
 
 /** What the agent proposed: the whole change as one commit, and (optionally) a split. */

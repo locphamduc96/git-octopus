@@ -22,6 +22,8 @@ export interface PromptInput {
 	branch: string | null;
 	listRecentSubjects: string[];
 	listFiles: PromptFile[];
+	/** Language for subjects and bodies; empty or absent = follow the recent subjects. */
+	language?: string;
 }
 
 /** A single file's diff is cut after this many lines — past that it reads as noise. */
@@ -104,6 +106,15 @@ export function buildCommitPrompt(input: PromptInput): string {
 		'- Body: optional; explain why, wrapped at 72 characters. Omit or use "" when the subject says it all.',
 		'- Do not invent files. Use the paths exactly as listed.'
 	);
+
+	// Style matching is what otherwise decides the language, so this has to override it outright —
+	// and the type prefix is a convention, not prose, so it stays English in every language.
+	const language = input.language?.trim();
+	if (language) {
+		listSections.push(
+			`- Write every subject and body in ${language}, whatever language the recent subjects below are written in. Keep the Conventional Commits type prefix in English.`
+		);
+	}
 
 	if (input.branch) listSections.push('', `Branch: ${input.branch}`);
 

@@ -23,7 +23,7 @@
 	import { onHostMessage, postToHost, readState, updateState, STATE_VERSION } from './lib/bridge';
 	import { buildHostFilters, commitsReplyMatches, loadSignature } from './lib/commitsGuard';
 	import { dispatchHostMessage, resetForRepo, type RoutedByStore } from './lib/hostRouter';
-	import { buildRefPayload } from './lib/refPayload';
+	import { buildRefPayload, commitRefPayload, commitStashName } from './lib/refPayload';
 	import type { RefTarget } from './lib/graphMenu';
 	import { nextRowIndex } from './lib/keyNav';
 	import { buildPanelFiles, stepPath } from './lib/panelFiles';
@@ -114,9 +114,18 @@
 
 	$effect(prefs.save);
 
+	/** "Show only this branch", chosen from a ref menu. Session-only, never persisted. */
+	let filterBranch = $state<string | null>(null);
+
 	/** Always read live: the guard compares a reply against what the view wants *now*. */
 	function hostFilters(): GraphFilters {
-		return buildHostFilters(prefs.settings);
+		return buildHostFilters(prefs.settings, filterBranch);
+	}
+
+	function setBranchFilter(ref: string | null): void {
+		if (filterBranch === ref) return;
+		filterBranch = ref;
+		load();
 	}
 
 	/**
@@ -578,6 +587,9 @@
 		selectedHash = null;
 		details = null;
 		graphLimit = 0;
+		// Another repository has its own branches; a filter carried across would ask git to walk
+		// a ref that may not exist there.
+		filterBranch = null;
 		// Another repository's history, so these rows are not a stale view of the answer — they are
 		// the wrong answer. Dropping them is also what puts the skeleton back up while it loads.
 		rows = [];
@@ -793,34 +805,19 @@
 	 * The right-click already answered that, and re-asking is where the wrong branch gets deleted.
 	 */
 	function runAction(action: CommitActionId, commit: Commit, target?: RefTarget): void {
-		const stashRef = commit.refs.find((ref) => ref.kind === 'stash');
-		const narrowed = target ? buildRefPayload(target) : null;
+		// A target means the user clicked one ref and the action is about that ref alone; without
+		// one the action is about the commit, so every ref it carries goes along.
+		const payload = target ? buildRefPayload(target) : commitRefPayload(commit);
 		postToHost({
 			type: 'commitAction',
 			repoPath: session.repoPath,
 			action,
 			hash: commit.hash,
 			subject: commit.subject,
-			branches:
-				narrowed?.listBranches ??
-				commit.refs
-					.filter((ref) => ref.kind === 'branch' && !ref.remote)
-					.map((ref) => (ref.kind === 'branch' ? ref.name : '')),
-			remoteBranches:
-				narrowed?.listRemoteBranches ??
-				commit.refs
-					.filter((ref) => ref.kind === 'branch' && ref.remote !== undefined)
-					.map((ref) =>
-						ref.kind === 'branch' && ref.remote !== undefined
-							? { remote: ref.remote, branch: ref.name }
-							: { remote: '', branch: '' }
-					),
-			tags:
-				narrowed?.listTags ??
-				commit.refs
-					.filter((ref) => ref.kind === 'tag')
-					.map((ref) => (ref.kind === 'tag' ? ref.name : '')),
-			stashName: stashRef?.kind === 'stash' ? stashRef.name : undefined,
+			branches: payload.listBranches,
+			remoteBranches: payload.listRemoteBranches,
+			tags: payload.listTags,
+			stashName: commitStashName(commit),
 		});
 	}
 
@@ -969,6 +966,8 @@
 					listBranches={listJumpBranches}
 					{currentBranch}
 					notice={session.notice}
+					{filterBranch}
+					onclearFilter={() => setBranchFilter(null)}
 					onjumpBranch={jumpToBranch}
 					commitCount={status === 'ready' ? rows.length : 0}
 					{ahead}
@@ -1071,6 +1070,7 @@
 								onmulti={runMulti}
 								onloadMore={loadMore}
 								onbranchAction={runBranchAction}
+								onfilterBranch={setBranchFilter}
 								oncheckFastForward={checkFastForward}
 								ontoggleColumn={prefs.toggleColumn}
 								onresizeColumn={prefs.resizeColumn}
