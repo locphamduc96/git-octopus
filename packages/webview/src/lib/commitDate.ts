@@ -1,3 +1,5 @@
+import { assertNever } from '@git-octopus/shared';
+
 export type DateFormat = 'dateTime' | 'dayTime' | 'dateOnly' | 'iso' | 'relative';
 
 function time(date: Date): string {
@@ -38,7 +40,12 @@ export function formatCommitDate(
 			if (days === 1) return `Yesterday ${time(date)}`;
 			return `${date.toLocaleDateString()} ${time(date)}`;
 		}
+		case 'dateTime':
+			return `${date.toLocaleDateString()} ${time(date)}`;
 		default:
+			assertNever(format);
+			// Unreachable, and deliberately the same string `dateTime` renders: an unknown format is
+			// still a date to draw, not a blank cell.
 			return `${date.toLocaleDateString()} ${time(date)}`;
 	}
 }

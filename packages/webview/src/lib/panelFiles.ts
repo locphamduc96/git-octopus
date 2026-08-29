@@ -1,4 +1,5 @@
 import type { CommitDetails, FileChange, WorkingTreeStatus } from '@git-octopus/shared';
+import { assertNever } from '@git-octopus/shared';
 import type { PanelMode } from '../features/changes-panel/ChangesPanel.svelte';
 import { buildFileTree, type FileTreeNode, type FileViewMode } from './fileTree';
 import { nextRowIndex } from './keyNav';
@@ -44,8 +45,13 @@ export function buildPanelFiles(input: {
 		}
 		case 'commit':
 			return order(input.details?.files ?? []);
-		default:
+		case 'compare':
 			return order(input.listComparisonFiles);
+		default:
+			// A new panel mode names its own case: falling through here would draw the comparison
+			// list under a mode that never asked for it.
+			assertNever(input.mode);
+			return [];
 	}
 }
 

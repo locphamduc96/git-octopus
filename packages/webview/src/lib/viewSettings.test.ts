@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
 	DEFAULT_VIEW_SETTINGS,
+	LIST_COMMIT_ORDERS,
+	LIST_DATE_TYPES,
+	LIST_DIFF_TARGETS,
+	LIST_GRAPH_STYLES,
 	mergePreferences,
+	pickOption,
 	settingsRequireReload,
 	type GlobalPreferences,
 	type ViewSettings,
@@ -108,5 +113,25 @@ describe('settingsRequireReload', () => {
 
 	it('answers false for identical settings', () => {
 		expect(settingsRequireReload(DEFAULT_VIEW_SETTINGS, { ...DEFAULT_VIEW_SETTINGS })).toBe(false);
+	});
+});
+
+describe('pickOption', () => {
+	it('returns the member a raw value names', () => {
+		expect(pickOption(LIST_GRAPH_STYLES, 'curved')).toBe('curved');
+		expect(pickOption(LIST_COMMIT_ORDERS, 'topo')).toBe('topo');
+	});
+
+	it('returns nothing for a value that names no member', () => {
+		// What a stale or hand-edited <option> would hand back; the setting must stay as it was.
+		expect(pickOption(LIST_DIFF_TARGETS, 'sidebar')).toBeUndefined();
+		expect(pickOption(LIST_DATE_TYPES, '')).toBeUndefined();
+	});
+
+	it('offers every option the settings defaults use', () => {
+		expect(LIST_DIFF_TARGETS).toContain(DEFAULT_VIEW_SETTINGS.diffTarget);
+		expect(LIST_GRAPH_STYLES).toContain(DEFAULT_VIEW_SETTINGS.graphStyle);
+		expect(LIST_COMMIT_ORDERS).toContain(DEFAULT_VIEW_SETTINGS.commitOrder);
+		expect(LIST_DATE_TYPES).toContain(DEFAULT_VIEW_SETTINGS.dateType);
 	});
 });

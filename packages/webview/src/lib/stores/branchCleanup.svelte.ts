@@ -1,6 +1,6 @@
 import type { BranchCleanupOutcome, BranchInventoryEntry } from '@git-octopus/shared';
 import { postToHost } from '../bridge';
-import { onHostType, onRepoReset } from '../hostRouter';
+import { onHostError, onHostType, onRepoReset } from '../hostRouter';
 import { session } from './session.svelte';
 
 /** The branch-cleanup dialog: what it is offering to delete, and what came of it. */
@@ -19,6 +19,14 @@ onHostType('branchInventory', (message) => {
 
 onHostType('branchCleanupResult', (message) => {
 	listResults = message.listResults;
+});
+
+onHostError((message) => {
+	// The scan and the delete are the only two things this dialog waits for. A throw handling either
+	// never sends `branchInventory`/`branchCleanupResult`, and `inventory === null` is what the
+	// dialog draws as "Scanning branches…" — so it would scan forever.
+	if (message.source !== 'loadBranchInventory' && message.source !== 'cleanupBranches') return;
+	open = false;
 });
 
 onRepoReset(() => {

@@ -1,6 +1,11 @@
-<script lang="ts">
-	export interface MenuItem {
-		id: string;
+<script lang="ts" module>
+	/**
+	 * A menu whose ids are a union reports that union back through `onselect`, so the caller
+	 * dispatches on the id it built the menu from instead of asserting one. The `string` default is
+	 * for menus whose ids are only known at run time — a ref name built into an id, say.
+	 */
+	export interface MenuItem<Id extends string = string> {
+		id: Id;
 		label: string;
 		separatorBefore?: boolean;
 		/** Shown greyed out and never fires — for actions the current state rules out. */
@@ -8,9 +13,11 @@
 		/** Marks a toggle that is currently on; the tick is drawn against the menu's right edge. */
 		checked?: boolean;
 		/** Opens as a flyout instead of firing; only the leaves report a selection. */
-		children?: MenuItem[];
+		children?: MenuItem<Id>[];
 	}
+</script>
 
+<script lang="ts" generics="Id extends string = string">
 	let {
 		x,
 		y,
@@ -20,19 +27,19 @@
 	}: {
 		x: number;
 		y: number;
-		items: MenuItem[];
-		onselect: (id: string) => void;
+		items: MenuItem<Id>[];
+		onselect: (id: Id) => void;
 		onclose: () => void;
 	} = $props();
 
 	/** The submenu currently open, and which side of its parent it had room to open on. */
-	let openId = $state<string | null>(null);
+	let openId = $state<Id | null>(null);
 	let flip = $state(false);
 
 	/** A submenu needs about this much room to the right before it has to open leftwards instead. */
 	const SUBMENU_W = 240;
 
-	function openSubmenu(id: string, event: MouseEvent): void {
+	function openSubmenu(id: Id, event: MouseEvent): void {
 		const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
 		flip = rect.right + SUBMENU_W > window.innerWidth;
 		openId = id;

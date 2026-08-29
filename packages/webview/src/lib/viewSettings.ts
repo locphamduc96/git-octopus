@@ -19,6 +19,39 @@ export type DiffMode = 'compact' | 'full';
 /** Which of a commit's two dates the Date column shows. */
 export type DateType = 'commit' | 'author';
 
+/**
+ * The members of a union, at run time.
+ *
+ * A `<select>` hands its choice back as a plain `string` however narrowly the markup lists the
+ * options, so the union has to be re-established from the value itself; asserting it instead would
+ * let a stale `<option>` through as a setting nothing downstream can handle.
+ *
+ * Built through `membersOf` rather than `satisfies`, which only proves that every value listed is a
+ * member — never that every member is listed. A union that grows a case the list forgets would make
+ * that option unpickable and say nothing, which is exactly how a re-declared `GraphStyle` once lost
+ * `'curved'`.
+ */
+function membersOf<T extends string>() {
+	return <L extends readonly T[]>(
+		list: L & ([T] extends [L[number]] ? unknown : { missing: Exclude<T, L[number]> })
+	): L => list;
+}
+
+export const LIST_DIFF_TARGETS = membersOf<DiffTarget>()(['editor', 'panel']);
+export const LIST_GRAPH_STYLES = membersOf<GraphStyle>()([
+	'rounded',
+	'curved',
+	'angular',
+	'diagonal',
+]);
+export const LIST_COMMIT_ORDERS = membersOf<CommitOrder>()(['date', 'authorDate', 'topo']);
+export const LIST_DATE_TYPES = membersOf<DateType>()(['commit', 'author']);
+
+/** The member `raw` names, or nothing when it names none. */
+export function pickOption<T extends string>(listValid: readonly T[], raw: string): T | undefined {
+	return listValid.find((option) => option === raw);
+}
+
 export interface ViewSettings {
 	commitLimit: number;
 	commitOrder: CommitOrder;

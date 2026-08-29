@@ -5,6 +5,7 @@ import {
 	listRoutedTypes,
 	onHostType,
 	onRepoReset,
+	ownsGraph,
 	resetForRepo,
 } from './hostRouter';
 
@@ -65,5 +66,22 @@ describe('hostRouter', () => {
 
 		resetForRepo();
 		expect(listSeen).toEqual(['identity', 'cleanup']);
+	});
+});
+
+describe('ownsGraph', () => {
+	it('takes the graph down for the requests the graph is made of', () => {
+		expect(ownsGraph('loadCommits')).toBe(true);
+		expect(ownsGraph('selectRepo')).toBe(true);
+		// `loadCommits` reports its own failures as `type: 'error'` carrying no `source` at all
+		// (see `extension/src/app/useCases/loadCommits.ts`), and those are exactly the failures that
+		// mean there is no graph — so an absent source has to keep the error screen.
+		expect(ownsGraph(undefined)).toBe(true);
+	});
+
+	it('leaves the graph standing when a side query fails beside it', () => {
+		expect(ownsGraph('copyText')).toBe(false);
+		expect(ownsGraph('saveViewSettings')).toBe(false);
+		expect(ownsGraph('openTerminal')).toBe(false);
 	});
 });

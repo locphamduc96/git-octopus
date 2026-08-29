@@ -3,9 +3,10 @@ import {
 	type AgentId,
 	type AgentInventoryMessage,
 	type CommitPlanProgress,
+	type WebviewToHost,
 } from '@git-octopus/shared';
 import { postToHost, readState, updateState, STATE_VERSION, type PersistedAiCommit } from '../bridge';
-import { onHostType, onRepoReset } from '../hostRouter';
+import { onHostError, onHostType, onRepoReset } from '../hostRouter';
 import { session } from './session.svelte';
 import {
 	buildExecuteGroups,
@@ -47,6 +48,11 @@ let stateResolved = false;
 /** Execute stays nonce-matched in RAM: it is short-lived and never rehydrated. */
 let executeNonce = 0;
 let activeExecuteNonce = 0;
+
+/** The agent list arrives from the host as data, so an id out of it is checked, never assumed. */
+function isAgentId(value: string): value is AgentId {
+	return LIST_AGENT_IDS.some((candidate) => candidate === value);
+}
 
 /** Read live, not captured at module init: a later persist must be visible to the next restore. */
 function persistedForRepo(): PersistedAiCommit | null {
@@ -201,6 +207,26 @@ onHostType('commitPlanExecuted', (message) => {
 	}
 });
 
+/** The requests this dialog waits on; a throw handling any of them ends the wait. */
+const LIST_AI_SOURCES = [
+	'generateCommitPlan',
+	'executeCommitPlan',
+	'detectAgents',
+	'selectAgent',
+	'saveAiSettings',
+	'loadCommitPlanState',
+] as const satisfies readonly WebviewToHost['type'][];
+
+onHostError((message) => {
+	if (!message.source || !LIST_AI_SOURCES.some((source) => source === message.source)) return;
+	// The host answers a generation with `commitPlanResult` and an execution with
+	// `commitPlanExecuted`. A throw sends neither, so without this the dialog keeps its progress
+	// steps running against a run that is already over.
+	if (phase !== 'generating' && phase !== 'executing') return;
+	error = { message: message.message, needsLogin: false };
+	phase = 'setup';
+});
+
 onRepoReset(() => {
 	// Runtime only: the persisted plan is tagged with its repository and survives the switch.
 	open = false;
@@ -263,8 +289,8 @@ export const aiCommit = {
 
 	/** Picking an agent is the consent; the host's inventory ack then starts the generation. */
 	chooseAgent(agentId: string): void {
-		if (!(LIST_AGENT_IDS as readonly string[]).includes(agentId)) return;
-		postToHost({ type: 'selectAgent', agentId: agentId as AgentId });
+		if (!isAgentId(agentId)) return;
+		postToHost({ type: 'selectAgent', agentId });
 	},
 
 	regenerate(): void {

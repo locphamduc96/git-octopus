@@ -8,6 +8,7 @@ import type {
 	WebviewToHost,
 	WorkspaceIdentityEntry,
 } from '@git-octopus/shared';
+import { assertNever } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import {
 	clearLocalIdentity,
@@ -137,10 +138,7 @@ export class GitOctopusController {
 	/** Bring the graph forward and scroll it to a commit (used by the sidebar tree). */
 	public async revealCommit(hash: string): Promise<void> {
 		await vscode.commands.executeCommand('git-octopus.view.focus');
-		const message: HostToWebview = { type: 'revealCommit', hash };
-		for (const webview of this.listWebviews) {
-			void webview.postMessage(message);
-		}
+		this.broadcast({ type: 'revealCommit', hash });
 	}
 
 	/** Wire a webview: set its options, render the HTML and start handling its messages. */
@@ -200,11 +198,11 @@ export class GitOctopusController {
 	private sendViewSettings(webview: vscode.Webview): void {
 		const settings = this.globalState.get<Record<string, unknown>>(STATE_VIEW_SETTINGS) ?? null;
 		trace(`→ viewSettings (${settings ? 'stored' : 'nothing stored yet'})`);
-		void webview.postMessage({ type: 'viewSettings', settings } satisfies HostToWebview);
+		this.reply(webview, { type: 'viewSettings', settings } satisfies HostToWebview);
 	}
 
 	private sendIconTheme(webview: vscode.Webview): void {
-		void webview.postMessage({
+		this.reply(webview, {
 			type: 'fileIcons',
 			theme: this.iconTheme ? buildForWebview(this.iconTheme, webview) : null,
 		} satisfies HostToWebview);
@@ -215,7 +213,7 @@ export class GitOctopusController {
 		const kind = vscode.window.activeColorTheme.kind;
 		const light =
 			kind === vscode.ColorThemeKind.Light || kind === vscode.ColorThemeKind.HighContrastLight;
-		void webview.postMessage({
+		this.reply(webview, {
 			type: 'colorTheme',
 			kind: light ? 'light' : 'dark',
 		} satisfies HostToWebview);
@@ -292,6 +290,7 @@ export class GitOctopusController {
 		if (!this.activeRepo) return;
 		const seq = ++this.statusSeq;
 		const reply = await loadStatus(this.repoContext());
+		if (reply.type === 'error') trace(`status probe failed: ${reply.message}`);
 		if (reply.type !== 'statusUpdate' || seq !== this.statusSeq) return;
 		// Badge only. `lastChangeCount` is what the views are currently painted with, and it is the
 		// baseline `needsFullReload` compares against — moving it here would make the deferred
@@ -305,9 +304,12 @@ export class GitOctopusController {
 		const repoForRequest = this.activeRepo;
 		const seq = ++this.statusSeq;
 		const reply = await loadStatus(this.repoContext());
+		// The guard below drops everything that is not a `statusUpdate`, so a failed read would look
+		// exactly like one that found no changes. Traced before it is dropped.
+		if (reply.type === 'error') trace(`status refresh failed: ${reply.message}`);
 		if (reply.type !== 'statusUpdate' || seq !== this.statusSeq) return;
 		// Same rule as send(): an answer about a repository the user switched away from is dropped.
-		if (this.activeRepo !== repoForRequest) return;
+		if (!this.stillCurrent(repoForRequest)) return;
 		const previous = { changeCount: this.lastChangeCount, headHash: this.lastHeadHash };
 		this.lastChangeCount = reply.changeCount;
 		this.onChangeCount?.(reply.changeCount);
@@ -315,9 +317,7 @@ export class GitOctopusController {
 			await this.refresh();
 			return;
 		}
-		for (const webview of this.listWebviews) {
-			void webview.postMessage(reply);
-		}
+		this.broadcast(reply);
 	}
 
 	/** Told by each container whether its webview is on screen; drives what refreshes are worth. */
@@ -352,7 +352,7 @@ export class GitOctopusController {
 				}`
 			);
 			vscode.window.showErrorMessage(`Git Octopus: ${message.type} failed — ${detail}`);
-			void webview.postMessage({
+			this.reply(webview, {
 				type: 'error',
 				message: `${message.type} failed: ${detail}`,
 				repos: this.repos,
@@ -474,7 +474,7 @@ export class GitOctopusController {
 			case 'cleanupBranches': {
 				if (!cwd || this.repoMismatch(message)) return;
 				const { listResults, changed } = await this.branchCleanup.run(message, cwd);
-				void webview.postMessage({
+				this.reply(webview, {
 					type: 'branchCleanupResult',
 					listResults,
 				} satisfies HostToWebview);
@@ -493,10 +493,11 @@ export class GitOctopusController {
 				// Not awaited: the view is waiting on its own messages behind this one, and a write to
 				// extension storage must never be what stands between it and its commits.
 				void this.globalState.update(STATE_VIEW_SETTINGS, message.settings);
-				// Every other view gets the change too, so two open panels never disagree.
-				for (const other of this.listWebviews) {
-					if (other !== webview) this.sendViewSettings(other);
-				}
+				// Every other view gets the change too, so two open panels never disagree. Posting the
+				// settings we were handed rather than re-reading storage: the write above is
+				// deliberately not awaited, so a read-back could still answer with the old blob.
+				trace('→ viewSettings (fan-out)');
+				this.broadcastExcept(webview, { type: 'viewSettings', settings: message.settings });
 				return;
 			case 'copyText':
 				await vscode.env.clipboard.writeText(message.text);
@@ -529,25 +530,24 @@ export class GitOctopusController {
 				}
 				return;
 			case 'commitAction':
-				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.actions.run(message, cwd, prompt))) await this.refresh();
+				if (!cwd || this.repoMismatch(message)) return;
+				if (await this.actions.run(message, cwd, prompt)) await this.refresh();
 				return;
 			case 'squashCommits':
-				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.actions.squash(message, cwd, prompt))) await this.refresh();
+				if (!cwd || this.repoMismatch(message)) return;
+				if (await this.actions.squash(message, cwd, prompt)) await this.refresh();
 				return;
 			case 'multiCommitAction':
-				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.actions.runMulti(message, cwd, prompt))) await this.refresh();
+				if (!cwd || this.repoMismatch(message)) return;
+				if (await this.actions.runMulti(message, cwd, prompt)) await this.refresh();
 				return;
 			case 'sequencerAction':
-				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.repoActions.runSequencer(message, cwd, prompt)))
-					await this.refresh();
+				if (!cwd || this.repoMismatch(message)) return;
+				if (await this.repoActions.runSequencer(message, cwd, prompt)) await this.refresh();
 				return;
 			case 'branchAction':
-				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.actions.runBranchAction(message, cwd, prompt))) await this.refresh();
+				if (!cwd || this.repoMismatch(message)) return;
+				if (await this.actions.runBranchAction(message, cwd, prompt)) await this.refresh();
 				return;
 			case 'checkFastForward':
 				await webview.postMessage({
@@ -559,55 +559,59 @@ export class GitOctopusController {
 				} satisfies HostToWebview);
 				return;
 			case 'workingTreeAction':
-				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.workingTree.run(message, cwd, prompt))) await this.refresh();
+				if (!cwd || this.repoMismatch(message)) return;
+				if (await this.workingTree.run(message, cwd, prompt)) await this.refresh();
 				return;
 			case 'repoAction':
-				if (this.repoMismatch(message)) return;
-				if (cwd && (await this.repoActions.run(message, cwd, prompt))) await this.refresh();
+				if (!cwd || this.repoMismatch(message)) return;
+				if (await this.repoActions.run(message, cwd, prompt)) await this.refresh();
 				return;
 			case 'detectAgents':
-				void webview.postMessage(await this.commitAgent.detect());
+				this.reply(webview, await this.commitAgent.detect());
 				return;
 			case 'saveAiSettings': {
 				await this.commitAgent.saveSettings(message);
 				// Every view re-reads the same truth, so the settings tab and any open dialog agree.
 				const inventory = await this.commitAgent.detect();
-				for (const view of this.listWebviews) void view.postMessage(inventory);
+				this.broadcast(inventory);
 				return;
 			}
 			case 'selectAgent':
 				// The fresh inventory is the ack: the webview starts generating only once it says
 				// the pick and the consent are stored, so the two messages cannot race.
 				await this.commitAgent.select(message.agentId);
-				void webview.postMessage(await this.commitAgent.detect());
+				this.reply(webview, await this.commitAgent.detect());
 				return;
 			case 'generateCommitPlan': {
 				if (!cwd || this.repoMismatch(message)) return;
 				// Broadcast, not reply: the view that asked may be gone by the time the agent
 				// answers, and every attached view (panel, editor tab) shows the same plan.
 				const result = await this.commitAgent.generate(message, cwd, (progress) => {
-					for (const view of this.listWebviews) void view.postMessage(progress);
+					this.broadcast(progress);
 				});
-				for (const view of this.listWebviews) void view.postMessage(result);
+				this.broadcast(result);
 				return;
 			}
 			case 'cancelCommitPlan':
+				// Deliberately unguarded, unlike every other `repoPath`-stamped message. Cancelling
+				// mutates nothing and acts on the repo named in the message, so it cannot hit the wrong
+				// one — while a guard here would strand a running agent the moment the user switched
+				// repositories, with no other way to stop it.
 				this.commitAgent.cancel(message.repoPath);
 				return;
 			case 'loadCommitPlanState':
 				// Per-view query: the answer describes host state, and only the asker is catching up.
-				void webview.postMessage(this.commitAgent.state(message.repoPath));
+				this.reply(webview, this.commitAgent.state(message.repoPath));
 				return;
 			case 'executeCommitPlan': {
 				if (!cwd || this.repoMismatch(message)) return;
 				const reply = await this.commitAgent.execute(message, cwd);
-				void webview.postMessage(reply);
+				this.reply(webview, reply);
 				if (reply.committed > 0) await this.refresh();
 				return;
 			}
 			case 'loadWorkspaceIdentities': {
-				void webview.postMessage({
+				this.reply(webview, {
 					type: 'workspaceIdentities',
 					listRepos: await this.readWorkspaceIdentities(),
 				} satisfies HostToWebview);
@@ -621,15 +625,14 @@ export class GitOctopusController {
 				const repoForRequest = this.activeRepo;
 				const reply = await routeMessage(message, this.repoContext(), this.filters);
 				// Answers computed for a repository the user has since switched away from are dropped.
-				if (reply && this.activeRepo === repoForRequest) void webview.postMessage(reply);
+				if (reply && this.stillCurrent(repoForRequest)) this.reply(webview, reply);
 				return;
 			}
 			default:
-				await this.send(message);
+				assertNever(message);
 		}
 	}
 
-	/** Read the active repo's identity plus the saved identities, and push them to every webview. */
 	/**
 	 * "Merged" is measured against the checked-out branch, falling back to HEAD when it is detached:
 	 * whatever the user is standing on is what they consider already-integrated work.
@@ -637,7 +640,7 @@ export class GitOctopusController {
 	private async sendBranchInventory(webview: vscode.Webview): Promise<void> {
 		const cwd = this.activeRepo;
 		if (!cwd) {
-			void webview.postMessage({
+			this.reply(webview, {
 				type: 'branchInventory',
 				listBranches: [],
 				mergedBase: null,
@@ -646,7 +649,7 @@ export class GitOctopusController {
 		}
 		const base = (await getCurrentBranch(this.executor, cwd)) ?? 'HEAD';
 		const inventory = await getBranchInventory(this.executor, cwd, base);
-		void webview.postMessage({ type: 'branchInventory', ...inventory } satisfies HostToWebview);
+		this.reply(webview, { type: 'branchInventory', ...inventory } satisfies HostToWebview);
 	}
 
 	/**
@@ -678,6 +681,7 @@ export class GitOctopusController {
 		);
 	}
 
+	/** Read the active repo's identity plus the saved identities, and push them to every webview. */
 	private async sendIdentity(): Promise<void> {
 		const cwd = this.activeRepo;
 		const identity = cwd
@@ -694,10 +698,38 @@ export class GitOctopusController {
 		const listIdentities = vscode.workspace
 			.getConfiguration('gitOctopus')
 			.get<GitIdentity[]>('identities', []);
-		const message: HostToWebview = { type: 'identity', ...identity, listIdentities };
+		this.broadcast({ type: 'identity', ...identity, listIdentities });
+	}
+
+	/**
+	 * Post to every attached view. The Panel view and any editor tabs show the same repository, so
+	 * anything describing that repository goes to all of them.
+	 */
+	private broadcast(message: HostToWebview): void {
+		for (const webview of this.listWebviews) void webview.postMessage(message);
+	}
+
+	/** Post to the one view that asked — answers scoped to a request, never to the repository. */
+	private reply(webview: vscode.Webview, message: HostToWebview): void {
+		void webview.postMessage(message);
+	}
+
+	/** Post to every view except the one that acted — for state a view already applied locally. */
+	private broadcastExcept(acting: vscode.Webview, message: HostToWebview): void {
 		for (const webview of this.listWebviews) {
-			void webview.postMessage(message);
+			if (webview !== acting) void webview.postMessage(message);
 		}
+	}
+
+	/**
+	 * Whether an answer computed for `repoForRequest` still describes the repository on screen.
+	 *
+	 * Requests run concurrently, so a slow one can land after the user has switched repositories —
+	 * and posting it would paint the old repo's data over the new one. Every path that awaits git
+	 * and then posts has to ask this; it is one rule, so it lives in one place.
+	 */
+	private stillCurrent(repoForRequest: string | null): boolean {
+		return this.activeRepo === repoForRequest;
 	}
 
 	private async send(message: WebviewToHost): Promise<void> {
@@ -706,10 +738,8 @@ export class GitOctopusController {
 		const seq = message.type === 'loadCommits' ? ++this.statusSeq : null;
 		const reply = await routeMessage(message, this.repoContext(), this.filters);
 		if (!reply) return;
-		// The active repository moved while this request was in flight. Its answer describes a
-		// repository nobody is looking at any more — posting it would paint the old repo's graph
-		// over the new one when the slow reply lands last.
-		if (this.activeRepo !== repoForRequest) return;
+		// The active repository moved while this request was in flight — see `stillCurrent`.
+		if (!this.stillCurrent(repoForRequest)) return;
 		// The graph itself still posts below — only the badge and its baseline are skipped when a
 		// newer status read has started, so a slow load cannot write an old count over a new one.
 		if (reply.type === 'commits' && seq === this.statusSeq) {
@@ -720,9 +750,7 @@ export class GitOctopusController {
 			this.onChangeCount?.(this.lastChangeCount);
 			this.onRepoState?.({ repoName: reply.repoName, branch: reply.currentBranch });
 		}
-		for (const webview of this.listWebviews) {
-			void webview.postMessage(reply);
-		}
+		this.broadcast(reply);
 	}
 
 	/** Re-scan the workspace, keeping the active repository when it still exists. */

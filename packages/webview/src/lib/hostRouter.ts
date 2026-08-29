@@ -1,7 +1,27 @@
-import type { HostToWebview } from '@git-octopus/shared';
+import type { ErrorMessage, HostToWebview, WebviewToHost } from '@git-octopus/shared';
 
 type MessageOf<K extends HostToWebview['type']> = Extract<HostToWebview, { type: K }>;
 type AnyHandler = (message: never) => void;
+
+/**
+ * The requests whose failure means the graph itself is not there — the only ones allowed to
+ * replace the whole view with an error screen.
+ *
+ * An error carrying any other source means a side query failed while the graph is still on screen,
+ * and replacing the view would cost the user something that never broke.
+ */
+export const LIST_GRAPH_ERROR_SOURCES = [
+	'loadCommits',
+	'selectRepo',
+] as const satisfies readonly WebviewToHost['type'][];
+
+/** Whether an error from this request should take the graph down with it. */
+export function ownsGraph(source: WebviewToHost['type'] | undefined): boolean {
+	// `loadCommits` reports its own failures with no source at all, and those are exactly the ones
+	// that mean there is no graph — so an absent source keeps the error screen.
+	if (source === undefined) return true;
+	return LIST_GRAPH_ERROR_SOURCES.some((candidate) => candidate === source);
+}
 
 /**
  * Which host messages a domain store owns instead of `App.svelte`.
@@ -55,6 +75,25 @@ export function onHostType<K extends HostToWebview['type']>(
 			listCurrent.filter((item) => item !== (handler as AnyHandler))
 		);
 	};
+}
+
+const listErrorObservers: ((message: ErrorMessage) => void)[] = [];
+
+/**
+ * Watch host errors without owning them.
+ *
+ * `error` stays `App.svelte`'s message — it decides between the error screen and a notice — but a
+ * domain with something in flight has to hear about the failure too, or its spinner runs forever
+ * waiting for a reply the host already gave up on. Observers are notified, never consulted: none of
+ * them can stop the message reaching the switch.
+ */
+export function onHostError(observer: (message: ErrorMessage) => void): void {
+	listErrorObservers.push(observer);
+}
+
+/** Tell every domain that a request failed, so anything waiting on it can stop waiting. */
+export function notifyHostError(message: ErrorMessage): void {
+	for (const observer of listErrorObservers) observer(message);
 }
 
 /** Hand a message to every handler registered for its type. True if at least one ran. */

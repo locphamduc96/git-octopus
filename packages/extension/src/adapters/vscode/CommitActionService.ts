@@ -6,7 +6,7 @@ import type {
 	RemoteBranchRef,
 	SquashCommitsMessage,
 } from '@git-octopus/shared';
-import { remoteRefLabel, remoteRefPath } from '@git-octopus/shared';
+import { assertNever, remoteRefLabel, remoteRefPath } from '@git-octopus/shared';
 import type { UserPrompt } from '../../app/ports/userPrompt.js';
 import type { GitAuthRequest, GitExecutor } from '../../core/git/GitExecutor.js';
 import { friendlyGitError } from '../../core/git/friendlyGitError.js';
@@ -17,6 +17,9 @@ import { LIST_MERGE_OPTIONS, mergeArgs } from '../../core/git/mergePlan.js';
 import { parseAheadBehind, planCheckout } from '../../core/git/checkoutPlan.js';
 import { listCandidateRemotes } from '../../core/git/remoteOwnership.js';
 import { HistoryRewriter } from './HistoryRewriter.js';
+
+/** The subset of `CommitActionId` that `runStashAction` answers for. */
+type StashActionId = 'stashApply' | 'stashPop' | 'stashDrop' | 'stashBranch';
 
 /**
  * What to name a commit when merging or rebasing onto it.
@@ -358,7 +361,7 @@ export class CommitActionService {
 			case 'stashPop':
 			case 'stashDrop':
 			case 'stashBranch':
-				return this.runStashAction(message, cwd, prompt);
+				return this.runStashAction(message.action, message, cwd, prompt);
 			case 'deleteBranch':
 				return this.deleteLocalBranch(message, cwd, prompt);
 			case 'renameBranch': {
@@ -385,6 +388,7 @@ export class CommitActionService {
 				return this.runGit(['branch', '-m', branch, name], cwd, `Renamed ${branch} to ${name}.`);
 			}
 			default:
+				assertNever(message.action);
 				return false;
 		}
 	}
@@ -486,6 +490,7 @@ export class CommitActionService {
 				);
 			}
 			default:
+				assertNever(message.action);
 				return false;
 		}
 	}
@@ -616,8 +621,11 @@ export class CommitActionService {
 					`Dropped ${count} commits on ${guard.branch}.`
 				);
 			}
-			default:
+			default: {
+				const unhandled: never = message.action;
+				void unhandled;
 				return false;
+			}
 		}
 	}
 
@@ -813,14 +821,21 @@ export class CommitActionService {
 		return this.rewriter.canFastForward(source, target, cwd);
 	}
 
+	/**
+	 * The action is passed separately, already narrowed to the four stash ids. `CommitActionMessage`
+	 * is one interface rather than a union, so narrowing it in `run`'s switch does not narrow the
+	 * message — and without that narrowing the `default` below would have to answer for every id
+	 * `run` already handles instead of being a real exhaustiveness check.
+	 */
 	private async runStashAction(
+		action: StashActionId,
 		message: CommitActionMessage,
 		cwd: string,
 		prompt: UserPrompt
 	): Promise<boolean> {
 		const stash = message.stashName;
 		if (!stash) return false;
-		switch (message.action) {
+		switch (action) {
 			case 'stashApply':
 				if (!(await this.confirm(prompt, `Apply ${stash} to the working tree?`))) return false;
 				return this.runGit(['stash', 'apply', stash], cwd, `Applied ${stash}.`);
@@ -836,6 +851,7 @@ export class CommitActionService {
 				return this.runGit(['stash', 'branch', name, stash], cwd, `Created branch ${name}.`);
 			}
 			default:
+				assertNever(action);
 				return false;
 		}
 	}

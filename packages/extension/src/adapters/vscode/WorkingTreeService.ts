@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { WorkingTreeActionMessage } from '@git-octopus/shared';
+import { assertNever } from '@git-octopus/shared';
 import { withIgnoreEntry } from '../../core/git/gitignoreEntry.js';
 import type { UserPrompt } from '../../app/ports/userPrompt.js';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
@@ -92,6 +93,7 @@ export class WorkingTreeService {
 				return this.runGit(args, cwd, 'Amended the last commit.');
 			}
 			default:
+				assertNever(message.action);
 				return false;
 		}
 	}

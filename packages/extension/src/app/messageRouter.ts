@@ -23,6 +23,8 @@ export function routeMessage(
 		case 'loadFileDiff':
 			return loadFileDiff(ctx, message);
 		default:
+			// Deliberately non-exhaustive: `undefined` means "not my job", and the controller's switch
+			// — which does answer for every member — is where a new message type is caught.
 			return Promise.resolve(undefined);
 	}
 }

@@ -1,13 +1,17 @@
+import type { WorkingTreeAction } from '@git-octopus/shared';
+import type { MenuItem } from './ui/ContextMenu.svelte';
+
 export interface FileMenuAction {
-	id: string;
+	id: WorkingTreeAction;
 	label: string;
 }
 
-export interface FileMenuItem {
-	id: string;
-	label: string;
-	separatorBefore?: boolean;
-}
+/**
+ * The entries the menu owns outright — every other id in it is a working-tree action a section
+ * handed over. The two spaces share no name, so the id alone says which half it belongs to.
+ */
+export type LocalFileMenuId =
+	'openChanges' | 'openFile' | 'openFileAtRev' | 'copyPath' | 'copyRelativePath';
 
 export interface FileMenuOptions {
 	/** Actions the row itself offers — stage, unstage, discard. Listed last, after a separator. */
@@ -19,8 +23,12 @@ export interface FileMenuOptions {
 }
 
 /** Items for the menu that opens on right-clicking a file, in the order they are shown. */
-export function buildFileMenu(options: FileMenuOptions): FileMenuItem[] {
-	const listItems: FileMenuItem[] = [{ id: 'openChanges', label: 'Open Changes' }];
+export function buildFileMenu(
+	options: FileMenuOptions
+): MenuItem<LocalFileMenuId | WorkingTreeAction>[] {
+	const listItems: MenuItem<LocalFileMenuId | WorkingTreeAction>[] = [
+		{ id: 'openChanges', label: 'Open Changes' },
+	];
 
 	if (!options.deleted) {
 		listItems.push({ id: 'openFile', label: 'Open File' });

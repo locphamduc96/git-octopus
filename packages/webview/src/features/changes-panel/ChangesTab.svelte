@@ -45,11 +45,11 @@
 	const untracked = $derived(working ? working.unstaged.filter((f) => f.status === '?') : []);
 	const staged = $derived<FileChange[]>(working ? working.staged : []);
 
-	const stageActions = [
+	const listStageActions: FileRowAction<WorkingTreeAction>[] = [
 		{ id: 'discard', label: 'Discard changes to this file — cannot be undone', icon: 'discard' },
 		{ id: 'stage', label: 'Stage this file for the next commit', icon: 'add' },
 	];
-	const unstageActions = [
+	const listUnstageActions: FileRowAction<WorkingTreeAction>[] = [
 		{
 			id: 'unstage',
 			label: 'Unstage this file — keep the change, drop it from the commit',
@@ -57,16 +57,19 @@
 		},
 	];
 	// The hover buttons carry a full explanation as their tooltip; a menu row needs a short label.
-	const stageMenu = [
+	const listStageMenu: FileMenuAction[] = [
 		{ id: 'stage', label: 'Stage' },
 		{ id: 'discard', label: 'Discard Changes' },
 	];
-	const unstageMenu = [{ id: 'unstage', label: 'Unstage' }];
+	const listUnstageMenu: FileMenuAction[] = [{ id: 'unstage', label: 'Unstage' }];
 	// Untracked: the pattern alone is enough, and nothing touches the index.
-	const untrackedMenu = [...stageMenu, { id: 'ignore', label: 'Add to .gitignore' }];
+	const listUntrackedMenu: FileMenuAction[] = [
+		...listStageMenu,
+		{ id: 'ignore', label: 'Add to .gitignore' },
+	];
 	// Tracked: the pattern is inert until the file leaves the index, so the two have to go together.
-	const trackedMenu = [
-		...stageMenu,
+	const listTrackedMenu: FileMenuAction[] = [
+		...listStageMenu,
 		{ id: 'ignoreAndUntrack', label: 'Stop Tracking & Add to .gitignore' },
 	];
 
@@ -157,16 +160,16 @@
 			</div>
 		{:else}
 			{#if conflicts.length > 0}
-				{@render section('Conflicts', conflicts, stageActions, stageMenu)}
+				{@render section('Conflicts', conflicts, listStageActions, listStageMenu)}
 			{/if}
 			{#if changes.length > 0}
-				{@render section('Changes', changes, stageActions, trackedMenu)}
+				{@render section('Changes', changes, listStageActions, listTrackedMenu)}
 			{/if}
 			{#if untracked.length > 0}
-				{@render section('Untracked', untracked, stageActions, untrackedMenu)}
+				{@render section('Untracked', untracked, listStageActions, listUntrackedMenu)}
 			{/if}
 			{#if staged.length > 0}
-				{@render section('Staged Changes', staged, unstageActions, unstageMenu)}
+				{@render section('Staged Changes', staged, listUnstageActions, listUnstageMenu)}
 			{/if}
 		{/if}
 	</div>
@@ -175,7 +178,7 @@
 {#snippet section(
 	title: string,
 	listFiles: FileChange[],
-	actions: FileRowAction[],
+	actions: FileRowAction<WorkingTreeAction>[],
 	listMenuActions: FileMenuAction[]
 )}
 	<section>
@@ -187,8 +190,8 @@
 				nodes={buildFileTree(listFiles)}
 				{activePath}
 				{actions}
+				{onaction}
 				onopen={onopenFile}
-				onaction={(id, path) => onaction(id as WorkingTreeAction, path)}
 				onmenu={(event, file) => onmenu(event, file, listMenuActions)}
 			/>
 		{:else}
@@ -198,8 +201,8 @@
 						{file}
 						active={file.path === activePath}
 						{actions}
+						{onaction}
 						onopen={onopenFile}
-						onaction={(id, path) => onaction(id as WorkingTreeAction, path)}
 						onmenu={(event) => onmenu(event, file, listMenuActions)}
 					/>
 				{/each}

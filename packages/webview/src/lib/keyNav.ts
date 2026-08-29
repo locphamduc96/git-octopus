@@ -15,6 +15,8 @@ export function nextRowIndex(key: string, current: number, last: number, pageJum
 			return Math.min(last, (current === -1 ? 0 : current) + pageJump);
 		case 'Home':
 			return 0;
+		// `key` is a raw DOM string, not a closed union, so End cannot be a case with an exhaustive
+		// arm behind it — every key the caller routes here that is not listed above means End.
 		default:
 			return last;
 	}

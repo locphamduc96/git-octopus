@@ -1,4 +1,4 @@
-<script lang="ts">
+<script lang="ts" generics="Id extends string = string">
 	import { untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import type { FileChange } from '@git-octopus/shared';
@@ -18,9 +18,9 @@
 		nodes: FileTreeNode[];
 		/** The file being browsed; a folder folded over it opens so the highlight can be seen. */
 		activePath?: string | null;
-		actions?: FileRowAction[];
+		actions?: FileRowAction<Id>[];
 		onopen: (path: string) => void;
-		onaction?: (id: string, path: string) => void;
+		onaction?: (id: Id, path: string) => void;
 		onmenu?: (event: MouseEvent, file: FileChange) => void;
 	} = $props();
 

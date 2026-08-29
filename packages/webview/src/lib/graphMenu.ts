@@ -6,7 +6,9 @@ import type { MenuItem } from './ui/ContextMenu.svelte';
 import type { ColumnVisibility } from './viewSettings';
 
 /** The header's right-click menu: one checkable entry per optional column. */
-export function buildHeaderMenuItems(columns: ColumnVisibility): MenuItem[] {
+export function buildHeaderMenuItems(
+	columns: ColumnVisibility
+): MenuItem<keyof ColumnVisibility>[] {
 	return [
 		{ id: 'author', label: 'Author', checked: columns.author },
 		{ id: 'commit', label: 'Commit', checked: columns.commit },
@@ -23,9 +25,9 @@ export function buildDropMenuItems(
 	drop: { sourceLabel: string; target: string } | null,
 	fastForward: { nonce: number; canFastForward: boolean } | null,
 	ffNonce: number
-): MenuItem[] {
+): MenuItem<BranchActionId>[] {
 	if (!drop) return [];
-	const items: MenuItem[] = [
+	const items: MenuItem<BranchActionId>[] = [
 		{ id: 'mergeInto', label: `Merge ${drop.sourceLabel} into ${drop.target}…` },
 		{ id: 'rebaseOnto', label: `Rebase ${drop.sourceLabel} onto ${drop.target}…` },
 	];
@@ -39,25 +41,42 @@ export function buildDropMenuItems(
 }
 
 /** The context menu over a multi-selected run of commits (newest → oldest). */
-export function buildMultiMenuItems(listSelectedCommits: Commit[]): MenuItem[] {
+export function buildMultiMenuItems(listSelectedCommits: Commit[]): MenuBuild {
 	const n = listSelectedCommits.length;
 	const chain = isSquashableChain(listSelectedCommits);
 	// Cherry-pick and revert replay commits one by one, so they only need merge-free picks,
 	// not a contiguous chain.
 	const noMerges = listSelectedCommits.every((commit) => commit.parents.length === 1);
-	const items: MenuItem[] = [
-		{ id: 'squashSelected', label: `Squash ${n} Commits…`, disabled: !chain },
-		{ id: 'dropSelected', label: `Drop ${n} Commits…`, disabled: !chain },
-		{
-			id: 'cherryPickSelected',
-			label: `Cherry Pick ${n} Commits…`,
-			disabled: !noMerges,
-			separatorBefore: true,
-		},
-		{ id: 'revertSelected', label: `Revert ${n} Commits…`, disabled: !noMerges },
-	];
+	const listItems: MenuItem[] = [];
+	const mapEntries: Record<string, MenuEntry> = {};
+
+	// Disabled entries keep their run: `resolveMenuSelection` is the one place that rules an entry
+	// out, so an entry map with holes in it would only give the same answer twice.
+	const addMulti = (
+		id: string,
+		action: MultiAction,
+		label: string,
+		extra?: { disabled?: boolean; separatorBefore?: boolean }
+	): void => {
+		listItems.push({
+			id,
+			label,
+			disabled: extra?.disabled,
+			separatorBefore: extra?.separatorBefore,
+		});
+		mapEntries[id] = { type: 'multi', action };
+	};
+
+	addMulti('squashSelected', 'squash', `Squash ${n} Commits…`, { disabled: !chain });
+	addMulti('dropSelected', 'drop', `Drop ${n} Commits…`, { disabled: !chain });
+	addMulti('cherryPickSelected', 'cherryPick', `Cherry Pick ${n} Commits…`, {
+		disabled: !noMerges,
+		separatorBefore: true,
+	});
+	addMulti('revertSelected', 'revert', `Revert ${n} Commits…`, { disabled: !noMerges });
+
 	if (!chain) {
-		items.push({
+		listItems.push({
 			id: 'multiHint',
 			label: noMerges
 				? 'Squash/Drop need a consecutive run on one branch'
@@ -66,20 +85,11 @@ export function buildMultiMenuItems(listSelectedCommits: Commit[]): MenuItem[] {
 			separatorBefore: true,
 		});
 	}
-	return items;
+	return { items: listItems, mapEntries };
 }
 
-/**
- * What one entry of a ref menu runs. `commit` entries reuse the commit-action protocol with a
- * payload narrowed to this one ref; `branch` entries go through the branch-action protocol the
- * drag gesture already uses, where source and target are both named outright.
- */
-export type RefMenuRun =
-	| { type: 'commit'; action: CommitActionId }
-	| { type: 'branch'; action: BranchActionId; target: string }
-	// Handled inside the webview: the graph reloads with `ref` as its only walk root. The ref is
-	// resolved here, at build time, so the entry itself says what `git log` will be handed.
-	| { type: 'filter'; ref: string };
+/** What acting on a whole multi-selection does, newest → oldest. */
+export type MultiAction = 'squash' | 'drop' | 'cherryPick' | 'revert';
 
 /**
  * The exact ref an action runs on. A chip may stand for a local branch and the same branch on
@@ -91,16 +101,39 @@ export interface RefTarget {
 	remote?: string;
 }
 
-export interface RefMenuEntry {
-	target: RefTarget;
-	run: RefMenuRun;
+/**
+ * What selecting one menu entry runs.
+ *
+ * Flat rather than a payload nested inside a wrapper: a `switch` on `type` then narrows the whole
+ * entry, so the dispatcher reads each variant's fields without re-checking anything. Every
+ * selectable entry of every menu gets one, which is what keeps the ids themselves free to be
+ * built at run time — the id is a key, never something to be read back as an action.
+ */
+export type MenuEntry =
+	// The commit-action protocol. `target` is set only on entries built from a ref menu, where the
+	// payload is narrowed to that one ref.
+	| { type: 'commit'; action: CommitActionId; target?: RefTarget }
+	// The branch-action protocol the drag gesture already uses, where source and target are both
+	// named outright: `target` is the ref acted on, `onto` the local branch git will write.
+	| { type: 'branch'; action: BranchActionId; target: RefTarget; onto: string }
+	// Handled inside the webview: the graph reloads with `ref` as its only walk root. The ref is
+	// resolved here, at build time, so the entry itself says what `git log` will be handed.
+	| { type: 'filter'; ref: string }
+	// Acts on the whole multi-selection rather than on the commit the menu was opened over.
+	| { type: 'multi'; action: MultiAction };
+
+/** A built menu: what is drawn, and what each of its selectable ids runs. */
+export interface MenuBuild {
+	items: MenuItem[];
+	/** Menu-item id -> what selecting it runs. Ids that open a submenu are absent. */
+	mapEntries: Record<string, MenuEntry>;
 }
 
-export interface RefMenu {
-	items: MenuItem[];
-	/** Menu-item id -> what it runs and which ref it runs on. */
-	mapEntries: Record<string, RefMenuEntry>;
-}
+/** A ref entry before its ref is attached: the caller knows the run, the adder knows the chip. */
+type RefRun =
+	| { type: 'commit'; action: CommitActionId }
+	| { type: 'branch'; action: BranchActionId; onto: string }
+	| { type: 'filter'; ref: string };
 
 /**
  * A chip's identity inside one commit's menus.
@@ -120,74 +153,84 @@ function refKey(chip: RefChip): string {
  * the chip carries more than one — because the whole point of a ref-scoped menu is that nothing
  * downstream has to ask which ref was meant.
  */
-export function buildRefMenu(chip: RefChip, currentBranch: string | null): RefMenu {
-	const items: MenuItem[] = [];
-	const mapEntries: Record<string, RefMenuEntry> = {};
+export function buildRefMenu(chip: RefChip, currentBranch: string | null): MenuBuild {
+	const listItems: MenuItem[] = [];
+	const mapEntries: Record<string, MenuEntry> = {};
 	const prefix = refKey(chip);
 
-	const add = (
+	const addRefEntry = (
 		action: string,
 		label: string,
-		run: RefMenuRun,
+		run: RefRun,
 		extra?: { separatorBefore?: boolean; disabled?: boolean; remote?: string }
 	): void => {
 		const id = extra?.remote ? `${prefix}:${action}:${extra.remote}` : `${prefix}:${action}`;
-		items.push({ id, label, separatorBefore: extra?.separatorBefore, disabled: extra?.disabled });
-		mapEntries[id] = { target: { chip, remote: extra?.remote }, run };
+		listItems.push({
+			id,
+			label,
+			separatorBefore: extra?.separatorBefore,
+			disabled: extra?.disabled,
+		});
+		// A filter resolved its ref at build time and acts on no ref of its own.
+		mapEntries[id] =
+			run.type === 'filter' ? run : { ...run, target: { chip, remote: extra?.remote } };
 	};
 
 	if (chip.kind === 'stash') {
-		add('stashApply', `Apply ${chip.name}…`, { type: 'commit', action: 'stashApply' });
-		add('stashPop', `Pop ${chip.name}…`, { type: 'commit', action: 'stashPop' });
-		add('stashBranch', `Create Branch from ${chip.name}…`, {
+		addRefEntry('stashApply', `Apply ${chip.name}…`, { type: 'commit', action: 'stashApply' });
+		addRefEntry('stashPop', `Pop ${chip.name}…`, { type: 'commit', action: 'stashPop' });
+		addRefEntry('stashBranch', `Create Branch from ${chip.name}…`, {
 			type: 'commit',
 			action: 'stashBranch',
 		});
-		add(
+		addRefEntry(
 			'stashDrop',
 			`Drop ${chip.name}…`,
 			{ type: 'commit', action: 'stashDrop' },
 			{ separatorBefore: true }
 		);
-		return { items, mapEntries };
+		return { items: listItems, mapEntries };
 	}
 
 	if (chip.kind === 'tag') {
-		add('pushTag', `Push ${chip.name} to origin…`, { type: 'commit', action: 'pushTag' });
-		add(
+		addRefEntry('pushTag', `Push ${chip.name} to origin…`, { type: 'commit', action: 'pushTag' });
+		addRefEntry(
 			'deleteTag',
 			`Delete ${chip.name}…`,
 			{ type: 'commit', action: 'deleteTag' },
 			{ separatorBefore: true }
 		);
-		add('deleteRemoteTag', `Delete ${chip.name} from origin…`, {
+		addRefEntry('deleteRemoteTag', `Delete ${chip.name} from origin…`, {
 			type: 'commit',
 			action: 'deleteRemoteTag',
 		});
-		add(
+		addRefEntry(
 			'copyRefName',
 			'Copy Tag Name',
 			{ type: 'commit', action: 'copyRefName' },
 			{ separatorBefore: true }
 		);
-		return { items, mapEntries };
+		return { items: listItems, mapEntries };
 	}
 
 	// Detached HEAD is a position, not a ref anything can be done to. An empty menu is the signal
 	// to fall through to the commit menu, which carries everything that applies to it.
-	if (chip.kind === 'head') return { items, mapEntries };
+	if (chip.kind === 'head') return { items: listItems, mapEntries };
 
 	const labelFor = (remote: string): string => remoteRefLabel({ remote, branch: chip.name });
 
 	if (chip.hasLocal && !chip.checkedOut)
-		add('checkoutBranch', `Checkout ${chip.name}`, { type: 'commit', action: 'checkoutBranch' });
+		addRefEntry('checkoutBranch', `Checkout ${chip.name}`, {
+			type: 'commit',
+			action: 'checkoutBranch',
+		});
 	// One entry per remote, never a single entry standing for the first of several: the label has
 	// to name the ref the action will actually touch.
 	for (const remote of chip.listRemotes) {
 		// Without a local branch the host's `checkoutBranch` already falls through to the remote
 		// path, so the two cases differ only in which action id says so plainly.
 		const action = chip.hasLocal ? 'checkoutRemote' : 'checkoutBranch';
-		add(
+		addRefEntry(
 			action,
 			`Checkout ${labelFor(remote)} as local branch`,
 			{
@@ -198,7 +241,7 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): RefMe
 		);
 	}
 	for (const remote of chip.listRemotes)
-		add(
+		addRefEntry(
 			'fetchIntoLocal',
 			`Fetch ${labelFor(remote)} into ${chip.name}…`,
 			{ type: 'commit', action: 'fetchIntoLocal' },
@@ -209,7 +252,7 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): RefMe
 	// otherwise the first remote's ref — and the label names that ref outright.
 	const filterRef =
 		chip.hasLocal || chip.listRemotes.length === 0 ? chip.name : labelFor(chip.listRemotes[0]);
-	add(
+	addRefEntry(
 		'filterBranch',
 		`Show Only ${filterRef}`,
 		{ type: 'filter', ref: filterRef },
@@ -219,22 +262,22 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): RefMe
 	// Merging a branch into itself is a no-op git would refuse; without a current branch there is
 	// nothing to merge *into*, so the pair drops out entirely.
 	if (currentBranch && !chip.checkedOut) {
-		add(
+		addRefEntry(
 			'mergeInto',
 			`Merge ${chip.name} into ${currentBranch}…`,
-			{ type: 'branch', action: 'mergeInto', target: currentBranch },
+			{ type: 'branch', action: 'mergeInto', onto: currentBranch },
 			{ separatorBefore: true }
 		);
-		add('rebaseOnto', `Rebase ${currentBranch} onto ${chip.name}…`, {
+		addRefEntry('rebaseOnto', `Rebase ${currentBranch} onto ${chip.name}…`, {
 			type: 'branch',
 			action: 'rebaseOnto',
-			target: currentBranch,
+			onto: currentBranch,
 		});
 	}
 
 	// Renaming the checked-out branch is fine — `branch -m` moves HEAD's ref along with it.
 	if (chip.hasLocal)
-		add(
+		addRefEntry(
 			'renameBranch',
 			`Rename ${chip.name}…`,
 			{ type: 'commit', action: 'renameBranch' },
@@ -243,11 +286,11 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): RefMe
 	// The checked-out branch keeps its delete entry, disabled: git refuses to delete it anyway, and
 	// saying so where the user looked beats a gap they have to explain to themselves.
 	if (chip.hasLocal)
-		add('deleteBranch', `Delete ${chip.name}…`, { type: 'commit', action: 'deleteBranch' }, {
+		addRefEntry('deleteBranch', `Delete ${chip.name}…`, { type: 'commit', action: 'deleteBranch' }, {
 			disabled: chip.checkedOut,
 		});
 	chip.listRemotes.forEach((remote, index) =>
-		add(
+		addRefEntry(
 			'deleteRemoteBranch',
 			`Delete ${labelFor(remote)}…`,
 			{ type: 'commit', action: 'deleteRemoteBranch' },
@@ -255,13 +298,13 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): RefMe
 		)
 	);
 
-	add(
+	addRefEntry(
 		'copyRefName',
 		'Copy Branch Name',
 		{ type: 'commit', action: 'copyRefName' },
 		{ separatorBefore: true }
 	);
-	return { items, mapEntries };
+	return { items: listItems, mapEntries };
 }
 
 /**
@@ -301,50 +344,62 @@ export function buildCommitMenuItems(
 	commit: Commit,
 	currentBranch: string | null,
 	listChips: RefChip[] = []
-): RefMenu {
+): MenuBuild {
+	const listItems: MenuItem[] = [];
+	const mapEntries: Record<string, MenuEntry> = {};
+
+	/** An entry about the commit itself: its id is the action, and it runs under that id. */
+	const addCommitEntry = (
+		action: CommitActionId,
+		label: string,
+		separatorBefore?: boolean
+	): void => {
+		listItems.push({ id: action, label, separatorBefore });
+		mapEntries[action] = { type: 'commit', action };
+	};
+
 	const stashRef = commit.refs.find((r) => r.kind === 'stash');
 	if (stashRef) {
-		return {
-			items: [
-				{ id: 'stashApply', label: 'Apply Stash…' },
-				{ id: 'stashPop', label: 'Pop Stash…' },
-				{ id: 'stashBranch', label: 'Create Branch from Stash…' },
-				{ id: 'stashDrop', label: 'Drop Stash…', separatorBefore: true },
-				{ id: 'copyHash', label: 'Copy Commit Hash', separatorBefore: true },
-				{ id: 'copySubject', label: 'Copy Subject' },
-			],
-			mapEntries: {},
-		};
+		addCommitEntry('stashApply', 'Apply Stash…');
+		addCommitEntry('stashPop', 'Pop Stash…');
+		addCommitEntry('stashBranch', 'Create Branch from Stash…');
+		addCommitEntry('stashDrop', 'Drop Stash…', true);
+		addCommitEntry('copyHash', 'Copy Commit Hash', true);
+		addCommitEntry('copySubject', 'Copy Subject');
+		return { items: listItems, mapEntries };
 	}
+
 	// Naming the branch beats "current branch": on a graph of many branches it is the one thing
 	// the reader cannot infer from where they right-clicked.
 	const here = currentBranch ?? 'the current branch';
-	const items: MenuItem[] = [
-		{ id: 'checkout', label: 'Checkout Commit' },
-		{ id: 'createBranch', label: 'Create Branch…' },
-		{ id: 'addTag', label: 'Add Tag…' },
-		{ id: 'merge', label: `Merge into ${here}…`, separatorBefore: true },
-		{ id: 'rebase', label: `Rebase ${here} on this Commit…` },
-		{ id: 'cherryPick', label: 'Cherry Pick…' },
-		{ id: 'revert', label: 'Revert…' },
-		{ id: 'reword', label: 'Reword Message…' },
-		{
-			id: 'reset',
-			label: `Reset ${here} to this Commit`,
-			children: [
-				{ id: 'resetSoft', label: 'Soft — keep all changes, staged' },
-				{ id: 'resetMixed', label: 'Mixed — keep changes, unstaged' },
-				{ id: 'resetHard', label: 'Hard — discard all changes' },
-			],
-		},
-	];
+	addCommitEntry('checkout', 'Checkout Commit');
+	addCommitEntry('createBranch', 'Create Branch…');
+	addCommitEntry('addTag', 'Add Tag…');
+	addCommitEntry('merge', `Merge into ${here}…`, true);
+	addCommitEntry('rebase', `Rebase ${here} on this Commit…`);
+	addCommitEntry('cherryPick', 'Cherry Pick…');
+	addCommitEntry('revert', 'Revert…');
+	addCommitEntry('reword', 'Reword Message…');
 
-	const mapEntries: Record<string, RefMenuEntry> = {};
+	const listResetModes: { action: CommitActionId; label: string }[] = [
+		{ action: 'resetSoft', label: 'Soft — keep all changes, staged' },
+		{ action: 'resetMixed', label: 'Mixed — keep changes, unstaged' },
+		{ action: 'resetHard', label: 'Hard — discard all changes' },
+	];
+	// The parent only opens the flyout, so it gets no entry of its own.
+	listItems.push({
+		id: 'reset',
+		label: `Reset ${here} to this Commit`,
+		children: listResetModes.map((mode) => ({ id: mode.action, label: mode.label })),
+	});
+	for (const mode of listResetModes)
+		mapEntries[mode.action] = { type: 'commit', action: mode.action };
+
 	let firstRef = true;
 	listChips.forEach((chip) => {
 		const menu = buildRefMenu(chip, currentBranch);
 		if (menu.items.length === 0) return;
-		items.push({
+		listItems.push({
 			id: refKey(chip),
 			label: refSubmenuLabel(chip),
 			separatorBefore: firstRef,
@@ -355,16 +410,9 @@ export function buildCommitMenuItems(
 		firstRef = false;
 	});
 
-	items.push({ id: 'openOnRemote', label: 'Open on Remote', separatorBefore: true });
-	items.push({ id: 'copyRemoteUrl', label: 'Copy Remote URL' });
-	items.push({ id: 'copyHash', label: 'Copy Commit Hash' });
-	items.push({ id: 'copySubject', label: 'Copy Subject' });
-	return { items, mapEntries };
+	addCommitEntry('openOnRemote', 'Open on Remote', true);
+	addCommitEntry('copyRemoteUrl', 'Copy Remote URL');
+	addCommitEntry('copyHash', 'Copy Commit Hash');
+	addCommitEntry('copySubject', 'Copy Subject');
+	return { items: listItems, mapEntries };
 }
-
-export const mapMultiAction: Record<string, 'squash' | 'drop' | 'cherryPick' | 'revert'> = {
-	squashSelected: 'squash',
-	dropSelected: 'drop',
-	cherryPickSelected: 'cherryPick',
-	revertSelected: 'revert',
-};

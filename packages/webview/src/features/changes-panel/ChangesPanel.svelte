@@ -17,7 +17,7 @@
 	import Icon from '../../lib/ui/Icon.svelte';
 	import IconButton from '../../lib/ui/IconButton.svelte';
 	import type { FileViewMode } from '../../lib/fileTree';
-	import { buildFileMenu, type FileMenuAction } from '../../lib/fileMenu';
+	import { buildFileMenu, type FileMenuAction, type LocalFileMenuId } from '../../lib/fileMenu';
 	import { tooltip } from '../../lib/ui/tooltip';
 
 	/** What the panel shows, derived from the graph selection rather than a tab strip. */
@@ -114,7 +114,11 @@
 		else onopenCompareDiff(path);
 	}
 
-	function runMenu(id: string): void {
+	/**
+	 * The cases below are the whole of the menu's own id space, so whatever falls past them is a
+	 * working-tree action a section handed over — `default` needs no check of its own to say so.
+	 */
+	function runMenu(id: LocalFileMenuId | WorkingTreeAction): void {
 		const file = menu?.file;
 		menu = null;
 		if (!file) return;
@@ -130,7 +134,7 @@
 			case 'copyRelativePath':
 				return oncopyPath(file.path, false);
 			default:
-				return onworkingAction(id as WorkingTreeAction, file.path);
+				return onworkingAction(id, file.path);
 		}
 	}
 </script>

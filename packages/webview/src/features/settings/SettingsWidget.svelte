@@ -5,13 +5,14 @@
 	import IdentitySection from './IdentitySection.svelte';
 	import PresetPicker, { CUSTOM, type PresetOption } from './PresetPicker.svelte';
 	import { aiCommit } from '../../lib/stores/aiCommit.svelte';
-	import type {
-		DateType,
-		DiffTarget,
-		GraphStyle,
-		RepoIdentityState,
-		RowDensity,
-		ViewSettings,
+	import {
+		LIST_COMMIT_ORDERS,
+		LIST_DATE_TYPES,
+		LIST_DIFF_TARGETS,
+		LIST_GRAPH_STYLES,
+		pickOption,
+		type RepoIdentityState,
+		type ViewSettings,
 	} from '../../lib/viewSettings';
 
 	let {
@@ -40,11 +41,16 @@
 	} = $props();
 
 	const listLimits = [100, 300, 500, 1000];
-	const listOrders: { value: CommitOrder; label: string }[] = [
-		{ value: 'date', label: 'Commit date' },
-		{ value: 'authorDate', label: 'Author date' },
-		{ value: 'topo', label: 'Topological' },
-	];
+	/**
+	 * Labels only — the options themselves are rendered from `LIST_COMMIT_ORDERS`, the same list the
+	 * onchange handler validates against. A `Record` keyed by the union means an order added to it
+	 * fails to compile here rather than rendering an option that then refuses to apply.
+	 */
+	const mapOrderLabel: Record<CommitOrder, string> = {
+		date: 'Commit date',
+		authorDate: 'Author date',
+		topo: 'Topological',
+	};
 
 	function set<K extends keyof ViewSettings>(key: K, value: ViewSettings[K]): void {
 		onchange({ ...settings, [key]: value });
@@ -238,7 +244,10 @@
 						</span>
 						<select
 							value={settings.diffTarget}
-							onchange={(event) => set('diffTarget', event.currentTarget.value as DiffTarget)}
+							onchange={(event) => {
+								const picked = pickOption(LIST_DIFF_TARGETS, event.currentTarget.value);
+								if (picked) set('diffTarget', picked);
+							}}
 						>
 							<option value="editor">VS Code editor</option>
 							<option value="panel">Git Octopus panel</option>
@@ -277,7 +286,10 @@
 						<span class="row-label">Graph style</span>
 						<select
 							value={settings.graphStyle}
-							onchange={(event) => set('graphStyle', event.currentTarget.value as GraphStyle)}
+							onchange={(event) => {
+								const picked = pickOption(LIST_GRAPH_STYLES, event.currentTarget.value);
+								if (picked) set('graphStyle', picked);
+							}}
 						>
 							<option value="rounded">Rounded</option>
 							<option value="curved">Curved</option>
@@ -298,7 +310,7 @@
 								title="Compact"
 								role="radio"
 								aria-checked={settings.rowDensity === 'compact'}
-								onclick={() => set('rowDensity', 'compact' as RowDensity)}
+								onclick={() => set('rowDensity', 'compact')}
 							>
 								<svg width="34" height="26" viewBox="0 0 56 40" fill="none" aria-hidden="true">
 									<g fill="currentColor">
@@ -316,7 +328,7 @@
 								title="Comfortable"
 								role="radio"
 								aria-checked={settings.rowDensity === 'comfortable'}
-								onclick={() => set('rowDensity', 'comfortable' as RowDensity)}
+								onclick={() => set('rowDensity', 'comfortable')}
 							>
 								<svg width="34" height="26" viewBox="0 0 56 40" fill="none" aria-hidden="true">
 									<g fill="currentColor">
@@ -334,7 +346,7 @@
 								title="Spacious"
 								role="radio"
 								aria-checked={settings.rowDensity === 'spacious'}
-								onclick={() => set('rowDensity', 'spacious' as RowDensity)}
+								onclick={() => set('rowDensity', 'spacious')}
 							>
 								<svg width="34" height="26" viewBox="0 0 56 40" fill="none" aria-hidden="true">
 									<g fill="currentColor">
@@ -404,10 +416,13 @@
 						</span>
 						<select
 							value={settings.commitOrder}
-							onchange={(event) => set('commitOrder', event.currentTarget.value as CommitOrder)}
+							onchange={(event) => {
+								const picked = pickOption(LIST_COMMIT_ORDERS, event.currentTarget.value);
+								if (picked) set('commitOrder', picked);
+							}}
 						>
-							{#each listOrders as order (order.value)}
-								<option value={order.value}>{order.label}</option>
+							{#each LIST_COMMIT_ORDERS as order (order)}
+								<option value={order}>{mapOrderLabel[order]}</option>
 							{/each}
 						</select>
 					</div>
@@ -415,7 +430,10 @@
 						<span class="row-label">Date column shows</span>
 						<select
 							value={settings.dateType}
-							onchange={(event) => set('dateType', event.currentTarget.value as DateType)}
+							onchange={(event) => {
+								const picked = pickOption(LIST_DATE_TYPES, event.currentTarget.value);
+								if (picked) set('dateType', picked);
+							}}
 						>
 							<option value="commit">Commit date</option>
 							<option value="author">Author date</option>

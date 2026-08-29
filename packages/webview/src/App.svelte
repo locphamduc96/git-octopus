@@ -22,7 +22,13 @@
 	import { layoutCommits } from '@git-octopus/graph-layout';
 	import { onHostMessage, postToHost, readState, updateState, STATE_VERSION } from './lib/bridge';
 	import { buildHostFilters, commitsReplyMatches, loadSignature } from './lib/commitsGuard';
-	import { dispatchHostMessage, resetForRepo, type RoutedByStore } from './lib/hostRouter';
+	import {
+		dispatchHostMessage,
+		notifyHostError,
+		ownsGraph,
+		resetForRepo,
+		type RoutedByStore,
+	} from './lib/hostRouter';
 	import { buildRefPayload, commitRefPayload, commitStashName } from './lib/refPayload';
 	import type { RefTarget } from './lib/graphMenu';
 	import { nextRowIndex } from './lib/keyNav';
@@ -425,6 +431,9 @@
 					break;
 				}
 				case 'error': {
+					// Whatever this error costs the graph, a domain waiting on the failed request has to
+					// stop waiting — the reply it was expecting is never coming.
+					notifyHostError(message);
 					// A failed side query is that panel's problem, not the graph's: report it where it
 					// was asked for instead of replacing a healthy graph with an error screen.
 					if (message.source === 'loadCommitDetails') {
@@ -439,6 +448,15 @@
 					}
 					if (message.source === 'loadFileDiff') {
 						diffView.failed(message.message);
+						break;
+					}
+					// Anything that does not own the graph leaves it standing: the toast the host
+					// already showed carries the detail, and a notice repeats it where the user is
+					// looking. Tearing the view down for a failed copy or a failed settings write cost
+					// them the graph over something that never touched it.
+					if (!ownsGraph(message.source)) {
+						detailsLoading = false;
+						session.showNotice(message.message);
 						break;
 					}
 					errorMessage = message.message;

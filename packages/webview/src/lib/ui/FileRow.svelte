@@ -1,14 +1,20 @@
-<script lang="ts">
+<script lang="ts" module>
+	/**
+	 * A row whose actions are a union reports that union back through `onaction`. The `string`
+	 * default is for the lists that show no actions at all, which have nothing to infer from.
+	 */
+	export interface FileRowAction<Id extends string = string> {
+		id: Id;
+		label: string;
+		icon: string;
+	}
+</script>
+
+<script lang="ts" generics="Id extends string = string">
 	import type { FileChange } from '@git-octopus/shared';
 	import FileIcon from './FileIcon.svelte';
 	import Icon from './Icon.svelte';
 	import { tooltip } from './tooltip';
-
-	export interface FileRowAction {
-		id: string;
-		label: string;
-		icon: string;
-	}
 
 	let {
 		file,
@@ -27,9 +33,9 @@
 		label?: string;
 		/** Left inset in pixels, used to show tree depth. */
 		indent?: number;
-		actions?: FileRowAction[];
+		actions?: FileRowAction<Id>[];
 		onopen: (path: string) => void;
-		onaction?: (id: string, path: string) => void;
+		onaction?: (id: Id, path: string) => void;
 		onmenu?: (event: MouseEvent, file: FileChange) => void;
 	} = $props();
 

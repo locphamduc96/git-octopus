@@ -6,8 +6,9 @@ import {
 	buildHeaderMenuItems,
 	buildMultiMenuItems,
 	buildRefMenu,
-	mapMultiAction,
 	resolveMenuSelection,
+	type MenuEntry,
+	type RefTarget,
 } from './graphMenu';
 import { buildChips } from './graphChips';
 import type { RefChip } from './graphChips';
@@ -39,6 +40,10 @@ function chip(over: Partial<RefChip> = {}): RefChip {
 }
 
 const labels = (list: { label: string }[]): string[] => list.map((item) => item.label);
+
+/** The ref an entry acts on; only the entries built from a ref menu carry one. */
+const targetOf = (entry: MenuEntry | undefined): RefTarget | undefined =>
+	entry && 'target' in entry ? entry.target : undefined;
 
 describe('buildCommitMenuItems', () => {
 	it('shows only stash actions and the copies for a stash', () => {
@@ -125,8 +130,8 @@ describe('buildCommitMenuItems', () => {
 		const listIds = listSubmenus.flatMap((item) => item.children!.map((child) => child.id));
 		expect(new Set(listIds).size).toBe(listIds.length);
 		for (const id of listIds) expect(menu.mapEntries[id]).toBeDefined();
-		expect(menu.mapEntries['branch:feature:deleteBranch'].target.chip.name).toBe('feature');
-		expect(menu.mapEntries['branch:other:deleteRemoteBranch:origin'].target).toEqual({
+		expect(targetOf(menu.mapEntries['branch:feature:deleteBranch'])?.chip.name).toBe('feature');
+		expect(targetOf(menu.mapEntries['branch:other:deleteRemoteBranch:origin'])).toEqual({
 			chip: expect.objectContaining({ name: 'other' }),
 			remote: 'origin',
 		});
@@ -138,8 +143,41 @@ describe('buildCommitMenuItems', () => {
 			{ kind: 'tag', name: 'v1' },
 		];
 		const menu = buildCommitMenuItems(commit('h', refs), 'main', buildChips(refs, 'main', null));
-		expect(menu.mapEntries['branch:v1:deleteBranch'].target.chip.kind).toBe('branch');
-		expect(menu.mapEntries['tag:v1:deleteTag'].target.chip.kind).toBe('tag');
+		expect(targetOf(menu.mapEntries['branch:v1:deleteBranch'])?.chip.kind).toBe('branch');
+		expect(targetOf(menu.mapEntries['tag:v1:deleteTag'])?.chip.kind).toBe('tag');
+	});
+
+	it('runs its own entries under the commit protocol, and the submenu parents not at all', () => {
+		const refs: Ref[] = [{ kind: 'branch', name: 'feature' }];
+		const menu = buildCommitMenuItems(commit('h', refs), 'main', buildChips(refs, 'main', null));
+		expect(menu.mapEntries['checkout']).toEqual({ type: 'commit', action: 'checkout' });
+		expect(menu.mapEntries['resetHard']).toEqual({ type: 'commit', action: 'resetHard' });
+		expect(menu.mapEntries['copySubject']).toEqual({ type: 'commit', action: 'copySubject' });
+		// Both parents open a flyout rather than firing, so neither names an action.
+		expect(menu.mapEntries['reset']).toBeUndefined();
+		expect(menu.mapEntries['branch:feature']).toBeUndefined();
+	});
+
+	it('gives the stash menu entries of its own', () => {
+		const menu = buildCommitMenuItems(commit('h', [{ kind: 'stash', name: 'stash@{0}' }]), 'main');
+		expect(menu.mapEntries['stashPop']).toEqual({ type: 'commit', action: 'stashPop' });
+		expect(menu.mapEntries['copyHash']).toEqual({ type: 'commit', action: 'copyHash' });
+	});
+
+	// The invariant the dispatcher rests on: it looks an id up and runs what it finds, so an id it
+	// can reach with nothing behind it would be a menu row that silently does nothing.
+	it('leaves no selectable id without an entry', () => {
+		const refs: Ref[] = [
+			{ kind: 'branch', name: 'feature', remote: 'origin' },
+			{ kind: 'branch', name: 'feature' },
+			{ kind: 'tag', name: 'v1' },
+		];
+		const menu = buildCommitMenuItems(commit('h', refs), 'main', buildChips(refs, 'main', null));
+		for (const item of menu.items) {
+			const listSelectable = item.children ?? [item];
+			for (const selectable of listSelectable)
+				expect(menu.mapEntries[selectable.id], selectable.id).toBeDefined();
+		}
 	});
 });
 
@@ -155,14 +193,14 @@ describe('buildRefMenu', () => {
 			'Delete feature…',
 			'Copy Branch Name',
 		]);
-		expect(menu.mapEntries['branch:feature:deleteBranch'].run).toEqual({
+		expect(menu.mapEntries['branch:feature:deleteBranch']).toMatchObject({
 			type: 'commit',
 			action: 'deleteBranch',
 		});
-		expect(menu.mapEntries['branch:feature:mergeInto'].run).toEqual({
+		expect(menu.mapEntries['branch:feature:mergeInto']).toMatchObject({
 			type: 'branch',
 			action: 'mergeInto',
-			target: 'main',
+			onto: 'main',
 		});
 	});
 
@@ -188,13 +226,13 @@ describe('buildRefMenu', () => {
 
 	it('filters by the local name, and by the remote ref when no local branch exists', () => {
 		const local = buildRefMenu(chip(), 'main');
-		expect(local.mapEntries['branch:feature:filterBranch'].run).toEqual({
+		expect(local.mapEntries['branch:feature:filterBranch']).toEqual({
 			type: 'filter',
 			ref: 'feature',
 		});
 		// Remote-only: git has to be handed a ref that exists, and `feature` alone is not one.
 		const remoteOnly = buildRefMenu(chip({ hasLocal: false, listRemotes: ['origin'] }), 'main');
-		expect(remoteOnly.mapEntries['branch:feature:filterBranch'].run).toEqual({
+		expect(remoteOnly.mapEntries['branch:feature:filterBranch']).toEqual({
 			type: 'filter',
 			ref: 'origin/feature',
 		});
@@ -202,7 +240,7 @@ describe('buildRefMenu', () => {
 
 	it('renames only through the local ref, prefilled by the entry that names it', () => {
 		const menu = buildRefMenu(chip(), 'main');
-		expect(menu.mapEntries['branch:feature:renameBranch'].run).toEqual({
+		expect(menu.mapEntries['branch:feature:renameBranch']).toMatchObject({
 			type: 'commit',
 			action: 'renameBranch',
 		});
@@ -240,11 +278,15 @@ describe('buildRefMenu', () => {
 			'Delete upstream/feature…',
 			'Copy Branch Name',
 		]);
-		expect(menu.mapEntries['branch:feature:deleteRemoteBranch:upstream'].target.remote).toBe(
+		expect(targetOf(menu.mapEntries['branch:feature:deleteRemoteBranch:upstream'])?.remote).toBe(
 			'upstream'
 		);
-		// The local delete is about the local ref, and must not drag a remote along with it.
-		expect(menu.mapEntries['branch:feature:deleteBranch'].target.remote).toBeUndefined();
+		// The local delete is about the local ref, and must not drag a remote along with it. Asserted
+		// on the whole target rather than on `remote` alone: `undefined?.remote` is undefined too, so
+		// the narrower check would keep passing if the entry vanished.
+		expect(targetOf(menu.mapEntries['branch:feature:deleteBranch'])).toEqual({
+			chip: expect.objectContaining({ name: 'feature' }),
+		});
 	});
 
 	it('keeps an id pointing at the same ref when the chip order changes under it', () => {
@@ -254,8 +296,8 @@ describe('buildRefMenu', () => {
 		// whenever HEAD moves. The ids must not follow that order.
 		const before = buildCommitMenuItems(commit('h'), 'alpha', [alpha, beta]);
 		const after = buildCommitMenuItems(commit('h'), 'beta', [beta, alpha]);
-		expect(before.mapEntries['branch:beta:deleteBranch'].target.chip.name).toBe('beta');
-		expect(after.mapEntries['branch:beta:deleteBranch'].target.chip.name).toBe('beta');
+		expect(targetOf(before.mapEntries['branch:beta:deleteBranch'])?.chip.name).toBe('beta');
+		expect(targetOf(after.mapEntries['branch:beta:deleteBranch'])?.chip.name).toBe('beta');
 	});
 
 	it('drops merge and rebase when HEAD is detached', () => {
@@ -318,31 +360,51 @@ describe('buildMultiMenuItems', () => {
 	const merge = commit('m', [], ['x', 'y']);
 
 	it('enables everything for a contiguous merge-free chain', () => {
-		const items = buildMultiMenuItems([a, b]);
-		expect(ids(items)).toEqual([
+		const menu = buildMultiMenuItems([a, b]);
+		expect(ids(menu.items)).toEqual([
 			'squashSelected',
 			'dropSelected',
 			'cherryPickSelected',
 			'revertSelected',
 		]);
-		expect(items.every((item) => !item.disabled)).toBe(true);
+		expect(menu.items.every((item) => !item.disabled)).toBe(true);
 	});
 
 	it('disables squash/drop and explains when the run is not a chain', () => {
 		const gap = commit('a', [], ['zzz']);
-		const items = buildMultiMenuItems([gap, b]);
-		expect(items.find((item) => item.id === 'squashSelected')?.disabled).toBe(true);
-		expect(items.find((item) => item.id === 'multiHint')?.label).toBe(
+		const menu = buildMultiMenuItems([gap, b]);
+		expect(menu.items.find((item) => item.id === 'squashSelected')?.disabled).toBe(true);
+		expect(menu.items.find((item) => item.id === 'multiHint')?.label).toBe(
 			'Squash/Drop need a consecutive run on one branch'
 		);
 	});
 
 	it('disables cherry-pick/revert too when the selection holds a merge', () => {
-		const items = buildMultiMenuItems([merge, b]);
-		expect(items.find((item) => item.id === 'cherryPickSelected')?.disabled).toBe(true);
-		expect(items.find((item) => item.id === 'multiHint')?.label).toBe(
+		const menu = buildMultiMenuItems([merge, b]);
+		expect(menu.items.find((item) => item.id === 'cherryPickSelected')?.disabled).toBe(true);
+		expect(menu.items.find((item) => item.id === 'multiHint')?.label).toBe(
 			'Selection contains merge commits'
 		);
+	});
+
+	it('gives every selectable entry the action it runs, and the hint none', () => {
+		const menu = buildMultiMenuItems([a, b]);
+		expect(menu.mapEntries).toEqual({
+			squashSelected: { type: 'multi', action: 'squash' },
+			dropSelected: { type: 'multi', action: 'drop' },
+			cherryPickSelected: { type: 'multi', action: 'cherryPick' },
+			revertSelected: { type: 'multi', action: 'revert' },
+		});
+		expect(buildMultiMenuItems([merge, b]).mapEntries['multiHint']).toBeUndefined();
+	});
+
+	// The entry survives so that `resolveMenuSelection` stays the single place an action is ruled
+	// out; a map with holes in it would answer the same question a second time, and could disagree.
+	it('keeps the entry of a disabled action', () => {
+		const menu = buildMultiMenuItems([merge, b]);
+		expect(menu.items.find((item) => item.id === 'revertSelected')?.disabled).toBe(true);
+		expect(menu.mapEntries['revertSelected']).toEqual({ type: 'multi', action: 'revert' });
+		expect(resolveMenuSelection(menu.items, 'revertSelected')).toBeNull();
 	});
 });
 
@@ -373,7 +435,7 @@ describe('buildDropMenuItems', () => {
 	});
 });
 
-describe('header menu and multi-action map', () => {
+describe('buildHeaderMenuItems', () => {
 	it('mirrors column visibility into checkmarks', () => {
 		const items = buildHeaderMenuItems({ author: true, commit: false, date: true });
 		expect(items).toEqual([
@@ -381,14 +443,5 @@ describe('header menu and multi-action map', () => {
 			{ id: 'commit', label: 'Commit', checked: false },
 			{ id: 'date', label: 'Date', checked: true },
 		]);
-	});
-
-	it('maps every multi menu id to its action', () => {
-		expect(mapMultiAction).toEqual({
-			squashSelected: 'squash',
-			dropSelected: 'drop',
-			cherryPickSelected: 'cherryPick',
-			revertSelected: 'revert',
-		});
 	});
 });

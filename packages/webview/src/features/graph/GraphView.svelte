@@ -7,6 +7,7 @@
 		Ref,
 		RemoteBranchRef,
 	} from '@git-octopus/shared';
+	import { assertNever } from '@git-octopus/shared';
 	import { graphWidth } from '@git-octopus/graph-layout';
 	import { graphColour } from '../../lib/graphColours';
 	import { laneX, type LaneMetrics } from '../../lib/graphPath';
@@ -24,10 +25,9 @@
 		buildHeaderMenuItems,
 		buildMultiMenuItems,
 		buildRefMenu,
-		mapMultiAction,
 		resolveMenuSelection,
-		type RefMenu,
-		type RefMenuEntry,
+		type MenuBuild,
+		type MenuEntry,
 		type RefTarget,
 	} from '../../lib/graphMenu';
 	import { clampExpandRight, expanderAnchor, shouldExpand } from '../../lib/refExpander';
@@ -438,18 +438,18 @@
 	// `ffNonce` is read live: only the answer to *this* drop's question may add the entry.
 	const dropMenuItems = $derived(buildDropMenuItems(dropMenu, fastForward, ffNonce));
 
-	function onDropMenuSelect(id: string): void {
+	function onDropMenuSelect(id: BranchActionId): void {
 		const drop = dropMenu;
 		dropMenu = null;
-		if (drop) onbranchAction(id as BranchActionId, drop.source, drop.sourceLabel, drop.target);
+		if (drop) onbranchAction(id, drop.source, drop.sourceLabel, drop.target);
 	}
 
-	const openMenuBuild = $derived.by((): RefMenu => {
+	const openMenuBuild = $derived.by((): MenuBuild => {
 		if (!menu) return { items: [], mapEntries: {} };
 		if (menu.chip) return buildRefMenu(menu.chip, currentBranch);
 		// A right-click inside the multi-selection acts on the range, not the single commit.
 		if (listSelectedCommits.length > 1 && setSelected.has(menu.commit.hash)) {
-			return { items: buildMultiMenuItems(listSelectedCommits), mapEntries: {} };
+			return buildMultiMenuItems(listSelectedCommits);
 		}
 		return buildCommitMenuItems(menu.commit, currentBranch, chipsFor(menu.commit.refs));
 	});
@@ -457,28 +457,18 @@
 	const menuItems = $derived(openMenuBuild.items);
 
 	function onMenuSelect(id: string): void {
-		const commit = menu?.commit;
+		const open = menu;
 		// Read before closing: `openMenuBuild` is derived from `menu`, and clearing it first would
 		// leave nothing to look the id up in.
 		const selected = resolveMenuSelection(openMenuBuild.items, id);
-		const refEntry = openMenuBuild.mapEntries[id];
+		const entry = openMenuBuild.mapEntries[id];
 		closeMenu();
 		// A disabled entry resolves to nothing. `ContextMenu` will not fire one either; both have to
-		// agree, because the id alone cannot say whether the action was ruled out.
-		if (!selected) return;
-		if (refEntry && commit) {
-			runRefEntry(refEntry, commit);
-			return;
-		}
-		const multiAction = mapMultiAction[id];
-		if (multiAction) {
-			onmulti(
-				multiAction,
-				listSelectedCommits.map((selected) => selected.hash)
-			);
-			return;
-		}
-		if (commit) onaction(id as CommitActionId, commit);
+		// agree, because the id alone cannot say whether the action was ruled out. `entry` is checked
+		// too because a `Record` index types as always present — a row whose id never got an entry
+		// would dispatch `undefined`.
+		if (!open || !selected || !entry) return;
+		runEntry(entry, open.commit);
 	}
 
 	/** Closing the menu releases the expanded column it was pinning, if it came from one. */
@@ -487,18 +477,30 @@
 		refExpand = null;
 	}
 
-	function runRefEntry(entry: RefMenuEntry, commit: Commit): void {
-		if (entry.run.type === 'filter') {
-			onfilterBranch(entry.run.ref);
-			return;
+	function runEntry(entry: MenuEntry, commit: Commit): void {
+		switch (entry.type) {
+			case 'filter':
+				onfilterBranch(entry.ref);
+				return;
+			case 'multi':
+				onmulti(
+					entry.action,
+					listSelectedCommits.map((selected) => selected.hash)
+				);
+				return;
+			case 'commit':
+				onaction(entry.action, commit, entry.target);
+				return;
+			case 'branch': {
+				const source = chipRef(entry.target.chip);
+				if (source) onbranchAction(entry.action, source.ref, source.label, entry.onto);
+				return;
+			}
+			default:
+				// A new kind of entry has to name what runs it here; without this a menu row built
+				// from it would look live and do nothing.
+				assertNever(entry);
 		}
-		if (entry.run.type === 'commit') {
-			onaction(entry.run.action, commit, entry.target);
-			return;
-		}
-		const source = chipRef(entry.target.chip);
-		if (!source) return;
-		onbranchAction(entry.run.action, source.ref, source.label, entry.run.target);
 	}
 
 	/** Row count the last load-more was asked at, so one scroll position asks only once. */
@@ -984,7 +986,7 @@
 		items={headerMenuItems}
 		onselect={(id) => {
 			headerMenu = null;
-			ontoggleColumn(id as keyof ColumnVisibility);
+			ontoggleColumn(id);
 		}}
 		onclose={() => (headerMenu = null)}
 	/>

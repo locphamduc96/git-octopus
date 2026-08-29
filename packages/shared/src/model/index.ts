@@ -32,6 +32,14 @@ export interface Commit {
 export const UNCOMMITTED_HASH = '*uncommitted*';
 
 /**
+ * The arm of a switch no value can reach.
+ *
+ * Passing a value that is not `never` is a compile error, so a union that grows a member no case
+ * answers for fails the build instead of becoming a control that silently does nothing.
+ */
+export function assertNever(_unreachable: never): void {}
+
+/**
  * A lane crossing a row: the commit it is waiting for, the colour it is drawn in, and the stable
  * identity of the branch line it belongs to. Colours cycle and repeat; `branch` never does, so it
  * is what hover-highlighting matches on.

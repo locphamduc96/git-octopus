@@ -7,7 +7,7 @@
 		SequencerActionMessage,
 	} from '@git-octopus/shared';
 	import { buildIdentityMenu, IDENTITY_ITEM } from '../../lib/identityMenu';
-	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
+	import ContextMenu, { type MenuItem } from '../../lib/ui/ContextMenu.svelte';
 	import Dropdown from '../../lib/ui/Dropdown.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
 	import IconButton from '../../lib/ui/IconButton.svelte';
@@ -148,6 +148,11 @@
 		}
 	}
 	let pullMenu = $state<{ x: number; y: number } | null>(null);
+	const listPullItems: MenuItem<'pull' | 'pullRebase' | 'pullFf'>[] = [
+		{ id: 'pull', label: 'Pull' },
+		{ id: 'pullRebase', label: 'Pull (rebase)' },
+		{ id: 'pullFf', label: 'Pull (fast-forward only)' },
+	];
 
 	const mapStateLabel: Record<RepoState, string> = {
 		rebasing: 'Rebase in progress',
@@ -356,15 +361,11 @@
 	<ContextMenu
 		x={pullMenu.x}
 		y={pullMenu.y}
-		items={[
-			{ id: 'pull', label: 'Pull' },
-			{ id: 'pullRebase', label: 'Pull (rebase)' },
-			{ id: 'pullFf', label: 'Pull (fast-forward only)' },
-		]}
+		items={listPullItems}
 		onselect={(id) => {
 			pullMenu = null;
 			if (id === 'pull') onpull();
-			else onpullOption(id as 'pullRebase' | 'pullFf');
+			else onpullOption(id);
 		}}
 		onclose={() => (pullMenu = null)}
 	/>
