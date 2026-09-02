@@ -1,5 +1,5 @@
-import type { Ref, RemoteBranchRef } from '@git-octopus/shared';
-import { remoteRefLabel, remoteRefPath } from '@git-octopus/shared';
+import type { Ref, RemoteBranchRef, UpstreamTracking } from '@git-octopus/shared';
+import { hasGap, remoteRefLabel, remoteRefPath } from '@git-octopus/shared';
 
 /** One chip drawn in the Branch / Tag column, standing for one or more refs at a commit. */
 export interface RefChip {
@@ -9,6 +9,8 @@ export interface RefChip {
 	hasLocal: boolean;
 	listRemotes: string[];
 	title: string;
+	/** Drift from the upstream, for a chip with a local branch that has one. */
+	tracking: UpstreamTracking | null;
 }
 
 export interface ChipGroups {
@@ -32,7 +34,8 @@ export interface ChipGroups {
 export function buildChips(
 	refs: Ref[],
 	currentBranch: string | null,
-	lastPicked: string | null
+	lastPicked: string | null,
+	mapTracking: Record<string, UpstreamTracking | null> = {}
 ): RefChip[] {
 	const mapBranches = new Map<string, RefChip>();
 	const listStashes: RefChip[] = [];
@@ -51,6 +54,7 @@ export function buildChips(
 					hasLocal: false,
 					listRemotes: [],
 					title: 'HEAD is detached here — not on any branch',
+					tracking: null,
 				});
 			}
 			continue;
@@ -63,18 +67,20 @@ export function buildChips(
 				hasLocal: false,
 				listRemotes: [],
 				title: ref.kind === 'tag' ? `Tag ${ref.name}` : `Stash ${ref.name}`,
+				tracking: null,
 			};
 			if (ref.kind === 'tag') listTags.push(chip);
 			else listStashes.push(chip);
 			continue;
 		}
-		const chip = mapBranches.get(ref.name) ?? {
+		const chip: RefChip = mapBranches.get(ref.name) ?? {
 			kind: 'branch' as const,
 			name: ref.name,
 			checkedOut: false,
 			hasLocal: false,
 			listRemotes: [],
 			title: '',
+			tracking: null,
 		};
 		if (ref.remote) chip.listRemotes.push(ref.remote);
 		else chip.hasLocal = true;
@@ -83,9 +89,13 @@ export function buildChips(
 
 	for (const chip of mapBranches.values()) {
 		chip.checkedOut = chip.hasLocal && chip.name === currentBranch;
+		// Only a local branch has an upstream. A chip standing for `origin/x` alone has nothing to
+		// be measured against, so it carries no tracking however much the map knows about the name.
+		chip.tracking = chip.hasLocal ? (mapTracking[chip.name] ?? null) : null;
 		const listParts: string[] = [];
 		if (chip.hasLocal) listParts.push(chip.checkedOut ? 'checked out' : 'local branch');
 		for (const remote of chip.listRemotes) listParts.push(`${remote}/${chip.name}`);
+		if (chip.tracking) listParts.push(trackingSummary(chip.tracking));
 		chip.title = `${chip.name} — ${listParts.join(', ')}`;
 	}
 
@@ -94,6 +104,26 @@ export function buildChips(
 	);
 	// HEAD leads: while detached it is the one thing on the row a reader is looking for.
 	return [...listHead, ...listStashes, ...listBranches, ...listTags];
+}
+
+/**
+ * How a chip's drift reads in a tooltip.
+ *
+ * Every state that is not `gone` ends in the same caveat. `%(upstream:track)` is measured against
+ * `refs/remotes/*` on disk, so all of these numbers — "in sync" very much included — describe the
+ * repository as it stood at the last fetch, not as it stands now.
+ */
+export function trackingSummary(tracking: UpstreamTracking): string {
+	if (tracking.gone) return `upstream ${tracking.upstream} is gone`;
+	const count = (n: number | null): string => (n === null ? 'some' : String(n));
+	const listGaps: string[] = [];
+	if (hasGap(tracking.ahead)) listGaps.push(`${count(tracking.ahead)} ahead`);
+	if (hasGap(tracking.behind)) listGaps.push(`${count(tracking.behind)} behind`);
+	const gap =
+		listGaps.length === 0
+			? `in sync with ${tracking.upstream}`
+			: `${listGaps.join(', ')} ${tracking.upstream}`;
+	return `${gap} — as of your last fetch`;
 }
 
 /** Checked-out first, then the branch last picked this session, then local, then remote-only. */

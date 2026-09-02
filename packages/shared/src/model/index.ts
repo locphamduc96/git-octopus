@@ -10,6 +10,66 @@ export interface Person {
 	avatarUrl?: string;
 }
 
+/**
+ * How far a local branch has drifted from its upstream.
+ *
+ * Lives in the shared model rather than beside its parser: the host reads it out of git, the
+ * webview draws it, and both need the same two questions answered the same way (`hasGap`,
+ * `isLevel`). The parser itself stays on the host — see `core/git/upstreamTrack.ts` for why three
+ * `for-each-ref` fields are needed to fill this in honestly.
+ */
+export interface UpstreamTracking {
+	/** The upstream ref, short form: "origin/main". */
+	upstream: string;
+	/** Commits this branch has that the upstream does not. `null` when the count could not be read. */
+	ahead: number | null;
+	/** Commits the upstream has that this branch does not. `null` when the count could not be read. */
+	behind: number | null;
+	/** The upstream is still configured, but its remote-tracking ref is gone. */
+	gone: boolean;
+}
+
+/** Whether a count means "there is a gap", counting an unread number as one. */
+export function hasGap(count: number | null): boolean {
+	return count === null || count > 0;
+}
+
+/** True when there is nothing to draw: level with the upstream, and it still exists. */
+export function isLevel(tracking: UpstreamTracking): boolean {
+	return !tracking.gone && !hasGap(tracking.ahead) && !hasGap(tracking.behind);
+}
+
+/**
+ * The auto-fetch intervals offered, in minutes. Zero is "never".
+ *
+ * Shared because both sides narrow against it: the view renders the options, and the host has to
+ * refuse a stored value that is not one of them rather than arm a timer for it.
+ */
+export const LIST_AUTO_FETCH_MINUTES = [0, 1, 5, 15, 30, 60] as const;
+
+/**
+ * How often to fetch before anyone has chosen — on, every minute.
+ *
+ * Declared here rather than only in the view's defaults because the two sides learn it by different
+ * routes: the view spreads its defaults over whatever was stored, while the host reads the stored
+ * blob directly and sees nothing at all until the view has saved one. A default that lived only in
+ * the view would leave the host fetching never, on exactly the fresh installs the default is for.
+ */
+export const DEFAULT_AUTO_FETCH_MINUTES = 1;
+
+/**
+ * A stored value narrowed back to an offered interval.
+ *
+ * Absent or unrecognised falls back to the default rather than to never: never is a choice a user
+ * makes by picking it, and a missing value is the absence of a choice — the two must not read the
+ * same. Zero is kept as zero for exactly that reason.
+ */
+export function pickAutoFetchMinutes(raw: unknown): number {
+	return typeof raw === 'number' && LIST_AUTO_FETCH_MINUTES.includes(raw as never)
+		? raw
+		: DEFAULT_AUTO_FETCH_MINUTES;
+}
+
 export type Ref =
 	| { kind: 'branch'; name: string; remote?: string }
 	| { kind: 'tag'; name: string }

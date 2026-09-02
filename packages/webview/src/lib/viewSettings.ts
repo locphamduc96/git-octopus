@@ -1,4 +1,5 @@
 import type { CommitOrder } from '@git-octopus/shared';
+import { DEFAULT_AUTO_FETCH_MINUTES } from '@git-octopus/shared';
 import type { FileViewMode } from './fileTree';
 import type { GraphStyle } from './graphPath';
 
@@ -68,10 +69,16 @@ export interface ViewSettings {
 	showTypeBadge: boolean;
 	showRemoteBranches: boolean;
 	showTags: boolean;
+	/** Whether a branch chip shows how far it has drifted from its upstream. */
+	showTrackingBadges: boolean;
+	/** Name the lane a selected or hovered commit sits on, when it carries no ref of its own. */
+	showGhostBranch: boolean;
 	showStashes: boolean;
 	showUncommitted: boolean;
 	scrollToHeadOnLoad: boolean;
 	autoFastForwardOnCheckout: boolean;
+	/** Minutes between background fetches; 0 is never. Default lives in `shared`, see below. */
+	autoFetchMinutes: number;
 	/** Apply a saved identity automatically when exactly one matches the repository's remotes. */
 	autoApplyIdentity: boolean;
 }
@@ -124,10 +131,13 @@ export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
 	showTypeBadge: true,
 	showRemoteBranches: true,
 	showTags: true,
+	showTrackingBadges: true,
+	showGhostBranch: true,
 	showStashes: true,
 	showUncommitted: true,
 	scrollToHeadOnLoad: false,
 	autoFastForwardOnCheckout: true,
+	autoFetchMinutes: DEFAULT_AUTO_FETCH_MINUTES,
 	// Off by default: silently changing what a commit is signed as must be asked for.
 	autoApplyIdentity: false,
 };

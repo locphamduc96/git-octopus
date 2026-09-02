@@ -18,6 +18,13 @@ import {
 } from '../../core/git/gitService.js';
 import { getBranchInventory } from '../../core/git/staleBranches.js';
 import { BranchCleanupService } from './BranchCleanupService.js';
+import { UndoService } from './UndoService.js';
+import {
+	branchActionLabel,
+	commitActionLabel,
+	multiActionLabel,
+	squashLabel,
+} from '../../core/git/undoLabel.js';
 import { routeMessage } from '../../app/messageRouter.js';
 import type { RepoContext } from '../../app/useCases/loadCommits.js';
 import { loadStatus } from '../../app/useCases/loadStatus.js';
@@ -27,6 +34,7 @@ import type { UserPrompt } from '../../app/ports/userPrompt.js';
 import { nativePrompt } from './nativePrompt.js';
 import { WebviewPromptBroker } from './webviewPrompt.js';
 import { findRepos } from '../fs/repoScanner.js';
+import { pathExists } from '../fs/pathExists.js';
 import type { DiffService } from './DiffService.js';
 import type { CommitActionService } from './CommitActionService.js';
 import type { WorkingTreeService } from './WorkingTreeService.js';
@@ -99,6 +107,9 @@ export class GitOctopusController {
 		return false;
 	}
 
+	/** Remembers what the last repository-changing action did, so it can be put back. */
+	private readonly undo: UndoService;
+
 	public constructor(
 		private readonly extensionUri: vscode.Uri,
 		private readonly executor: GitExecutor,
@@ -112,6 +123,7 @@ export class GitOctopusController {
 		private readonly globalState: vscode.Memento
 	) {
 		this.branchCleanup = new BranchCleanupService(executor);
+		this.undo = new UndoService(executor);
 		this.activeRepo = workspaceState.get<string | null>(STATE_ACTIVE_REPO, null);
 		this.filters = workspaceState.get<GraphFilters>(STATE_FILTERS, {
 			branch: null,
@@ -230,6 +242,17 @@ export class GitOctopusController {
 		// The webview grows this by scrolling; reloading at the default would silently drop the
 		// history the user has already pulled in.
 		await this.send({ type: 'loadCommits', limit: this.broadcastLimit, filters: this.filters });
+		this.sendUndoState();
+	}
+
+	/**
+	 * Tell every view what Undo would now undo.
+	 *
+	 * Sent from `refresh` rather than from each action: every path that changes the repository ends
+	 * up here, so a button that offered a stale promise would have to get past this on the way.
+	 */
+	private sendUndoState(): void {
+		this.broadcast({ type: 'undoState', label: this.undo.labelFor(this.activeRepo) });
 	}
 
 	/**
@@ -434,30 +457,44 @@ export class GitOctopusController {
 			case 'loadIdentity':
 				await this.sendIdentity();
 				return;
-			case 'identityAction':
-				if (cwd) {
-					try {
-						// Persist first: applying triggers a reload, and a save still in flight would be
-						// read back as if the new identity had never been added.
-						if (message.listIdentities) {
-							await vscode.workspace
-								.getConfiguration('gitOctopus')
-								.update('identities', message.listIdentities, vscode.ConfigurationTarget.Global);
-						}
-						if (message.action === 'apply' && message.name && message.email) {
-							await setLocalIdentity(this.executor, cwd, message.name, message.email);
-							vscode.window.showInformationMessage(
-								`Git Octopus: this repository now commits as ${message.name} <${message.email}>.`
-							);
-						} else if (message.action === 'clearOverride') {
-							await clearLocalIdentity(this.executor, cwd);
-						}
-					} catch (error) {
-						vscode.window.showErrorMessage(`Git Octopus: ${String(error)}`);
-					}
-					await this.sendIdentity();
+			case 'identityAction': {
+				// The message is deliberately mixed: adding an identity and switching to it is one
+				// user action, and sending it as one keeps the save from racing the reload that
+				// follows. Only the switch is repo-scoped, so the saved list is persisted above both
+				// the no-repository check and the guard — a workspace with no repo, or a repo that
+				// changed under an open dialog, must not swallow an account the user just typed.
+				// Persisting first also matters on the happy path: applying triggers a reload, and a
+				// save still in flight would be read back as if the identity had never been added.
+				let savedList = false;
+				if (message.listIdentities) {
+					await vscode.workspace
+						.getConfiguration('gitOctopus')
+						.update('identities', message.listIdentities, vscode.ConfigurationTarget.Global);
+					savedList = true;
 				}
+				if (!cwd || this.repoMismatch(message)) {
+					// One broadcast, at the end: an early one would carry the old repo's identity
+					// alongside the new list and re-run the view's auto-apply against stale state.
+					if (savedList) await this.sendIdentity();
+					return;
+				}
+				try {
+					if (message.action === 'apply' && message.name && message.email) {
+						await setLocalIdentity(this.executor, cwd, message.name, message.email);
+						vscode.window.showInformationMessage(
+							`Git Octopus: this repository now commits as ${message.name} <${message.email}>.`
+						);
+					} else if (message.action === 'clearOverride') {
+						await clearLocalIdentity(this.executor, cwd);
+					}
+				} catch (error) {
+					vscode.window.showErrorMessage(`Git Octopus: ${String(error)}`);
+				}
+				await this.sendIdentity();
 				return;
+			}
+			// No repo stamp on purpose: this writes a global setting and touches no repository, so
+			// there is nothing a stale stamp could protect — only an account it could throw away.
 			case 'saveIdentities':
 				await vscode.workspace
 					.getConfiguration('gitOctopus')
@@ -531,15 +568,30 @@ export class GitOctopusController {
 				return;
 			case 'commitAction':
 				if (!cwd || this.repoMismatch(message)) return;
-				if (await this.actions.run(message, cwd, prompt)) await this.refresh();
+				if (
+					await this.undo.record(commitActionLabel(message), cwd, () =>
+						this.actions.run(message, cwd, prompt)
+					)
+				)
+					await this.refresh();
 				return;
 			case 'squashCommits':
 				if (!cwd || this.repoMismatch(message)) return;
-				if (await this.actions.squash(message, cwd, prompt)) await this.refresh();
+				if (
+					await this.undo.record(squashLabel(message.hashes.length), cwd, () =>
+						this.actions.squash(message, cwd, prompt)
+					)
+				)
+					await this.refresh();
 				return;
 			case 'multiCommitAction':
 				if (!cwd || this.repoMismatch(message)) return;
-				if (await this.actions.runMulti(message, cwd, prompt)) await this.refresh();
+				if (
+					await this.undo.record(multiActionLabel(message), cwd, () =>
+						this.actions.runMulti(message, cwd, prompt)
+					)
+				)
+					await this.refresh();
 				return;
 			case 'sequencerAction':
 				if (!cwd || this.repoMismatch(message)) return;
@@ -547,7 +599,16 @@ export class GitOctopusController {
 				return;
 			case 'branchAction':
 				if (!cwd || this.repoMismatch(message)) return;
-				if (await this.actions.runBranchAction(message, cwd, prompt)) await this.refresh();
+				if (
+					await this.undo.record(branchActionLabel(message), cwd, () =>
+						this.actions.runBranchAction(message, cwd, prompt)
+					)
+				)
+					await this.refresh();
+				return;
+			case 'undoAction':
+				if (!cwd || this.repoMismatch(message)) return;
+				if (await this.undo.run(cwd)) await this.refresh();
 				return;
 			case 'checkFastForward':
 				await webview.postMessage({
@@ -698,7 +759,7 @@ export class GitOctopusController {
 		const listIdentities = vscode.workspace
 			.getConfiguration('gitOctopus')
 			.get<GitIdentity[]>('identities', []);
-		this.broadcast({ type: 'identity', ...identity, listIdentities });
+		this.broadcast({ type: 'identity', repoPath: cwd, ...identity, listIdentities });
 	}
 
 	/**
@@ -771,6 +832,7 @@ export class GitOctopusController {
 			cwd: active?.path ?? null,
 			repoName: active?.name ?? null,
 			avatarUrl: gravatarUrl,
+			pathExists,
 		};
 	}
 }

@@ -1,7 +1,7 @@
 import type { Commit, GraphFilters, HostToWebview, RepoInfo } from '@git-octopus/shared';
 import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
-import { pathExists } from '../../adapters/fs/pathExists.js';
+import type { PathExists } from '../ports/pathExists.js';
 import {
 	getAheadBehind,
 	getBranchEntries,
@@ -25,6 +25,8 @@ export interface RepoContext {
 	repoName: string | null;
 	/** Builds an avatar URL for an email; injected so `core` stays free of network concerns. */
 	avatarUrl?: (email: string) => string;
+	/** Probes git's sequencer files; injected so `app` never reaches the filesystem itself. */
+	pathExists: PathExists;
 }
 
 const DEFAULT_FILTERS: GraphFilters = { branch: null, showRemoteBranches: true };
@@ -80,7 +82,7 @@ export async function loadCommits(
 			getCurrentBranch(ctx.executor, ctx.cwd),
 			getPreviousBranch(ctx.executor, ctx.cwd),
 			getAheadBehind(ctx.executor, ctx.cwd),
-			getRepoState(ctx.executor, ctx.cwd, pathExists),
+			getRepoState(ctx.executor, ctx.cwd, ctx.pathExists),
 		]);
 
 		const hasMore = listRaw.length > limit;
@@ -96,8 +98,7 @@ export async function loadCommits(
 		// The synthetic node hangs off HEAD's commit. Under a branch filter that commit may not be
 		// in the walk at all, and a node whose parent never appears drags an open lane down the whole
 		// graph — so it only shows when the filtered history actually contains its anchor.
-		const headInWalk =
-			!filters.branch || listHistory.some((commit) => commit.hash === headHash);
+		const headInWalk = !filters.branch || listHistory.some((commit) => commit.hash === headHash);
 		// `working` is still sent either way — the changes panel needs it even when the graph
 		// does not show the synthetic node.
 		const listCommits =
@@ -117,7 +118,13 @@ export async function loadCommits(
 			activeRepo: ctx.cwd,
 			repoName: ctx.repoName,
 			listBranches: [
-				...listLocal.map((entry) => ({ name: entry.name, hash: entry.hash, remote: false })),
+				...listLocal.map((entry) => ({
+					name: entry.name,
+					hash: entry.hash,
+					remote: false,
+					tracking: entry.tracking,
+				})),
+				// A remote-tracking ref has no upstream of its own, so there is nothing to carry.
 				...listRemote.map((entry) => ({ name: entry.name, hash: entry.hash, remote: true })),
 			],
 			currentBranch,

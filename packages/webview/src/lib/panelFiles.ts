@@ -1,8 +1,10 @@
 import type { CommitDetails, FileChange, WorkingTreeStatus } from '@git-octopus/shared';
 import { assertNever } from '@git-octopus/shared';
-import type { PanelMode } from '../features/changes-panel/ChangesPanel.svelte';
 import { buildFileTree, type FileTreeNode, type FileViewMode } from './fileTree';
 import { nextRowIndex } from './keyNav';
+
+/** What the panel shows, derived from the graph selection rather than a tab strip. */
+export type PanelMode = 'changes' | 'commit' | 'compare';
 
 /** The files of a tree in the order they are drawn, folders opened as they are in the view. */
 export function flattenTree(listNodes: FileTreeNode[]): FileChange[] {

@@ -7,6 +7,7 @@ import type {
 	CommitDetails,
 	DiffHunk,
 	FileChange,
+	UpstreamTracking,
 	WorkingTreeStatus,
 } from '../model/index.js';
 
@@ -25,6 +26,12 @@ export interface BranchRef {
 	name: string;
 	hash: string;
 	remote: boolean;
+	/**
+	 * Drift from the upstream, for local branches that have one. Optional so a message from an
+	 * older host degrades to "nothing known" rather than to a record of zeroes, which would be
+	 * drawn as "in sync" — the one reading a user would act on.
+	 */
+	tracking?: UpstreamTracking | null;
 }
 
 /**
@@ -168,6 +175,7 @@ export type CommitActionId =
 	| 'checkoutPrevious'
 	| 'deleteRemoteBranch'
 	| 'fetchIntoLocal'
+	| 'pushBranch'
 	| 'stashApply'
 	| 'stashPop'
 	| 'stashDrop'
@@ -239,7 +247,7 @@ export interface MultiCommitActionMessage {
 	 * repo must not run over another that was switched to while it sat open.
 	 */
 	repoPath: string;
-	action: 'cherryPick' | 'revert' | 'drop';
+	action: 'cherryPick' | 'revert' | 'drop' | 'rebaseRange';
 	/** Newest → oldest. */
 	hashes: string[];
 	/** Subjects in the same order, for confirmation prompts. */
@@ -398,6 +406,16 @@ export interface LoadIdentityMessage {
 
 export interface IdentityActionMessage {
 	type: 'identityAction';
+	/**
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository. A menu or dialog built over one
+	 * repo must not run over another that was switched to while it sat open.
+	 *
+	 * A view fills this from the repository it is showing, falling back to the one the last
+	 * `identity` reply was read from — the two agree, and the fallback is what keeps an action taken
+	 * before the first `commits` reply from being refused.
+	 */
+	repoPath: string;
 	/** apply → write `user.name`/`user.email` to the repo's local config; clearOverride → unset both. */
 	action: 'apply' | 'clearOverride';
 	name?: string;
@@ -409,6 +427,11 @@ export interface IdentityActionMessage {
 	listIdentities?: GitIdentity[];
 }
 
+/**
+ * Deliberately carries no `repoPath`: the saved list is a global setting and no repository is
+ * touched, so there is nothing to stamp and nothing a stale stamp could protect. Guarding it would
+ * only discard an account the user typed while the repository changed under an open dialog.
+ */
 export interface SaveIdentitiesMessage {
 	type: 'saveIdentities';
 	listIdentities: GitIdentity[];
@@ -552,14 +575,7 @@ export interface UiDismissMessage {
  * detect and choose an agent, then to generate or execute a commit plan. Every git mutation stays
  * in the host's own services — the agent never touches the repository.
  */
-export const LIST_AGENT_IDS = [
-	'claude',
-	'codex',
-	'gemini',
-	'copilot',
-	'opencode',
-	'qwen',
-] as const;
+export const LIST_AGENT_IDS = ['claude', 'codex', 'gemini', 'copilot', 'opencode', 'qwen'] as const;
 export type AgentId = (typeof LIST_AGENT_IDS)[number];
 
 export interface AgentInfo {
@@ -714,6 +730,25 @@ export interface CommitPlanExecutedMessage {
 }
 
 /** Messages sent from the webview to the extension host. */
+/** Put the repository back the way it was before the last action that changed it. */
+export interface UndoActionMessage {
+	type: 'undoAction';
+	/**
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository.
+	 */
+	repoPath: string;
+}
+
+/**
+ * What pressing Undo would undo, as a phrase to finish "Undo …" with — or null when there is
+ * nothing recorded. Sent after every action, so the button never offers a stale promise.
+ */
+export interface UndoStateMessage {
+	type: 'undoState';
+	label: string | null;
+}
+
 export type WebviewToHost =
 	| LoadCommitsMessage
 	| SelectRepoMessage
@@ -745,6 +780,7 @@ export type WebviewToHost =
 	| UiReplyMessage
 	| DetectAgentsMessage
 	| SelectAgentMessage
+	| UndoActionMessage
 	| SaveAiSettingsMessage
 	| GenerateCommitPlanMessage
 	| CancelCommitPlanMessage
@@ -856,6 +892,12 @@ export interface FileIconsMessage {
 
 export interface IdentityMessage {
 	type: 'identity';
+	/**
+	 * The repository this identity was read from, or null when there is none. A view that has not
+	 * had its first `commits` reply yet does not know which repository it is showing — this is what
+	 * lets it still stamp an identity action correctly.
+	 */
+	repoPath: string | null;
 	/** Effective values (the local override when present, otherwise inherited), null when unset. */
 	name: string | null;
 	email: string | null;
@@ -926,4 +968,5 @@ export type HostToWebview =
 	| CommitPlanProgressMessage
 	| CommitPlanResultMessage
 	| CommitPlanStateMessage
-	| CommitPlanExecutedMessage;
+	| CommitPlanExecutedMessage
+	| UndoStateMessage;

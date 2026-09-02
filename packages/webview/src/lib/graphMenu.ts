@@ -1,5 +1,5 @@
-import type { BranchActionId, Commit, CommitActionId } from '@git-octopus/shared';
-import { remoteRefLabel } from '@git-octopus/shared';
+import type { BranchActionId, Commit, CommitActionId, UpstreamTracking } from '@git-octopus/shared';
+import { hasGap, remoteRefLabel } from '@git-octopus/shared';
 import type { RefChip } from './graphChips';
 import { isSquashableChain } from './squashRange';
 import type { MenuItem } from './ui/ContextMenu.svelte';
@@ -41,9 +41,16 @@ export function buildDropMenuItems(
 }
 
 /** The context menu over a multi-selected run of commits (newest → oldest). */
-export function buildMultiMenuItems(listSelectedCommits: Commit[]): MenuBuild {
+export function buildMultiMenuItems(
+	listSelectedCommits: Commit[],
+	/** The commit HEAD stands at; a range rebase has to reach it. */
+	headHash: string | null = null
+): MenuBuild {
 	const n = listSelectedCommits.length;
 	const chain = isSquashableChain(listSelectedCommits);
+	// `rebase --onto <target> <oldest>^ <branch>` replays to the tip whatever was selected, so a
+	// selection that stops short would move more commits than it named.
+	const atTip = headHash !== null && listSelectedCommits[0]?.hash === headHash;
 	// Cherry-pick and revert replay commits one by one, so they only need merge-free picks,
 	// not a contiguous chain.
 	const noMerges = listSelectedCommits.every((commit) => commit.parents.length === 1);
@@ -74,6 +81,10 @@ export function buildMultiMenuItems(listSelectedCommits: Commit[]): MenuBuild {
 		separatorBefore: true,
 	});
 	addMulti('revertSelected', 'revert', `Revert ${n} Commits…`, { disabled: !noMerges });
+	addMulti('rebaseRangeSelected', 'rebaseRange', `Rebase ${n} Commits onto…`, {
+		disabled: !chain || !atTip,
+		separatorBefore: true,
+	});
 
 	if (!chain) {
 		listItems.push({
@@ -84,12 +95,19 @@ export function buildMultiMenuItems(listSelectedCommits: Commit[]): MenuBuild {
 			disabled: true,
 			separatorBefore: true,
 		});
+	} else if (!atTip) {
+		listItems.push({
+			id: 'tipHint',
+			label: 'Rebase needs the selection to reach the branch tip',
+			disabled: true,
+			separatorBefore: true,
+		});
 	}
 	return { items: listItems, mapEntries };
 }
 
 /** What acting on a whole multi-selection does, newest → oldest. */
-export type MultiAction = 'squash' | 'drop' | 'cherryPick' | 'revert';
+export type MultiAction = 'squash' | 'drop' | 'cherryPick' | 'revert' | 'rebaseRange';
 
 /**
  * The exact ref an action runs on. A chip may stand for a local branch and the same branch on
@@ -146,6 +164,34 @@ type RefRun =
  */
 function refKey(chip: RefChip): string {
 	return `${chip.kind}:${chip.name}`;
+}
+
+/**
+ * What a checkout entry says about the gap it is about to walk into.
+ *
+ * Only *behind* is named. Being ahead changes nothing about checking a branch out, and a label
+ * carrying both numbers reads as a status line rather than as a thing about to happen.
+ *
+ * Deliberately not a promise. Whether the fast-forward actually runs also depends on the working
+ * tree being clean and on the user's setting, neither of which is known when the menu is built —
+ * so the label states the distance and lets the host report what it did.
+ */
+export function behindSuffix(tracking: UpstreamTracking | null): string {
+	if (!tracking || tracking.gone || !hasGap(tracking.behind)) return '';
+	const count = tracking.behind === null ? 'some' : String(tracking.behind);
+	return hasGap(tracking.ahead) ? ` — ${count} behind, diverged` : ` — ${count} behind`;
+}
+
+/**
+ * What a push entry says about how much it is about to send.
+ *
+ * Only *ahead* is named, for the mirror of the reason `behindSuffix` names only behind: how far the
+ * branch trails the remote changes nothing about pushing it.
+ */
+export function aheadSuffix(tracking: UpstreamTracking | null): string {
+	if (!tracking || !hasGap(tracking.ahead)) return '';
+	const count = tracking.ahead === null ? 'some' : String(tracking.ahead);
+	return ` — ${count} ahead`;
 }
 
 /**
@@ -220,7 +266,7 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): MenuB
 	const labelFor = (remote: string): string => remoteRefLabel({ remote, branch: chip.name });
 
 	if (chip.hasLocal && !chip.checkedOut)
-		addRefEntry('checkoutBranch', `Checkout ${chip.name}`, {
+		addRefEntry('checkoutBranch', `Checkout ${chip.name}${behindSuffix(chip.tracking)}`, {
 			type: 'commit',
 			action: 'checkoutBranch',
 		});
@@ -247,6 +293,15 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): MenuB
 			{ type: 'commit', action: 'fetchIntoLocal' },
 			{ remote }
 		);
+	// Push needs a local branch to send; a chip standing only for `origin/x` has nothing here.
+	if (chip.hasLocal)
+		for (const remote of chip.listRemotes)
+			addRefEntry(
+				'pushBranch',
+				`Push ${chip.name} to ${remote}${aheadSuffix(chip.tracking)}`,
+				{ type: 'commit', action: 'pushBranch' },
+				{ remote }
+			);
 
 	// Filter by the ref the chip most plainly stands for: the local branch when there is one,
 	// otherwise the first remote's ref — and the label names that ref outright.

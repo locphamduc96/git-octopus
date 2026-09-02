@@ -117,6 +117,44 @@ export class HistoryRewriter {
 		return true;
 	}
 
+	/**
+	 * Replay a contiguous run at the tip of `branch` onto `target`, and leave the branch there.
+	 *
+	 * `rebase --onto` in its plain form — no detach, no intermediate tip — because nothing is being
+	 * reshaped here: the same commits are being given a different base. That also means the branch
+	 * ref is the one thing rebase writes, so a failure that aborts leaves it exactly where it was.
+	 */
+	public async rebaseRangeOnto(
+		cwd: string,
+		branch: string,
+		exclusiveBase: string,
+		target: string,
+		successMessage: string
+	): Promise<boolean> {
+		try {
+			await this.executor.run(['rebase', '--onto', target, exclusiveBase, branch], cwd);
+			vscode.window.showInformationMessage(`Git Octopus: ${successMessage}`);
+		} catch (err) {
+			try {
+				await this.executor.run(['rebase', '--abort'], cwd);
+			} catch {
+				// Nothing in progress: the failure was in starting the rebase, not in replaying it.
+			}
+			try {
+				await this.executor.run(['checkout', branch], cwd);
+			} catch {
+				// Leave HEAD as it stands; the error below says where things stopped.
+			}
+			vscode.window.showErrorMessage(
+				`Git Octopus: rebase failed — ${err instanceof Error ? err.message : String(err)} ` +
+					`Branch ${branch} was not changed.`
+			);
+		}
+		// A conflict stops the rebase mid-run and leaves the sequencer open, so the graph refreshes
+		// either way — the banner is what tells the user what to do next.
+		return true;
+	}
+
 	/** Whether `target` is an ancestor of `source`, i.e. whether it can be fast-forwarded to it. */
 	public async canFastForward(source: string, target: string, cwd: string): Promise<boolean> {
 		try {

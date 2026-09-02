@@ -12,6 +12,7 @@ const work: GitIdentity = {
 function identityReply(email: string): HostToWebview {
 	return {
 		type: 'identity',
+		repoPath: '/repo/active',
 		name: 'loc',
 		email,
 		hasLocalName: false,
@@ -123,5 +124,59 @@ describe('identity', () => {
 
 		resetForRepo();
 		expect(identity.listWorkspaceIdentities).toEqual([]);
+	});
+});
+
+describe('the repository an identity action is stamped with', () => {
+	it('falls back to the repo the identity reply came from before commits has landed', async () => {
+		// `session.repoPath` stays empty until the first `commits` reply, and the host does not
+		// serialise the two chains — the identity reply normally wins the race. Stamping the empty
+		// string there would have the host refuse the action and warn about a repository change that
+		// never happened.
+		const { identity, listSent, dispatchHostMessage } = await loadIdentity();
+		dispatchHostMessage(identityReply('personal@gmail.com'));
+
+		identity.apply(work);
+
+		const sent = listSent.find((message) => message.type === 'identityAction');
+		expect(sent?.repoPath).toBe('/repo/active');
+	});
+
+	it('prefers the repository the view is showing once it knows it', async () => {
+		const { identity, listSent, dispatchHostMessage } = await loadIdentity();
+		const { session } = await import('./session.svelte');
+		dispatchHostMessage(identityReply('personal@gmail.com'));
+		session.setActiveRepo('/repo/shown');
+
+		identity.apply(work);
+		identity.clearOverride();
+
+		const listActions = listSent.filter((message) => message.type === 'identityAction');
+		expect(listActions.map((message) => message.repoPath)).toEqual(['/repo/shown', '/repo/shown']);
+		session.setActiveRepo(null);
+	});
+
+	it('stamps the add-and-switch message too, since it carries an apply', async () => {
+		const { identity, listSent, dispatchHostMessage } = await loadIdentity();
+		dispatchHostMessage(identityReply('personal@gmail.com'));
+
+		identity.add({ label: 'Home', name: 'loc', email: 'home@example.com' });
+
+		const sent = listSent.find(
+			(message) => message.type === 'identityAction' && message.listIdentities !== undefined
+		);
+		expect(sent?.repoPath).toBe('/repo/active');
+	});
+
+	it('closes the add dialog when the repository changes under it', async () => {
+		// Every other dialog closes on a repo switch; this flag lives in the store, so it has to be
+		// cleared with the rest or it survives holding a payload for a repository nobody is on.
+		const { identity, resetForRepo } = await loadIdentity();
+		identity.openAdd();
+		expect(identity.adding).toBe(true);
+
+		resetForRepo();
+
+		expect(identity.adding).toBe(false);
 	});
 });

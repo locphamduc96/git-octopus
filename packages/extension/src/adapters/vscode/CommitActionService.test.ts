@@ -1,40 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { CommitActionMessage } from '@git-octopus/shared';
-import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import type { UserPrompt } from '../../app/ports/userPrompt.js';
-import {
-	CommitActionService,
-	readHostViewSettings,
-	type HostViewSettings,
-} from './CommitActionService.js';
+import { CommitActionService, type HostViewSettings } from './CommitActionService.js';
 import { recorded, resetRecorded } from '../../test/vscodeStub.js';
-
-/**
- * A git that answers from a script and remembers what it was asked.
- *
- * The point of these tests is the argv: which ref form an action hands git, and whether a guard
- * stopped a command from running at all. Both are invisible to a parser-level test.
- */
-class FakeGit implements GitExecutor {
-	public readonly listCalls: string[][] = [];
-
-	public constructor(private readonly mapAnswers: Record<string, string> = {}) {}
-
-	public run(args: string[]): Promise<string> {
-		this.listCalls.push(args);
-		const key = Object.keys(this.mapAnswers).find((prefix) => args.join(' ').startsWith(prefix));
-		return Promise.resolve(key ? this.mapAnswers[key] : '');
-	}
-
-	/** Every command whose first word is `name`. */
-	public callsTo(name: string): string[][] {
-		return this.listCalls.filter((args) => args[0] === name);
-	}
-
-	public ran(name: string): boolean {
-		return this.callsTo(name).length > 0;
-	}
-}
+import { FakeGit } from '../../test/fakeGit.js';
 
 const SILENT_PROMPT: UserPrompt = {
 	confirm: () => Promise.resolve(true),
@@ -68,22 +37,89 @@ const BEHIND: Record<string, string> = {
 
 beforeEach(resetRecorded);
 
-describe('readHostViewSettings', () => {
-	it('reads the settings out of the shape the view actually persists', () => {
-		// The whole preferences object, exactly as `savePreferences` writes it.
-		const stored = {
-			settings: { autoFastForwardOnCheckout: false },
-			columns: { author: false, commit: false, date: true },
-			fileView: 'tree',
-			metaOpen: false,
-		};
-		expect(readHostViewSettings(stored)).toEqual({ autoFastForwardOnCheckout: false });
+/** The same branch, reached by its local name, with an upstream configured. */
+const BEHIND_LOCAL: Record<string, string> = {
+	...BEHIND,
+	'for-each-ref --format=%(upstream)': 'refs/remotes/origin/wikz\0origin/wikz\n',
+};
+
+describe('checkout of a local branch', () => {
+	it('fast-forwards a local branch that has fallen behind its upstream', async () => {
+		// The defect this covers: double-click and `Checkout <name>` ran a bare `git checkout`, so a
+		// branch left behind yesterday was checked out still behind and nothing said so.
+		const git = new FakeGit(BEHIND_LOCAL);
+		await makeService(git, { autoFastForwardOnCheckout: true }).run(
+			makeMessage({ branches: ['wikz'] }),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.callsTo('merge')).toEqual([['merge', '--ff-only', 'refs/remotes/origin/wikz']]);
 	});
 
-	it('answers null for a blob with nothing saved in it yet', () => {
-		expect(readHostViewSettings(null)).toBeNull();
-		expect(readHostViewSettings({})).toBeNull();
-		expect(readHostViewSettings('nonsense')).toBeNull();
+	it('measures against the upstream git names, not against a remote of the same name', async () => {
+		const git = new FakeGit({
+			...BEHIND,
+			'for-each-ref --format=%(upstream)': 'refs/remotes/upstream/wikz\0upstream/wikz\n',
+		});
+		await makeService(git, { autoFastForwardOnCheckout: true }).run(
+			makeMessage({ branches: ['wikz'], remoteBranches: [{ remote: 'origin', branch: 'wikz' }] }),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.callsTo('merge')).toEqual([['merge', '--ff-only', 'refs/remotes/upstream/wikz']]);
+	});
+
+	it('honours the setting on the local path too', async () => {
+		const git = new FakeGit(BEHIND_LOCAL);
+		await makeService(git, { autoFastForwardOnCheckout: false }).run(
+			makeMessage({ branches: ['wikz'] }),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.ran('merge')).toBe(false);
+		expect(git.callsTo('checkout')).toEqual([['checkout', 'wikz']]);
+	});
+
+	it('leaves a dirty tree alone on the local path too', async () => {
+		const git = new FakeGit({ ...BEHIND_LOCAL, 'status --porcelain': ' M src/a.ts\n' });
+		await makeService(git, { autoFastForwardOnCheckout: true }).run(
+			makeMessage({ branches: ['wikz'] }),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.ran('merge')).toBe(false);
+	});
+
+	it('just checks out a branch with no upstream at all', async () => {
+		const git = new FakeGit({ ...BEHIND, 'for-each-ref --format=%(upstream)': '\0\n' });
+		await makeService(git, { autoFastForwardOnCheckout: true }).run(
+			makeMessage({ branches: ['solo'] }),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.ran('merge')).toBe(false);
+		expect(git.callsTo('checkout')).toEqual([['checkout', 'solo']]);
+	});
+
+	it('falls back to a remote of the same name when no upstream is configured', async () => {
+		const git = new FakeGit({ ...BEHIND, 'for-each-ref --format=%(upstream)': '\0\n' });
+		await makeService(git, { autoFastForwardOnCheckout: true }).run(
+			makeMessage({ branches: ['wikz'], remoteBranches: [{ remote: 'origin', branch: 'wikz' }] }),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.callsTo('merge')).toEqual([['merge', '--ff-only', 'refs/remotes/origin/wikz']]);
+	});
+
+	it('ignores a fallback remote that is about a different branch', async () => {
+		const git = new FakeGit({ ...BEHIND, 'for-each-ref --format=%(upstream)': '\0\n' });
+		await makeService(git, { autoFastForwardOnCheckout: true }).run(
+			makeMessage({ branches: ['wikz'], remoteBranches: [{ remote: 'origin', branch: 'other' }] }),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.ran('merge')).toBe(false);
+		expect(git.callsTo('checkout')).toEqual([['checkout', 'wikz']]);
 	});
 });
 
@@ -455,5 +491,175 @@ describe('delete branch, force offered only on the unmerged refusal', () => {
 		expect(done).toBe(false);
 		expect(git.callsTo('branch')).toEqual([['branch', '-d', 'feature']]);
 		expect(recorded.listErrors.join(' ')).toContain('unrelated failure');
+	});
+});
+
+describe('pushing a branch that is not checked out', () => {
+	/** The branch exists locally and already tracks a remote. */
+	const PUSHABLE: Record<string, string> = {
+		'rev-parse --verify --quiet refs/heads/': 'abc123\n',
+		'for-each-ref --format=%(upstream)': 'refs/remotes/origin/wikz\0origin/wikz\n',
+		'remote': 'origin\n',
+	};
+
+	it('pushes a fully-qualified refspec, never through HEAD', async () => {
+		const git = new FakeGit(PUSHABLE);
+		await makeService(git).run(
+			makeMessage({
+				action: 'pushBranch',
+				remoteBranches: [{ remote: 'origin', branch: 'wikz' }],
+			}),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.callsTo('push')).toEqual([
+			['push', '--end-of-options', 'origin', 'refs/heads/wikz:refs/heads/wikz'],
+		]);
+	});
+
+	it('sets the upstream when the branch has none yet', async () => {
+		const git = new FakeGit({ ...PUSHABLE, 'for-each-ref --format=%(upstream)': '\0\n' });
+		await makeService(git).run(
+			makeMessage({
+				action: 'pushBranch',
+				remoteBranches: [{ remote: 'origin', branch: 'wikz' }],
+			}),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.callsTo('push')).toEqual([
+			[
+				'push',
+				'--set-upstream',
+				'--end-of-options',
+				'origin',
+				'refs/heads/wikz:refs/heads/wikz',
+			],
+		]);
+	});
+
+	it('refuses when there is no local branch of that name', async () => {
+		const git = new FakeGit({ ...PUSHABLE, 'rev-parse --verify --quiet refs/heads/': '' });
+		await makeService(git).run(
+			makeMessage({
+				action: 'pushBranch',
+				remoteBranches: [{ remote: 'origin', branch: 'wikz' }],
+			}),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.ran('push')).toBe(false);
+	});
+
+	// `refs/remotes/origin/team/wikz` could belong to a remote called `origin` or one called
+	// `origin/team`; there is no telling which, so nothing is pushed.
+	it('refuses when the ref path could belong to either of two remotes', async () => {
+		const git = new FakeGit({ ...PUSHABLE, remote: 'origin\norigin/team\n' });
+		await makeService(git).run(
+			makeMessage({
+				action: 'pushBranch',
+				remoteBranches: [{ remote: 'origin', branch: 'team/wikz' }],
+			}),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.ran('push')).toBe(false);
+	});
+});
+
+describe('rebasing a range of commits onto another branch', () => {
+	const NEW = 'n'.repeat(40);
+	const OLD = 'o'.repeat(40);
+
+	/** A clean repo on `main`, with the selection being the two commits at its tip. */
+	const AT_TIP: Record<string, string> = {
+		'symbolic-ref --short HEAD': 'main\n',
+		'rev-list --merges': '',
+		'status --porcelain': '',
+		'rev-parse HEAD': `${NEW}\n`,
+		'rev-list --first-parent --parents': `${NEW} ${OLD}\n${OLD} p\n`,
+		'for-each-ref --format=%(refname:short)': 'main\ndev\n',
+	};
+
+	it('replays the range onto the branch that was picked', async () => {
+		const git = new FakeGit(AT_TIP);
+		await makeService(git).runMulti(
+			{
+				type: 'multiCommitAction',
+				repoPath: '/repo',
+				action: 'rebaseRange',
+				hashes: [NEW, OLD],
+				subjects: ['a', 'b'],
+			},
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.callsTo('rebase')).toEqual([['rebase', '--onto', 'dev', `${OLD}^`, 'main']]);
+	});
+
+	// The command replays to the tip whatever was selected, so a selection stopping short would
+	// move more commits than the user picked.
+	it('refuses when the newest selected commit is not the branch tip', async () => {
+		const git = new FakeGit({ ...AT_TIP, 'rev-parse HEAD': `${'z'.repeat(40)}\n` });
+		await makeService(git).runMulti(
+			{
+				type: 'multiCommitAction',
+				repoPath: '/repo',
+				action: 'rebaseRange',
+				hashes: [NEW, OLD],
+				subjects: ['a', 'b'],
+			},
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.ran('rebase')).toBe(false);
+	});
+
+	it('never offers the branch it would rebase as its own target', async () => {
+		const git = new FakeGit({ ...AT_TIP, 'for-each-ref --format=%(refname:short)': 'main\n' });
+		await makeService(git).runMulti(
+			{
+				type: 'multiCommitAction',
+				repoPath: '/repo',
+				action: 'rebaseRange',
+				hashes: [NEW, OLD],
+				subjects: ['a', 'b'],
+			},
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.ran('rebase')).toBe(false);
+	});
+
+	it('refuses when the selection no longer matches the repository', async () => {
+		const git = new FakeGit({ ...AT_TIP, 'rev-list --first-parent --parents': `${NEW} a b\n` });
+		await makeService(git).runMulti(
+			{
+				type: 'multiCommitAction',
+				repoPath: '/repo',
+				action: 'rebaseRange',
+				hashes: [NEW, OLD],
+				subjects: ['a', 'b'],
+			},
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.ran('rebase')).toBe(false);
+	});
+
+	it('refuses over a dirty tree', async () => {
+		const git = new FakeGit({ ...AT_TIP, 'status --porcelain': ' M a.ts\n' });
+		await makeService(git).runMulti(
+			{
+				type: 'multiCommitAction',
+				repoPath: '/repo',
+				action: 'rebaseRange',
+				hashes: [NEW, OLD],
+				subjects: ['a', 'b'],
+			},
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.ran('rebase')).toBe(false);
 	});
 });

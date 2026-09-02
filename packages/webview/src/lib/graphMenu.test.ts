@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Commit, Ref } from '@git-octopus/shared';
+import type { Commit, Ref, UpstreamTracking } from '@git-octopus/shared';
 import {
 	buildCommitMenuItems,
 	buildDropMenuItems,
@@ -27,6 +27,21 @@ function commit(hash: string, refs: Ref[] = [], parents: string[] = ['p']): Comm
 
 const ids = (list: { id: string }[]): string[] => list.map((item) => item.id);
 
+const track = (over: Partial<UpstreamTracking> = {}): UpstreamTracking => ({
+	upstream: 'origin/feature',
+	ahead: 0,
+	behind: 0,
+	gone: false,
+	...over,
+});
+
+/** The label of the plain `Checkout <name>` entry in a chip's own menu. */
+function checkoutLabel(tracking: UpstreamTracking | null): string {
+	const menu = buildRefMenu(chip({ tracking }), 'main');
+	const entry = menu.items.find((item) => item.id.endsWith(':checkoutBranch'));
+	return entry?.label ?? '';
+}
+
 function chip(over: Partial<RefChip> = {}): RefChip {
 	return {
 		kind: 'branch',
@@ -35,6 +50,7 @@ function chip(over: Partial<RefChip> = {}): RefChip {
 		hasLocal: true,
 		listRemotes: [],
 		title: '',
+		tracking: null,
 		...over,
 	};
 }
@@ -269,6 +285,8 @@ describe('buildRefMenu', () => {
 			'Checkout upstream/feature as local branch',
 			'Fetch origin/feature into feature…',
 			'Fetch upstream/feature into feature…',
+			'Push feature to origin',
+			'Push feature to upstream',
 			'Show Only feature',
 			'Merge feature into main…',
 			'Rebase main onto feature…',
@@ -359,13 +377,14 @@ describe('buildMultiMenuItems', () => {
 	const b = commit('b', [], ['c']);
 	const merge = commit('m', [], ['x', 'y']);
 
-	it('enables everything for a contiguous merge-free chain', () => {
-		const menu = buildMultiMenuItems([a, b]);
+	it('enables everything for a contiguous merge-free chain at the tip', () => {
+		const menu = buildMultiMenuItems([a, b], a.hash);
 		expect(ids(menu.items)).toEqual([
 			'squashSelected',
 			'dropSelected',
 			'cherryPickSelected',
 			'revertSelected',
+			'rebaseRangeSelected',
 		]);
 		expect(menu.items.every((item) => !item.disabled)).toBe(true);
 	});
@@ -394,6 +413,7 @@ describe('buildMultiMenuItems', () => {
 			dropSelected: { type: 'multi', action: 'drop' },
 			cherryPickSelected: { type: 'multi', action: 'cherryPick' },
 			revertSelected: { type: 'multi', action: 'revert' },
+			rebaseRangeSelected: { type: 'multi', action: 'rebaseRange' },
 		});
 		expect(buildMultiMenuItems([merge, b]).mapEntries['multiHint']).toBeUndefined();
 	});
@@ -443,5 +463,113 @@ describe('buildHeaderMenuItems', () => {
 			{ id: 'commit', label: 'Commit', checked: false },
 			{ id: 'date', label: 'Date', checked: true },
 		]);
+	});
+});
+
+describe('the checkout entry names the gap it is walking into', () => {
+	it('says nothing extra for a branch level with its upstream', () => {
+		expect(checkoutLabel(track())).toBe('Checkout feature');
+	});
+
+	it('says nothing extra for a branch with no upstream at all', () => {
+		expect(checkoutLabel(null)).toBe('Checkout feature');
+	});
+
+	it('names how far behind the branch is', () => {
+		expect(checkoutLabel(track({ behind: 12 }))).toBe('Checkout feature — 12 behind');
+	});
+
+	it('calls out a diverged branch, where the fast-forward will be refused', () => {
+		expect(checkoutLabel(track({ ahead: 3, behind: 12 }))).toBe(
+			'Checkout feature — 12 behind, diverged'
+		);
+	});
+
+	it('says some when the count could not be read', () => {
+		expect(checkoutLabel(track({ behind: null }))).toBe('Checkout feature — some behind');
+	});
+
+	// Being ahead changes nothing about checking a branch out.
+	it('stays quiet about a branch that is only ahead', () => {
+		expect(checkoutLabel(track({ ahead: 3 }))).toBe('Checkout feature');
+	});
+
+	it('stays quiet when the upstream is gone — there is nothing to catch up to', () => {
+		expect(checkoutLabel(track({ behind: 4, gone: true }))).toBe('Checkout feature');
+	});
+});
+
+describe('the push entry', () => {
+	const pushLabels = (over: Partial<RefChip>): string[] =>
+		buildRefMenu(chip({ listRemotes: ['origin'], ...over }), 'main')
+			.items.filter((item) => item.id.includes(':pushBranch:'))
+			.map((item) => item.label);
+
+	it('offers one entry per remote, naming the branch and the remote', () => {
+		expect(pushLabels({ listRemotes: ['origin', 'upstream'], tracking: null })).toEqual([
+			'Push feature to origin',
+			'Push feature to upstream',
+		]);
+	});
+
+	it('names how much is waiting to be sent', () => {
+		expect(pushLabels({ tracking: track({ ahead: 3 }) })).toEqual([
+			'Push feature to origin — 3 ahead',
+		]);
+	});
+
+	// Being behind changes nothing about pushing.
+	it('stays quiet about a branch that is only behind', () => {
+		expect(pushLabels({ tracking: track({ behind: 9 }) })).toEqual(['Push feature to origin']);
+	});
+
+	it('is absent for a chip that stands only for a remote branch', () => {
+		expect(pushLabels({ hasLocal: false, tracking: null })).toEqual([]);
+	});
+
+	it('is absent for a local branch with no remote to push to', () => {
+		expect(pushLabels({ listRemotes: [], tracking: null })).toEqual([]);
+	});
+});
+
+describe('the range-rebase entry', () => {
+	const A = 'a'.repeat(40);
+	const B = 'b'.repeat(40);
+	const C = 'c'.repeat(40);
+	/** Newest → oldest, a contiguous first-parent run. */
+	const chainOf = (...listHashes: string[]): Commit[] =>
+		listHashes.map((hash, index) =>
+			commit(hash, [], [listHashes[index + 1] ?? 'z'.repeat(40)])
+		);
+
+	const entry = (listCommits: Commit[], headHash: string | null) =>
+		buildMultiMenuItems(listCommits, headHash).items.find(
+			(item) => item.id === 'rebaseRangeSelected'
+		);
+
+	it('is offered on a run that reaches the tip', () => {
+		const item = entry(chainOf(A, B, C), A);
+		expect(item?.label).toBe('Rebase 3 Commits onto…');
+		expect(item?.disabled).toBe(false);
+	});
+
+	// The command replays to the tip whatever was selected, so stopping short would move more
+	// commits than the label names.
+	it('is disabled when the newest selected commit is not the tip', () => {
+		expect(entry(chainOf(A, B, C), 'd'.repeat(40))?.disabled).toBe(true);
+	});
+
+	it('is disabled when HEAD is not known', () => {
+		expect(entry(chainOf(A, B, C), null)?.disabled).toBe(true);
+	});
+
+	it('is disabled on a selection that is not a contiguous run', () => {
+		const listBroken = [commit(A, [], ['x'.repeat(40)]), commit(C, [], ['y'.repeat(40)])];
+		expect(entry(listBroken, A)?.disabled).toBe(true);
+	});
+
+	it('explains why, when the only thing wrong is not reaching the tip', () => {
+		const listItems = buildMultiMenuItems(chainOf(A, B, C), 'd'.repeat(40)).items;
+		expect(listItems.some((item) => item.label.includes('reach the branch tip'))).toBe(true);
 	});
 });

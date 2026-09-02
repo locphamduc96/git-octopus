@@ -3,7 +3,15 @@ import { clampExpandRight, expanderAnchor, shouldExpand } from './refExpander';
 import type { RefChip } from './graphChips';
 
 function chip(name: string): RefChip {
-	return { kind: 'branch', name, checkedOut: false, hasLocal: true, listRemotes: [], title: '' };
+	return {
+		kind: 'branch',
+		name,
+		checkedOut: false,
+		hasLocal: true,
+		listRemotes: [],
+		title: '',
+		tracking: null,
+	};
 }
 
 describe('shouldExpand', () => {

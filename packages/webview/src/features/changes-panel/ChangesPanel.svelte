@@ -17,11 +17,9 @@
 	import Icon from '../../lib/ui/Icon.svelte';
 	import IconButton from '../../lib/ui/IconButton.svelte';
 	import type { FileViewMode } from '../../lib/fileTree';
+	import type { PanelMode } from '../../lib/panelFiles';
 	import { buildFileMenu, type FileMenuAction, type LocalFileMenuId } from '../../lib/fileMenu';
 	import { tooltip } from '../../lib/ui/tooltip';
-
-	/** What the panel shows, derived from the graph selection rather than a tab strip. */
-	export type PanelMode = 'changes' | 'commit' | 'compare';
 
 	export interface ComparisonState {
 		fromHash: string | null;

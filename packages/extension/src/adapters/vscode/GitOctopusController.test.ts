@@ -126,6 +126,9 @@ describe('a question sent to one view', () => {
 			settled = true;
 		});
 
+		// The action no longer starts synchronously: the undo log snapshots the repository first, so
+		// the question is posted a turn later.
+		await flush();
 		const [request] = asking.webview.postedOfType('uiRequest');
 		expect(request).toBeDefined();
 		expect(other.webview.postedOfType('uiRequest')).toEqual([]);

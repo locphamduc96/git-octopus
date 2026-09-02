@@ -60,6 +60,16 @@ export const recorded: StubRecord = {
 /** Settings, keyed `<section>.<key>`. Seeded by a test, written by `getConfiguration().update`. */
 export const mapConfig = new Map<string, unknown>();
 
+/** VS Code's own numbering, so a target comparison means what it means in the editor. */
+export const ConfigurationTarget = {
+	Global: 1,
+	Workspace: 2,
+	WorkspaceFolder: 3,
+};
+
+/** Which scope each setting was written to — an identity saved per-workspace would be a bug. */
+export const mapConfigTarget = new Map<string, number | undefined>();
+
 /** What `workspace.fs.readFile` serves, keyed by `fsPath`. Anything else rejects. */
 export const mapFiles = new Map<string, string>();
 
@@ -82,7 +92,10 @@ export function resetRecorded(): void {
 	recorded.listTerminals.length = 0;
 	recorded.listLog.length = 0;
 	mapConfig.clear();
+	mapConfigTarget.clear();
 	mapFiles.clear();
+	listWatchers.length = 0;
+	listWindowStateListeners.length = 0;
 	// Module state a previous test seeded; left standing it silently configures the next one.
 	workspace.workspaceFolders = [];
 	extensions.all = [];
@@ -132,7 +145,23 @@ function showPrompt(
 	});
 }
 
+/** Window-focus listeners; `fireWindowState` in a test stands in for the user coming back. */
+const listWindowStateListeners: ((state: { focused: boolean }) => void)[] = [];
+
+export function fireWindowState(focused: boolean): void {
+	for (const listener of listWindowStateListeners) listener({ focused });
+}
+
 export const window = {
+	onDidChangeWindowState: (listener: (state: { focused: boolean }) => void) => {
+		listWindowStateListeners.push(listener);
+		return {
+			dispose: (): void => {
+				const at = listWindowStateListeners.indexOf(listener);
+				if (at !== -1) listWindowStateListeners.splice(at, 1);
+			},
+		};
+	},
 	showInformationMessage: (message: string): Promise<undefined> => {
 		recorded.listInfo.push(message);
 		return Promise.resolve(undefined);
@@ -213,6 +242,66 @@ export interface StubWorkspaceFolder {
 	index: number;
 }
 
+/** A `RelativePattern`, recording only what the watcher was rooted at and what it matches. */
+export class RelativePattern {
+	public readonly baseUri: StubUri;
+
+	public constructor(
+		base: StubUri,
+		public readonly pattern: string
+	) {
+		this.baseUri = base;
+	}
+
+	public get base(): string {
+		return this.baseUri.fsPath;
+	}
+}
+
+/** A file-system watcher whose listeners a test can fire by hand. */
+export interface StubWatcher {
+	pattern: RelativePattern;
+	disposed: boolean;
+	fire(kind: 'change' | 'create' | 'delete', fsPath: string): void;
+	onDidChange(listener: (uri: StubUri) => void): { dispose(): void };
+	onDidCreate(listener: (uri: StubUri) => void): { dispose(): void };
+	onDidDelete(listener: (uri: StubUri) => void): { dispose(): void };
+	dispose(): void;
+}
+
+/** Every watcher created since the last reset, in creation order. */
+export const listWatchers: StubWatcher[] = [];
+
+function makeWatcher(pattern: RelativePattern): StubWatcher {
+	const mapListeners: Record<string, ((uri: StubUri) => void)[]> = {
+		change: [],
+		create: [],
+		delete: [],
+	};
+	const on = (kind: string) => (listener: (uri: StubUri) => void) => {
+		mapListeners[kind].push(listener);
+		return {
+			dispose: (): void => {
+				const at = mapListeners[kind].indexOf(listener);
+				if (at !== -1) mapListeners[kind].splice(at, 1);
+			},
+		};
+	};
+	return {
+		pattern,
+		disposed: false,
+		fire(kind, fsPath): void {
+			for (const listener of mapListeners[kind]) listener(fileUri(fsPath));
+		},
+		onDidChange: on('change'),
+		onDidCreate: on('create'),
+		onDidDelete: on('delete'),
+		dispose(): void {
+			this.disposed = true;
+		},
+	};
+}
+
 export const workspace = {
 	/** Empty by default — a repository scan only finds what a test puts here. */
 	workspaceFolders: [] as StubWorkspaceFolder[],
@@ -221,12 +310,18 @@ export const workspace = {
 			const value = mapConfig.get(`${section}.${key}`);
 			return value === undefined ? fallback : value;
 		},
-		update: (key: string, value: unknown): Promise<void> => {
+		update: (key: string, value: unknown, target?: number): Promise<void> => {
 			mapConfig.set(`${section}.${key}`, value);
+			mapConfigTarget.set(`${section}.${key}`, target);
 			return Promise.resolve();
 		},
 		has: (key: string): boolean => mapConfig.has(`${section}.${key}`),
 	}),
+	createFileSystemWatcher: (pattern: RelativePattern): StubWatcher => {
+		const watcher = makeWatcher(pattern);
+		listWatchers.push(watcher);
+		return watcher;
+	},
 	fs: {
 		readFile: (uri: StubUri): Promise<Uint8Array> => {
 			const content = mapFiles.get(uri.fsPath);
@@ -251,7 +346,11 @@ export interface StubExtension {
 }
 
 /** Empty by default: nothing contributes an icon theme or a language unless a test says so. */
-export const extensions = { all: [] as StubExtension[] };
+export const extensions = {
+	all: [] as StubExtension[],
+	/** Nothing is installed unless a test says so — notably not the built-in Git extension. */
+	getExtension: (_id: string): undefined => undefined,
+};
 
 export class CancellationTokenSource {
 	private readonly listListeners: (() => void)[] = [];

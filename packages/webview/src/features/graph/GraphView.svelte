@@ -6,8 +6,9 @@
 		GraphRow,
 		Ref,
 		RemoteBranchRef,
+		UpstreamTracking,
 	} from '@git-octopus/shared';
-	import { assertNever } from '@git-octopus/shared';
+	import { assertNever, hasGap, isLevel } from '@git-octopus/shared';
 	import { graphWidth } from '@git-octopus/graph-layout';
 	import { graphColour } from '../../lib/graphColours';
 	import { laneX, type LaneMetrics } from '../../lib/graphPath';
@@ -17,6 +18,7 @@
 	import { formatSubject, parseSubject, typeColour } from '../../lib/commitSubject';
 	import type { RefChip } from '../../lib/graphChips';
 	import { buildChips, chipRef, chipRemote, isDropTarget, splitChips } from '../../lib/graphChips';
+	import { ghostBranchFor, mapLaneBranches } from '../../lib/ghostBranch';
 	import { formatCommitDate } from '../../lib/commitDate';
 	import { authorTooltip } from '../../lib/authorTooltip';
 	import {
@@ -28,6 +30,7 @@
 		resolveMenuSelection,
 		type MenuBuild,
 		type MenuEntry,
+		type MultiAction,
 		type RefTarget,
 	} from '../../lib/graphMenu';
 	import { clampExpandRight, expanderAnchor, shouldExpand } from '../../lib/refExpander';
@@ -60,6 +63,10 @@
 		muteMerges,
 		showTicketBadge,
 		showTypeBadge,
+		showTracking,
+		mapTracking,
+		showGhostBranch,
+		headHash,
 		fastForward,
 		scrollTarget,
 		hasMore,
@@ -98,6 +105,14 @@
 		/** Off for either one leaves that part of the subject as plain text instead of a chip. */
 		showTicketBadge: boolean;
 		showTypeBadge: boolean;
+		/** Whether a branch chip shows how far it has drifted from its upstream. */
+		showTracking: boolean;
+		/** Local branch name -> its drift from upstream, as of the last fetch. */
+		mapTracking: Record<string, UpstreamTracking | null>;
+		/** Name the lane a selected or hovered commit is drawn on, when it carries no ref itself. */
+		showGhostBranch: boolean;
+		/** The commit HEAD stands at — a range rebase is only offered on a selection reaching it. */
+		headHash: string | null;
 		/** The host's answer to the last fast-forward question, matched by nonce. */
 		fastForward: { nonce: number; canFastForward: boolean } | null;
 		/** Bumping `nonce` scrolls the given hash into view. */
@@ -112,7 +127,7 @@
 		oncheckoutBranch: (local: string | null, remote: RemoteBranchRef | null) => void;
 		onaction: (action: CommitActionId, commit: Commit, target?: RefTarget) => void;
 		/** Act on the multi-selected commits (newest → oldest). */
-		onmulti: (action: 'squash' | 'drop' | 'cherryPick' | 'revert', listHashes: string[]) => void;
+		onmulti: (action: MultiAction, listHashes: string[]) => void;
 		onloadMore: () => void;
 		/** One branch chip dropped onto another: merge, rebase or fast-forward. */
 		onbranchAction: (
@@ -176,6 +191,9 @@
 
 	/** The ref being dragged: what git is handed, plus the shorter form the menus print. */
 	let dragSource = $state<{ ref: string; label: string } | null>(null);
+	/** The row under the pointer — only tracked while the ghost label needs it. */
+	let hoveredRow = $state<string | null>(null);
+
 	/** The local branch under the pointer, i.e. where dropping would land. */
 	let dropTarget = $state<string | null>(null);
 	let dropMenu = $state<{
@@ -240,7 +258,11 @@
 	});
 
 	/** Chips of one commit, ordered and collapsed by the pure helper in `lib/graphChips`. */
-	const chipsFor = (refs: Ref[]): RefChip[] => buildChips(refs, currentBranch, lastPicked);
+	const chipsFor = (refs: Ref[]): RefChip[] =>
+		buildChips(refs, currentBranch, lastPicked, mapTracking);
+
+	/** Lane -> the branch it belongs to, for the ghost label on rows carrying no chip. */
+	const mapGhostNames = $derived(mapLaneBranches(rows));
 
 	/**
 	 * The expanded ref column: every chip of one row, at full width, drawn over the collapsed cell.
@@ -449,7 +471,7 @@
 		if (menu.chip) return buildRefMenu(menu.chip, currentBranch);
 		// A right-click inside the multi-selection acts on the range, not the single commit.
 		if (listSelectedCommits.length > 1 && setSelected.has(menu.commit.hash)) {
-			return buildMultiMenuItems(listSelectedCommits);
+			return buildMultiMenuItems(listSelectedCommits, headHash);
 		}
 		return buildCommitMenuItems(menu.commit, currentBranch, chipsFor(menu.commit.refs));
 	});
@@ -585,6 +607,20 @@
 		<!-- The divider marks where the local half of a combined chip ends, so a remote-only chip
 		     carries none. -->
 		<span class="seg indicator" class:divided={chip.hasLocal}><RefIcon name="cloud" /></span>
+	{/if}
+	{#if showTracking && chip.tracking && !isLevel(chip.tracking)}
+		<!-- Nothing is drawn while a branch is level: the column is narrow, and a badge that appears
+		     on every chip stops meaning anything. -->
+		<span class="seg tracking" class:gone={chip.tracking.gone}>
+			{#if chip.tracking.gone}
+				gone
+			{:else}
+				{#if hasGap(chip.tracking.ahead)}<span class="drift">↑{chip.tracking.ahead ?? '?'}</span
+					>{/if}{#if hasGap(chip.tracking.behind)}<span class="drift"
+						>↓{chip.tracking.behind ?? '?'}</span
+					>{/if}
+			{/if}
+		</span>
 	{/if}
 {/snippet}
 
@@ -786,6 +822,10 @@
 					oncontextmenu={(event) => openMenu(event, v.row.commit)}
 					onmouseenter={() => {
 						if (highlightHover) hoveredBranch = v.row.nodeBranch;
+						if (showGhostBranch) hoveredRow = v.row.commit.hash;
+					}}
+					onmouseleave={() => {
+						if (hoveredRow === v.row.commit.hash) hoveredRow = null;
 					}}
 				>
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -853,6 +893,17 @@
 							<span class="ref more"
 								><span class="seg">+{chipGroups.listOverflow.length}</span></span
 							>
+						{/if}
+						{#if showGhostBranch && (selectedHash === v.row.commit.hash || hoveredRow === v.row.commit.hash)}
+							{@const ghost = ghostBranchFor(v.row, mapGhostNames)}
+							{#if ghost}
+								<!-- Not a chip: this ref is not *at* this commit, it is the line the commit is
+								     drawn on. A chip would claim the branch points here. -->
+								<span
+									class="ghost"
+									use:tooltip={`On the ${ghost} line — no ref points at this commit`}>{ghost}</span
+								>
+							{/if}
 						{/if}
 					</span>
 					<span class="graph-cell"></span>
@@ -1181,6 +1232,39 @@
 	}
 	.ref .seg.indicator.divided {
 		border-left: 1px solid var(--gg-chip-border);
+	}
+	/* Divided like the indicators it follows: the drift is a fact about the chip's local half, and
+	   the rule is what keeps it from reading as part of the branch name. */
+	.ref .seg.tracking {
+		flex: none;
+		gap: 3px;
+		border-left: 1px solid var(--gg-chip-border);
+		font-variant-numeric: tabular-nums;
+		font-size: 0.9em;
+		/* Same flex baseline as every other seg: the arrows are glyphs and would otherwise ride up. */
+		align-items: center;
+	}
+	.ref .seg.tracking.gone {
+		color: var(--vscode-errorForeground, #f48771);
+		text-transform: uppercase;
+		font-size: 0.8em;
+		letter-spacing: 0.04em;
+	}
+	.ref .drift {
+		display: inline-flex;
+		align-items: center;
+	}
+	/* No border, no background: a ghost has to read as "this line" rather than as one more ref. */
+	.ghost {
+		display: inline-flex;
+		align-items: center;
+		height: var(--gg-hit);
+		padding: 0 4px;
+		font-style: italic;
+		opacity: 0.55;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	/* A tag or stash leads with its icon on a filled block, the way the branch colour reads on a node. */
 	.ref .glyph {

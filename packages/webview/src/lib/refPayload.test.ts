@@ -23,6 +23,7 @@ function chip(over: Partial<RefChip> = {}): RefChip {
 		hasLocal: true,
 		listRemotes: [],
 		title: '',
+		tracking: null,
 		...over,
 	};
 }
@@ -90,9 +91,7 @@ describe('commitRefPayload', () => {
 	});
 
 	it('sends a remote branch as a remote branch, and not also as a local one', () => {
-		expect(
-			commitRefPayload(commit([{ kind: 'branch', name: 'main', remote: 'origin' }]))
-		).toEqual({
+		expect(commitRefPayload(commit([{ kind: 'branch', name: 'main', remote: 'origin' }]))).toEqual({
 			listBranches: [],
 			listRemoteBranches: [{ remote: 'origin', branch: 'main' }],
 			listTags: [],

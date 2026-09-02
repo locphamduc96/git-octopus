@@ -4,12 +4,14 @@ import type {
 	DiffHunk,
 	FileChange,
 	FileStatus,
+	UpstreamTracking,
 	WorkingTreeStatus,
 } from '@git-octopus/shared';
 import { isBinaryDiff, parseUnifiedDiff } from './diffParser.js';
 import type { GitExecutor } from './GitExecutor.js';
 import { LOG_FORMAT, parseLog } from './logParser.js';
 import { STATUS_ARGS, parseStatus } from './statusParser.js';
+import { parseUpstreamTracking } from './upstreamTrack.js';
 import { parseNumstat } from './numstatParser.js';
 
 export interface GraphFilterOptions {
@@ -95,6 +97,13 @@ export interface BranchEntry {
 	hash: string;
 	/** True for the checked-out branch. */
 	current: boolean;
+	/**
+	 * How far this branch has drifted from its upstream, or null when it has none.
+	 *
+	 * Always null under "refs/remotes": a remote-tracking ref has no upstream of its own, and git
+	 * answers the three upstream fields with empty strings for every one of them.
+	 */
+	tracking: UpstreamTracking | null;
 }
 
 /** Branches under one ref namespace ("refs/heads" or "refs/remotes/<name>"), with their tips. */
@@ -106,10 +115,14 @@ export async function getBranchEntries(
 	try {
 		// Full hashes: the webview matches them against `git log --pretty=%H` output, so a short
 		// hash would select the commit but never scroll to it.
+		//
+		// The three upstream fields ride along on the walk that was already being run — reading them
+		// costs no extra process. Why all three, and not just `track`, is in `upstreamTrack.ts`.
 		const output = await executor.run(
 			[
 				'for-each-ref',
-				'--format=%(refname:short)%00%(objectname)%00%(HEAD)%00%(symref)',
+				'--format=%(refname:short)%00%(objectname)%00%(HEAD)%00%(symref)' +
+					'%00%(upstream:short)%00%(upstream:track)%00%(upstream:trackshort)',
 				refNamespace,
 			],
 			cwd
@@ -119,13 +132,19 @@ export async function getBranchEntries(
 				.split('\n')
 				.filter((line) => line !== '')
 				.map((line) => {
-					const [name, hash, head, symref] = line.split('\0');
-					return { name, hash: hash ?? '', current: head === '*', symref: symref ?? '' };
+					const [name, hash, head, symref, upstream, track, trackShort] = line.split('\0');
+					return {
+						name,
+						hash: hash ?? '',
+						current: head === '*',
+						symref: symref ?? '',
+						tracking: parseUpstreamTracking(upstream ?? '', track ?? '', trackShort ?? ''),
+					};
 				})
 				// Symbolic refs are pointers, not branches — origin/HEAD shortens to a bare "origin",
 				// which downstream prefix-stripping would turn into an empty label.
 				.filter((entry) => entry.name !== '' && entry.symref === '')
-				.map(({ name, hash, current }) => ({ name, hash, current }))
+				.map(({ name, hash, current, tracking }) => ({ name, hash, current, tracking }))
 		);
 	} catch {
 		return [];

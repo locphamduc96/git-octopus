@@ -47,6 +47,8 @@ const END_OF_OPTIONS = '--end-of-options';
  */
 export interface HostViewSettings {
 	autoFastForwardOnCheckout?: boolean;
+	/** Minutes between scheduled fetches; 0 or absent means never. */
+	autoFetchMinutes?: number;
 }
 
 /** Reads the saved view settings, or null when the user has never saved any. */
@@ -168,7 +170,7 @@ export class CommitActionService {
 			}
 			case 'checkoutBranch': {
 				const local = message.branches[0];
-				if (local) return this.runGit(['checkout', local], cwd, `Checked out ${local}.`);
+				if (local) return this.checkoutLocal(local, message.remoteBranches[0] ?? null, cwd);
 				const remote = message.remoteBranches[0];
 				if (!remote || !(await this.ownsRefUnambiguously(remote, cwd))) return false;
 				return this.checkoutFromRemote(remote, cwd);
@@ -183,6 +185,29 @@ export class CommitActionService {
 				);
 				if (!remote || !(await this.ownsRefUnambiguously(remote, cwd))) return false;
 				return this.checkoutFromRemote(remote, cwd);
+			}
+			case 'pushBranch': {
+				// The entry is built from a remote-scoped target, so the branch name arrives on the
+				// remote ref rather than in `branches` — see `buildRefPayload`.
+				const target = message.remoteBranches[0];
+				if (!target || !(await this.ownsRefUnambiguously(target, cwd))) return false;
+				const name = target.branch;
+				if (!(await this.branchExists(name, cwd))) return false;
+				// A fully-qualified refspec on both sides: pushing a branch that is not checked out
+				// must never be resolved through HEAD, and `push.default` has no say in it.
+				const track = (await this.upstreamOf(name, cwd)) ? [] : ['--set-upstream'];
+				return this.runGit(
+					[
+						'push',
+						...track,
+						END_OF_OPTIONS,
+						target.remote,
+						`refs/heads/${name}:refs/heads/${name}`,
+					],
+					cwd,
+					`Pushed ${name} to ${remoteRefLabel(target)}.`,
+					await this.authFor('push', cwd)
+				);
 			}
 			case 'fetchIntoLocal': {
 				const remote = await this.pickRemote(
@@ -590,6 +615,49 @@ export class CommitActionService {
 				);
 				return true;
 			}
+			case 'rebaseRange': {
+				const guard = await this.rewriter.guardRewrite(newest, cwd);
+				if (!guard) return false;
+				// `rebase --onto <target> <oldest>^ <branch>` replays everything from `oldest` to the
+				// branch tip. When the newest selected commit is not the tip, that is more commits than
+				// the user picked — so the run has to reach the tip or the action means something else.
+				if (guard.head !== newest) {
+					vscode.window.showErrorMessage(
+						`Git Octopus: the newest selected commit is not the tip of ${guard.branch} — ` +
+							'a range rebase has to reach the tip.'
+					);
+					return false;
+				}
+				if (!(await this.rewriter.verifyFirstParentRun(message.hashes, cwd))) {
+					this.rewriter.staleSelectionError();
+					return false;
+				}
+				const target = await this.pickRebaseTarget(prompt, guard.branch, cwd);
+				if (!target) return false;
+				if (
+					!(await this.confirm(
+						prompt,
+						`Replay ${count} commit${count === 1 ? '' : 's'} from ${guard.branch} onto ${target}? ` +
+							`History on ${guard.branch} is rewritten.`
+					))
+				)
+					return false;
+				// The picker and the confirm are both windows the repository can move in.
+				if (
+					!this.rewriter.guardUnchanged(guard, await this.rewriter.guardRewrite(newest, cwd)) ||
+					!(await this.rewriter.verifyFirstParentRun(message.hashes, cwd))
+				) {
+					this.rewriter.staleSelectionError();
+					return false;
+				}
+				return this.rewriter.rebaseRangeOnto(
+					cwd,
+					guard.branch,
+					`${oldest}^`,
+					target,
+					`Replayed ${count} commit${count === 1 ? '' : 's'} from ${guard.branch} onto ${target}.`
+				);
+			}
 			case 'drop': {
 				const guard = await this.rewriter.guardRewrite(newest, cwd);
 				if (!guard) return false;
@@ -629,6 +697,36 @@ export class CommitActionService {
 		}
 	}
 
+	/**
+	 * Which branch to replay onto. Local branches only: replaying onto a remote-tracking ref would
+	 * silently detach the relationship the user thinks they are rebasing against, and `origin/x` is
+	 * a name for a commit here, not for a place to build on.
+	 */
+	private async pickRebaseTarget(
+		prompt: UserPrompt,
+		branch: string,
+		cwd: string
+	): Promise<string | null> {
+		const output = await this.readGit(
+			['for-each-ref', '--format=%(refname:short)', '--sort=-committerdate', 'refs/heads'],
+			cwd
+		);
+		const listOptions = output
+			.split('\n')
+			.map((line) => line.trim())
+			.filter((name) => name !== '' && name !== branch)
+			.map((name) => ({ id: name, label: name }));
+		if (listOptions.length === 0) {
+			vscode.window.showErrorMessage('Git Octopus: there is no other local branch to rebase onto.');
+			return null;
+		}
+		const picked = await prompt.pickOptions({
+			title: `Replay commits from ${branch} onto…`,
+			listOptions,
+		});
+		return picked?.[0] ?? null;
+	}
+
 	/** The web URL of a commit on the `origin` remote (or the first remote), if recognisable. */
 	private async commitRemoteUrl(hash: string, cwd: string): Promise<string | null> {
 		let remoteUrl: string | null = null;
@@ -648,20 +746,19 @@ export class CommitActionService {
 	}
 
 	/**
-	 * Check out the branch behind a remote ref, whether or not a local one already exists.
+	 * Check out `name`, closing the gap to the ref it tracks in the same step.
 	 *
-	 * The view only knows about branches drawn on the commit it is asking from, so it cannot tell a
-	 * remote-only branch from one whose local copy has fallen behind and sits on an earlier row.
-	 * Git is asked here instead, and a branch that has only fallen behind is brought up to date in
-	 * the same step — checking it out and leaving it stale was never what the double-click meant.
+	 * The one place a checkout is decided, whichever gesture asked for it. The view only knows about
+	 * branches drawn on the commit it is asking from, so it cannot tell a remote-only branch from
+	 * one whose local copy has fallen behind and sits on an earlier row — git is asked here instead,
+	 * and checking a branch out to leave it stale was never what the double-click meant.
 	 */
-	private async checkoutFromRemote(remote: RemoteBranchRef, cwd: string): Promise<boolean> {
-		const name = remote.branch;
-		// Never the `origin/main` short form in argv: a remote may be called `-evil`, and the ref
-		// path can never be read as an option. It is also the only form that stays unambiguous
-		// when the remote's own name contains a slash.
-		const refPath = remoteRefPath(remote);
-		const label = remoteRefLabel(remote);
+	private async checkoutTracking(
+		name: string,
+		refPath: string,
+		label: string,
+		cwd: string
+	): Promise<boolean> {
 		const plan = planCheckout({
 			localExists: await this.branchExists(name, cwd),
 			...(await this.aheadBehind(name, refPath, cwd)),
@@ -682,6 +779,62 @@ export class CommitActionService {
 			cwd,
 			`Fast-forwarded ${name} ${plan.count} commit${plan.count === 1 ? '' : 's'} to ${label}.`
 		);
+	}
+
+	/** Check out the branch behind a remote ref, whether or not a local one already exists. */
+	private async checkoutFromRemote(remote: RemoteBranchRef, cwd: string): Promise<boolean> {
+		// Never the `origin/main` short form in argv: a remote may be called `-evil`, and the ref
+		// path can never be read as an option. It is also the only form that stays unambiguous
+		// when the remote's own name contains a slash.
+		return this.checkoutTracking(
+			remote.branch,
+			remoteRefPath(remote),
+			remoteRefLabel(remote),
+			cwd
+		);
+	}
+
+	/**
+	 * Check out a local branch, measured against whatever it tracks.
+	 *
+	 * This is the gesture people actually use — double-click, or `Checkout <name>` — and until now
+	 * it ran a bare `git checkout`, so a branch left behind yesterday was checked out still behind
+	 * and nothing said so.
+	 *
+	 * The upstream is read from git rather than taken from the message: `buildRefPayload` narrows a
+	 * local chip to its local name on purpose, and git's own `branch.<name>.merge` is the more
+	 * accurate answer anyway. `fallback` covers a branch with a remote of the same name but no
+	 * upstream ever configured — there is still a gap worth closing, and no config to read it from.
+	 */
+	private async checkoutLocal(
+		name: string,
+		fallback: RemoteBranchRef | null,
+		cwd: string
+	): Promise<boolean> {
+		const upstream = await this.upstreamOf(name, cwd);
+		if (upstream) return this.checkoutTracking(name, upstream.path, upstream.label, cwd);
+		if (fallback && fallback.branch === name && (await this.ownsRefUnambiguously(fallback, cwd)))
+			return this.checkoutFromRemote(fallback, cwd);
+		return this.runGit(['checkout', name], cwd, `Checked out ${name}.`);
+	}
+
+	/**
+	 * The ref a local branch tracks, as both the path git argv needs and the label a user reads.
+	 *
+	 * `%(upstream)` is asked for alongside `%(upstream:short)` so the remote never has to be split
+	 * back out of `origin/main` — a split with no right answer once a remote's own name contains a
+	 * slash.
+	 */
+	private async upstreamOf(
+		name: string,
+		cwd: string
+	): Promise<{ path: string; label: string } | null> {
+		const output = await this.readGit(
+			['for-each-ref', '--format=%(upstream)%00%(upstream:short)', `refs/heads/${name}`],
+			cwd
+		);
+		const [path, label] = output.split('\0');
+		return path && label ? { path, label } : null;
 	}
 
 	/**

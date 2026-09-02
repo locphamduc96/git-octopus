@@ -15,6 +15,7 @@
 		UiRequestMessage,
 		RepoState,
 		SequencerActionMessage,
+		UpstreamTracking,
 		WorkingTreeAction,
 		WorkingTreeStatus,
 	} from '@git-octopus/shared';
@@ -30,19 +31,16 @@
 		type RoutedByStore,
 	} from './lib/hostRouter';
 	import { buildRefPayload, commitRefPayload, commitStashName } from './lib/refPayload';
-	import type { RefTarget } from './lib/graphMenu';
+	import type { MultiAction, RefTarget } from './lib/graphMenu';
 	import { nextRowIndex } from './lib/keyNav';
-	import { buildPanelFiles, stepPath } from './lib/panelFiles';
+	import { buildPanelFiles, stepPath, type PanelMode } from './lib/panelFiles';
 	import { settingsRequireReload } from './lib/viewSettings';
 	import ControlBar from './features/control-bar/ControlBar.svelte';
 	import DiffPanel from './features/diff/DiffPanel.svelte';
 	import FindWidget from './features/find/FindWidget.svelte';
 	import GraphView from './features/graph/GraphView.svelte';
 	import GraphSkeleton from './features/graph/GraphSkeleton.svelte';
-	import ChangesPanel, {
-		type ComparisonState,
-		type PanelMode,
-	} from './features/changes-panel/ChangesPanel.svelte';
+	import ChangesPanel, { type ComparisonState } from './features/changes-panel/ChangesPanel.svelte';
 	import IdentityDialog from './features/settings/IdentityDialog.svelte';
 	import BranchCleanupDialog from './features/branch-cleanup/BranchCleanupDialog.svelte';
 	import SettingsWidget from './features/settings/SettingsWidget.svelte';
@@ -104,6 +102,8 @@
 	const saved = stored.version === STATE_VERSION ? stored : {};
 	let ahead = $state(0);
 	let behind = $state(0);
+	/** What the Undo button would undo, straight from the host; null while there is nothing. */
+	let undoLabel = $state<string | null>(null);
 
 	let findOpen = $state(false);
 	let findQuery = $state('');
@@ -201,6 +201,20 @@
 
 	const stacked = $derived(shellWidth < STACK_BREAKPOINT);
 
+	/**
+	 * Local branch name -> its drift from upstream, for the chips to draw.
+	 *
+	 * Built from `listBranches` rather than carried on each `Ref`: a branch appears once in the
+	 * branch list and once per commit it decorates, and only the first of those is a place the
+	 * fact belongs.
+	 */
+	const mapTracking = $derived.by(() => {
+		const map: Record<string, UpstreamTracking | null> = {};
+		for (const branch of listBranches)
+			if (!branch.remote) map[branch.name] = branch.tracking ?? null;
+		return map;
+	});
+
 	/** Rows shown in the graph: filtered by the find query when one is active. */
 	const visibleRows = $derived.by(() => {
 		const query = findQuery.trim().toLowerCase();
@@ -231,10 +245,24 @@
 				event.preventDefault();
 				const stash = rows.find((row) => row.commit.refs.some((ref) => ref.kind === 'stash'));
 				scrollTo(stash?.commit.hash ?? null);
+			} else if (event.key === 'z' && !event.shiftKey && undoLabel && !isTyping(event)) {
+				// Only outside a text field: inside one, Cmd+Z is the editor's own undo, and taking it
+				// would let a keystroke aimed at a half-typed commit message reset a branch instead.
+				event.preventDefault();
+				postToHost({ type: 'undoAction', repoPath: session.repoPath });
 			}
 			return;
 		}
 		navigateByKey(event);
+	}
+
+	/** Whether the keystroke landed in something the user is typing into. */
+	function isTyping(event: KeyboardEvent): boolean {
+		const target = event.target as HTMLElement | null;
+		return (
+			!!target &&
+			(target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+		);
 	}
 
 	/** How far PageUp/PageDown jump; roughly one screen of rows. */
@@ -308,6 +336,10 @@
 					// open diff — closes now, so no stale payload can be stamped with the new repo.
 					if (session.activeRepo !== null && message.activeRepo !== session.activeRepo) {
 						resetForRepo();
+						// `resetForRepo` reaches the dialogs that live in a store; this one is a flag
+						// here, so it has to be closed by name or Settings stays open over a
+						// repository it was never built for.
+						settingsOpen = false;
 						pendingCheckout = null;
 						pendingHeadReveal = null;
 						// Questions asked over the old repository die with it.
@@ -414,6 +446,10 @@
 				}
 				case 'fastForwardCheck': {
 					fastForward = { nonce: message.nonce, canFastForward: message.canFastForward };
+					break;
+				}
+				case 'undoState': {
+					undoLabel = message.label;
 					break;
 				}
 				case 'uiRequest': {
@@ -644,10 +680,7 @@
 		listSelected = listRange.length > 1 ? listRange : [];
 	}
 
-	function runMulti(
-		action: 'squash' | 'drop' | 'cherryPick' | 'revert',
-		listHashes: string[]
-	): void {
+	function runMulti(action: MultiAction, listHashes: string[]): void {
 		const listCommits = listHashes
 			.map((hash) => rows.find((row) => row.commit.hash === hash)?.commit)
 			.filter((commit): commit is Commit => commit !== undefined);
@@ -993,6 +1026,8 @@
 					{repoState}
 					onselectRepo={selectRepo}
 					onrefresh={load}
+					{undoLabel}
+					onundo={() => postToHost({ type: 'undoAction', repoPath: session.repoPath })}
 					onterminal={() => postToHost({ type: 'openTerminal' })}
 					onfind={() => (findOpen = true)}
 					onfetch={() =>
@@ -1078,6 +1113,9 @@
 								muteMerges={prefs.settings.muteMergeCommits}
 								showTicketBadge={prefs.settings.showTicketBadge}
 								showTypeBadge={prefs.settings.showTypeBadge}
+								showTracking={prefs.settings.showTrackingBadges}
+								{mapTracking}
+								showGhostBranch={prefs.settings.showGhostBranch}
 								{fastForward}
 								{hasMore}
 								onselect={select}
@@ -1086,6 +1124,7 @@
 								oncheckoutBranch={checkoutBranch}
 								onaction={runAction}
 								onmulti={runMulti}
+								{headHash}
 								onloadMore={loadMore}
 								onbranchAction={runBranchAction}
 								onfilterBranch={setBranchFilter}

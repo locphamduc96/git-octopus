@@ -16,8 +16,11 @@ import { RepoActionService } from './adapters/vscode/RepoActionService.js';
 import { CommitAgentService } from './adapters/vscode/CommitAgentService.js';
 import { RepoTreeProvider, type RepoNode } from './adapters/vscode/RepoTreeProvider.js';
 import { RepoWatcher } from './adapters/vscode/RepoWatcher.js';
+import { AutoFetchScheduler } from './adapters/vscode/AutoFetchScheduler.js';
+import { pickAutoFetchMinutes } from '@git-octopus/shared';
 import { AskpassServer } from './adapters/askpass/askpassServer.js';
 import { nativePrompt } from './adapters/vscode/nativePrompt.js';
+import { pathExists } from './adapters/fs/pathExists.js';
 
 /**
  * The askpass bridge, or undefined when it must stay out of the way: on Windows (not supported
@@ -63,6 +66,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const tree = new RepoTreeProvider(executor, () => controller.activeRepoPath);
 	const watcher = new RepoWatcher((kind) => void controller.autoRefresh(kind));
 	void watcher.start();
+
+	// Fetch on a schedule so the drift drawn on branch chips describes the repository as it is.
+	// Off unless the user asks for it: a background fetch can raise a credential prompt nobody
+	// pressed a button to get.
+	const autoFetch = new AutoFetchScheduler({
+		executor,
+		activeRepo: () => controller.activeRepoPath,
+		intervalMinutes: () =>
+			pickAutoFetchMinutes(
+				readHostViewSettings(context.globalState.get<unknown>(STATE_VIEW_SETTINGS))
+					?.autoFetchMinutes
+			),
+		focused: () => vscode.window.state.focused,
+		now: () => Date.now(),
+		pathExists,
+		onFetched: () => void controller.autoRefresh('graph'),
+		onGaveUp: (message) =>
+			vscode.window.showWarningMessage(
+				`Git Octopus: auto-fetch stopped after repeated failures — ${message}`
+			),
+	});
+	autoFetch.start();
+	context.subscriptions.push({ dispose: () => autoFetch.dispose() });
 
 	// The same red badge Source Control wears: working-tree change count, on the panel view's
 	// title and as a count on the status bar item — the only two places left to show it now that

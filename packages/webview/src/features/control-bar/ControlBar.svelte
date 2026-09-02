@@ -28,6 +28,8 @@
 		commitCount,
 		ahead,
 		behind,
+		undoLabel,
+		onundo,
 		repoState,
 		onselectRepo,
 		onrefresh,
@@ -77,6 +79,9 @@
 		/** Commits this branch has that its upstream does not, and the other way round. */
 		ahead: number;
 		behind: number;
+		/** What Undo would undo, as a phrase; null disables the button. */
+		undoLabel: string | null;
+		onundo: () => void;
 		/** A paused rebase/merge/cherry-pick/revert — shows the Continue/Abort banner. */
 		repoState: RepoState | null;
 		onselectRepo: (path: string) => void;
@@ -294,6 +299,17 @@
 			label="Refresh"
 			title="Refresh — reload the graph and working tree (Ctrl/Cmd + R)"
 			onclick={onrefresh}
+		/>
+		<!-- The tooltip names the action rather than saying "Undo": what one press will change is
+		     the only thing worth knowing before pressing it. -->
+		<IconButton
+			name="discard"
+			label="Undo"
+			title={undoLabel
+				? `Undo ${undoLabel} — puts the branches back where they were`
+				: 'Undo — nothing to undo yet'}
+			disabled={!undoLabel}
+			onclick={onundo}
 		/>
 
 		<span class="divider"></span>

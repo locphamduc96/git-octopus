@@ -1,5 +1,4 @@
 import type { HostToWebview } from '@git-octopus/shared';
-import { pathExists } from '../../adapters/fs/pathExists.js';
 import {
 	getAheadBehind,
 	getCurrentBranch,
@@ -26,25 +25,38 @@ export async function loadStatus(ctx: RepoContext): Promise<HostToWebview> {
 			activeRepo: null,
 		};
 	}
-	const [working, aheadBehind, repoState, currentBranch, previousBranch, headHash] =
-		await Promise.all([
-			getStatus(ctx.executor, ctx.cwd),
-			getAheadBehind(ctx.executor, ctx.cwd),
-			getRepoState(ctx.executor, ctx.cwd, pathExists),
-			getCurrentBranch(ctx.executor, ctx.cwd),
-			getPreviousBranch(ctx.executor, ctx.cwd),
-			getHeadHash(ctx.executor, ctx.cwd),
-		]);
-	const changeCount = working.staged.length + working.unstaged.length;
-	return {
-		type: 'statusUpdate',
-		working: changeCount > 0 ? working : null,
-		changeCount,
-		ahead: aheadBehind.ahead,
-		behind: aheadBehind.behind,
-		repoState,
-		currentBranch,
-		previousBranch,
-		headHash,
-	};
+	try {
+		const [working, aheadBehind, repoState, currentBranch, previousBranch, headHash] =
+			await Promise.all([
+				getStatus(ctx.executor, ctx.cwd),
+				getAheadBehind(ctx.executor, ctx.cwd),
+				getRepoState(ctx.executor, ctx.cwd, ctx.pathExists),
+				getCurrentBranch(ctx.executor, ctx.cwd),
+				getPreviousBranch(ctx.executor, ctx.cwd),
+				getHeadHash(ctx.executor, ctx.cwd),
+			]);
+		const changeCount = working.staged.length + working.unstaged.length;
+		return {
+			type: 'statusUpdate',
+			working: changeCount > 0 ? working : null,
+			changeCount,
+			ahead: aheadBehind.ahead,
+			behind: aheadBehind.behind,
+			repoState,
+			currentBranch,
+			previousBranch,
+			headHash,
+		};
+	} catch (err) {
+		// `getStatus` is the one call here that does not swallow its own failure, so a broken
+		// `git status` used to reject out of this function. Callers run it with `void` — and one of
+		// them chains `watcher.watch()` off it — so a rejection took the whole `.then` with it and
+		// left the repository unwatched for the rest of the session.
+		return {
+			type: 'error',
+			message: err instanceof Error ? err.message : String(err),
+			repos: ctx.repos,
+			activeRepo: ctx.cwd,
+		};
+	}
 }

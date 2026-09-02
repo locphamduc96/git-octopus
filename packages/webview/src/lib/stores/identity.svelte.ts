@@ -11,6 +11,12 @@ import { session } from './session.svelte';
 /** Who commits here, which accounts are saved, and the questions both of those raise. */
 
 let repoIdentity = $state<RepoIdentityState | null>(null);
+/**
+ * The repository the last `identity` reply was read from. `session.repoPath` is the view's own
+ * answer to the same question, but it stays empty until the first `commits` reply lands — and an
+ * identity action posted in that window would otherwise carry a stamp the host reads as a mismatch.
+ */
+let identityRepo = $state<string | null>(null);
 let listIdentities = $state<GitIdentity[]>([]);
 let adding = $state(false);
 /** Every workspace repository's effective identity, asked for each time settings open. */
@@ -44,8 +50,19 @@ const warning = $derived(
 );
 const label = $derived(activeIdentity ? activeIdentity.label : (repoIdentity?.email ?? null));
 
+/** Which repository an identity action is stamped with — see `identityRepo`. */
+function stampRepo(): string {
+	return session.repoPath || (identityRepo ?? '');
+}
+
 function apply(next: GitIdentity): void {
-	postToHost({ type: 'identityAction', action: 'apply', name: next.name, email: next.email });
+	postToHost({
+		type: 'identityAction',
+		repoPath: stampRepo(),
+		action: 'apply',
+		name: next.name,
+		email: next.email,
+	});
 }
 
 function postCommit(message?: string): void {
@@ -66,7 +83,7 @@ function maybeAutoApply(): void {
 		listMatched: listMatchedIdentities(listIdentities, repoIdentity.listRemoteUrls),
 	});
 	if (plan.kind !== 'apply') return;
-	const key = `${session.repoPath}|${plan.identity.email}`;
+	const key = `${stampRepo()}|${plan.identity.email}`;
 	if (key === lastAutoApplyKey) return;
 	lastAutoApplyKey = key;
 	apply(plan.identity);
@@ -74,6 +91,7 @@ function maybeAutoApply(): void {
 }
 
 onHostType('identity', (message) => {
+	identityRepo = message.repoPath;
 	repoIdentity = {
 		name: message.name,
 		email: message.email,
@@ -106,6 +124,10 @@ onRepoReset(() => {
 	listWorkspaceIdentities = [];
 	commitGuard = null;
 	pendingCommitAwaitIdentity = null;
+	// The add dialog was opened over the repository that just went away. Every other dialog closes
+	// on a repo switch; this one is a store field rather than a component prop, so it has to be
+	// cleared here or it survives with a payload built for a repository nobody is looking at.
+	adding = false;
 });
 
 export const identity = {
@@ -141,7 +163,7 @@ export const identity = {
 	},
 	apply,
 	clearOverride(): void {
-		postToHost({ type: 'identityAction', action: 'clearOverride' });
+		postToHost({ type: 'identityAction', repoPath: stampRepo(), action: 'clearOverride' });
 	},
 	openAdd(): void {
 		adding = true;
@@ -156,6 +178,7 @@ export const identity = {
 		listIdentities = listNext;
 		postToHost({
 			type: 'identityAction',
+			repoPath: stampRepo(),
 			action: 'apply',
 			name: next.name,
 			email: next.email,

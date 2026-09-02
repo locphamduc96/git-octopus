@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import type { Ref } from '@git-octopus/shared';
-import { buildChips, chipRef, chipRemote, isDropTarget, splitChips } from './graphChips';
+import type { Ref, UpstreamTracking } from '@git-octopus/shared';
+import {
+	buildChips,
+	chipRef,
+	chipRemote,
+	isDropTarget,
+	splitChips,
+	trackingSummary,
+} from './graphChips';
+
+const track = (over: Partial<UpstreamTracking> = {}): UpstreamTracking => ({
+	upstream: 'origin/main',
+	ahead: 0,
+	behind: 0,
+	gone: false,
+	...over,
+});
 
 const local = (name: string): Ref => ({ kind: 'branch', name });
 const remote = (name: string, from: string): Ref => ({ kind: 'branch', name, remote: from });
@@ -140,5 +155,79 @@ describe('isDropTarget', () => {
 		expect(isDropTarget(localChip, null)).toBe(false);
 		expect(isDropTarget(remoteChip, 'feature')).toBe(false);
 		expect(isDropTarget(tagChip, 'feature')).toBe(false);
+	});
+});
+
+describe('buildChips tracking', () => {
+	it('attaches the upstream drift of a local branch', () => {
+		const [chip] = buildChips([local('main')], null, null, { main: track({ behind: 12 }) });
+		expect(chip.tracking).toEqual(track({ behind: 12 }));
+	});
+
+	it('leaves a remote-only chip without tracking, even when the map knows the name', () => {
+		const [chip] = buildChips([remote('main', 'origin')], null, null, {
+			main: track({ behind: 12 }),
+		});
+		expect(chip.tracking).toBeNull();
+	});
+
+	it('attaches tracking to the local half of a combined chip', () => {
+		const [chip] = buildChips([local('main'), remote('main', 'origin')], null, null, {
+			main: track({ ahead: 1, behind: 2 }),
+		});
+		expect(chip.tracking).toEqual(track({ ahead: 1, behind: 2 }));
+	});
+
+	it('leaves a branch the map says nothing about without tracking', () => {
+		const [chip] = buildChips([local('dev')], null, null, { main: track({ behind: 12 }) });
+		expect(chip.tracking).toBeNull();
+	});
+
+	it('never attaches tracking to a tag or a stash', () => {
+		const listChips = buildChips(
+			[
+				{ kind: 'tag', name: 'v1' },
+				{ kind: 'stash', name: 's' },
+			],
+			null,
+			null,
+			{
+				v1: track(),
+				s: track(),
+			}
+		);
+		expect(listChips.map((chip) => chip.tracking)).toEqual([null, null]);
+	});
+
+	it('puts the drift into the chip tooltip', () => {
+		const [chip] = buildChips([local('main')], 'main', null, { main: track({ behind: 12 }) });
+		expect(chip.title).toBe('main — checked out, 12 behind origin/main — as of your last fetch');
+	});
+
+	it('leaves the tooltip alone for a branch with no upstream', () => {
+		const [chip] = buildChips([local('main')], 'main', null);
+		expect(chip.title).toBe('main — checked out');
+	});
+});
+
+describe('trackingSummary', () => {
+	it('names the gap in both directions', () => {
+		expect(trackingSummary(track({ ahead: 1, behind: 2 }))).toBe(
+			'1 ahead, 2 behind origin/main — as of your last fetch'
+		);
+	});
+
+	it('says in sync when there is no gap', () => {
+		expect(trackingSummary(track())).toBe('in sync with origin/main — as of your last fetch');
+	});
+
+	it('says some when the count could not be read', () => {
+		expect(trackingSummary(track({ behind: null }))).toBe(
+			'some behind origin/main — as of your last fetch'
+		);
+	});
+
+	it('reports a gone upstream without a fetch caveat, which would say nothing', () => {
+		expect(trackingSummary(track({ gone: true }))).toBe('upstream origin/main is gone');
 	});
 });

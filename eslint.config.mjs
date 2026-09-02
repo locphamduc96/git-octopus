@@ -44,6 +44,35 @@ export default tseslint.config(
 		},
 	},
 	{
+		// The ports & adapters boundary, enforced rather than reviewed. `core/` is the domain and
+		// `app/` orchestrates it; neither may reach an adapter, the editor API, or the filesystem —
+		// a dependency they need is declared as a port and handed in.
+		//
+		// Test files are exempt on purpose: a test in `core/` that drives the real process executor
+		// is an integration test, and moving it elsewhere would buy nothing.
+		files: ['packages/extension/src/{app,core}/**/*.ts'],
+		ignores: ['**/*.test.ts'],
+		rules: {
+			'no-restricted-imports': [
+				'error',
+				{
+					patterns: [
+						{
+							group: ['**/adapters/**'],
+							message:
+								'app/ and core/ must not import an adapter — declare a port in app/ports and inject the implementation.',
+						},
+						{
+							group: ['node:*', 'vscode'],
+							message:
+								'app/ and core/ must stay free of the editor API and node builtins so they can be tested without either.',
+						},
+					],
+				},
+			],
+		},
+	},
+	{
 		rules: {
 			'@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
 		},
