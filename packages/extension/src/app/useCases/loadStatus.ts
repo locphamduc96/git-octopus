@@ -1,7 +1,6 @@
 import type { HostToWebview } from '@git-octopus/shared';
 import {
 	getAheadBehind,
-	getCurrentBranch,
 	getPreviousBranch,
 	getHeadHash,
 	getRepoState,
@@ -26,15 +25,14 @@ export async function loadStatus(ctx: RepoContext): Promise<HostToWebview> {
 		};
 	}
 	try {
-		const [working, aheadBehind, repoState, currentBranch, previousBranch, headHash] =
-			await Promise.all([
-				getStatus(ctx.executor, ctx.cwd),
-				getAheadBehind(ctx.executor, ctx.cwd),
-				getRepoState(ctx.executor, ctx.cwd, ctx.pathExists),
-				getCurrentBranch(ctx.executor, ctx.cwd),
-				getPreviousBranch(ctx.executor, ctx.cwd),
-				getHeadHash(ctx.executor, ctx.cwd),
-			]);
+		const [status, aheadBehind, repoState, previousBranch, headHash] = await Promise.all([
+			getStatus(ctx.executor, ctx.cwd),
+			getAheadBehind(ctx.executor, ctx.cwd),
+			getRepoState(ctx.executor, ctx.cwd, ctx.pathExists),
+			getPreviousBranch(ctx.executor, ctx.cwd),
+			getHeadHash(ctx.executor, ctx.cwd),
+		]);
+		const { working, isUnborn } = status;
 		const changeCount = working.staged.length + working.unstaged.length;
 		return {
 			type: 'statusUpdate',
@@ -43,7 +41,8 @@ export async function loadStatus(ctx: RepoContext): Promise<HostToWebview> {
 			ahead: aheadBehind.ahead,
 			behind: aheadBehind.behind,
 			repoState,
-			currentBranch,
+			currentBranch: status.branch,
+			isUnborn,
 			previousBranch,
 			headHash,
 		};

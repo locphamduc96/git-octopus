@@ -9,10 +9,11 @@ import { getCommits } from './gitService';
  */
 async function argvFor(
 	filters: Parameters<typeof getCommits>[3],
-	listExtraRevs: string[] = []
+	listExtraRevs: string[] = [],
+	headResolves = true
 ): Promise<string[]> {
 	const git = fakeGit();
-	await getCommits(git, '/repo', 50, filters, listExtraRevs);
+	await getCommits(git, '/repo', 50, filters, headResolves, listExtraRevs);
 	return git.listCalls[0];
 }
 
@@ -22,6 +23,18 @@ describe('getCommits argv', () => {
 
 		expect(argv).toContain('--branches');
 		expect(argv).toContain('HEAD');
+		expect(argv).toContain('--remotes');
+		expect(argv).toContain('--tags');
+	});
+
+	it('leaves HEAD out when it does not name a commit yet', async () => {
+		// `HEAD` is a revision, so git fails the whole walk when it cannot be resolved — which is
+		// every repository before its first commit. The patterns beside it match nothing and are
+		// fine. Passing it anyway is what put `fatal: ambiguous argument 'HEAD'` on the graph.
+		const argv = await argvFor({ branch: null, showRemoteBranches: true }, [], false);
+
+		expect(argv).not.toContain('HEAD');
+		expect(argv).toContain('--branches');
 		expect(argv).toContain('--remotes');
 		expect(argv).toContain('--tags');
 	});
@@ -71,7 +84,7 @@ describe('getCommits argv', () => {
 
 	it('caps the walk at the requested limit', async () => {
 		const git = fakeGit();
-		await getCommits(git, '/repo', 250, { branch: null, showRemoteBranches: true });
+		await getCommits(git, '/repo', 250, { branch: null, showRemoteBranches: true }, true);
 
 		const argv = git.listCalls[0];
 		expect(argv[argv.indexOf('-n') + 1]).toBe('250');

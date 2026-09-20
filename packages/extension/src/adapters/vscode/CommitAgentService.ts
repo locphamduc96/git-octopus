@@ -172,7 +172,7 @@ export class CommitAgentService {
 		const provider = providerById(this.globalState.get<string>(STATE_AI_AGENT));
 		if (!provider) return { error: 'No agent selected.' };
 
-		const working = await getStatus(this.executor, cwd);
+		const { working } = await getStatus(this.executor, cwd);
 		const listChanges = dedupeByPath(working.staged);
 		if (listChanges.length === 0) return { error: 'There are no staged changes to commit.' };
 
@@ -248,7 +248,7 @@ export class CommitAgentService {
 
 		// The plan was drawn over the staged files, which may since have moved on. A planned file
 		// that is no longer staged is no longer something the user chose to commit.
-		const working = await getStatus(this.executor, cwd);
+		const { working } = await getStatus(this.executor, cwd);
 		const setCurrent = new Set(working.staged.map((change) => change.path));
 		const listGone = message.listGroups
 			.flatMap((group) => group.listFiles)

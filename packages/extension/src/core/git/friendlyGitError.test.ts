@@ -27,4 +27,13 @@ describe('friendlyGitError', () => {
 	it('returns null for everything else', () => {
 		expect(friendlyGitError('fatal: not a git repository')).toBeNull();
 	});
+
+	it('explains a repository that has no commits yet, in both phrasings git uses', () => {
+		expect(
+			friendlyGitError("fatal: your current branch 'main' does not have any commits yet")
+		).toContain('no commits yet');
+		expect(friendlyGitError('You do not have the initial commit yet')).toContain(
+			'no commits yet'
+		);
+	});
 });

@@ -89,6 +89,8 @@
 	/** Grows as the user scrolls past the end; reset when the repo or page size changes. */
 	let graphLimit = $state(0);
 	let currentBranch = $state<string | null>(null);
+	/** A branch is checked out but has no commits yet — an empty graph with nothing wrong. */
+	let isUnborn = $state(false);
 	/** Only meaningful while `currentBranch` is null: the branch the detached HEAD came from. */
 	let previousBranch = $state<string | null>(null);
 	let headHash = $state<string | null>(null);
@@ -378,6 +380,7 @@
 					repos = message.repos;
 					session.setActiveRepo(message.activeRepo);
 					currentBranch = message.currentBranch;
+					isUnborn = message.isUnborn;
 					previousBranch = message.previousBranch;
 					headHash = message.headHash;
 					listBranches = message.listBranches;
@@ -396,6 +399,7 @@
 					behind = message.behind;
 					repoState = message.repoState;
 					currentBranch = message.currentBranch;
+					isUnborn = message.isUnborn;
 					previousBranch = message.previousBranch;
 					headHash = message.headHash;
 					// Rebuilt only when there is an uncommitted row to relabel: reassigning `rows` is
@@ -1088,7 +1092,15 @@
 				{:else if status === 'error'}
 					<p class="error">{errorMessage}</p>
 				{:else if visibleRows.length === 0}
-					<p class="hint">{findQuery ? 'No matching commits.' : 'No commits found.'}</p>
+					<p class="hint">
+						{#if findQuery}
+							No matching commits.
+						{:else if isUnborn}
+							No commits yet — make the first commit.
+						{:else}
+							No commits found.
+						{/if}
+					</p>
 				{:else}
 					<!-- The skeleton it replaces is already this shape, so the graph only has to fade up
 					     into place — no crossfade, which would need both in the layout at once. -->

@@ -807,6 +807,11 @@ export interface CommitsMessage {
 	listBranches: BranchRef[];
 	currentBranch: string | null;
 	/**
+	 * HEAD points at a branch with no commits yet. Distinct from `currentBranch: null`, which is a
+	 * detached HEAD — the opposite state, and the only one that has no branch name to show.
+	 */
+	isUnborn: boolean;
+	/**
 	 * The branch HEAD was on before the last checkout (`@{-1}`), or null when there is no such
 	 * entry. Only read while detached, where it is the way back.
 	 */
@@ -831,6 +836,11 @@ export interface StatusUpdateMessage {
 	behind: number;
 	repoState: RepoState | null;
 	currentBranch: string | null;
+	/**
+	 * HEAD points at a branch with no commits yet. Distinct from `currentBranch: null`, which is a
+	 * detached HEAD — the opposite state, and the only one that has no branch name to show.
+	 */
+	isUnborn: boolean;
 	previousBranch: string | null;
 	/**
 	 * The commit HEAD points at. A status update whose HEAD differs from the last full load means

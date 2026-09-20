@@ -6,7 +6,6 @@ import {
 	getAheadBehind,
 	getBranchEntries,
 	getCommits,
-	getCurrentBranch,
 	getPreviousBranch,
 	getHeadHash,
 	getRemoteNames,
@@ -47,8 +46,14 @@ export async function loadCommits(
 	}
 	try {
 		// Read before the walk: the decoration parser needs the configured remotes to know where a
-		// remote's name ends, and a remote may have a slash in it.
-		const listRemoteNames = await getRemoteNames(ctx.executor, ctx.cwd);
+		// remote's name ends, and a remote may have a slash in it. `status` has to come first for a
+		// different reason — it is what says whether HEAD resolves, and the walk cannot be built
+		// without that answer. Both ride the same round trip, so nothing new is serialised.
+		const [listRemoteNames, status] = await Promise.all([
+			getRemoteNames(ctx.executor, ctx.cwd),
+			getStatus(ctx.executor, ctx.cwd),
+		]);
+		const { working, isUnborn } = status;
 		// A branch filter means "walk this ref alone". Stash hashes are extra walk roots, and each
 		// drags in the ancestry of whatever branch it was made on — so they sit out while filtered.
 		const listStashes =
@@ -56,34 +61,24 @@ export async function loadCommits(
 				? await getStashes(ctx.executor, ctx.cwd)
 				: [];
 		// One commit past the limit answers "is there more?" without a second log walk.
-		const [
-			listRaw,
-			working,
-			headHash,
-			listLocal,
-			listRemote,
-			currentBranch,
-			previousBranch,
-			aheadBehind,
-			repoState,
-		] = await Promise.all([
-			getCommits(
-				ctx.executor,
-				ctx.cwd,
-				limit + 1,
-				filters,
-				listStashes.map((stash) => stash.hash),
-				listRemoteNames
-			),
-			getStatus(ctx.executor, ctx.cwd),
-			getHeadHash(ctx.executor, ctx.cwd),
-			getBranchEntries(ctx.executor, ctx.cwd, 'refs/heads'),
-			getBranchEntries(ctx.executor, ctx.cwd, 'refs/remotes'),
-			getCurrentBranch(ctx.executor, ctx.cwd),
-			getPreviousBranch(ctx.executor, ctx.cwd),
-			getAheadBehind(ctx.executor, ctx.cwd),
-			getRepoState(ctx.executor, ctx.cwd, ctx.pathExists),
-		]);
+		const [listRaw, headHash, listLocal, listRemote, previousBranch, aheadBehind, repoState] =
+			await Promise.all([
+				getCommits(
+					ctx.executor,
+					ctx.cwd,
+					limit + 1,
+					filters,
+					!isUnborn,
+					listStashes.map((stash) => stash.hash),
+					listRemoteNames
+				),
+				getHeadHash(ctx.executor, ctx.cwd),
+				getBranchEntries(ctx.executor, ctx.cwd, 'refs/heads'),
+				getBranchEntries(ctx.executor, ctx.cwd, 'refs/remotes'),
+				getPreviousBranch(ctx.executor, ctx.cwd),
+				getAheadBehind(ctx.executor, ctx.cwd),
+				getRepoState(ctx.executor, ctx.cwd, ctx.pathExists),
+			]);
 
 		const hasMore = listRaw.length > limit;
 		const listHistory = applyStashes(listRaw.slice(0, limit), listStashes);
@@ -127,7 +122,8 @@ export async function loadCommits(
 				// A remote-tracking ref has no upstream of its own, so there is nothing to carry.
 				...listRemote.map((entry) => ({ name: entry.name, hash: entry.hash, remote: true })),
 			],
-			currentBranch,
+			currentBranch: status.branch,
+			isUnborn,
 			previousBranch,
 			headHash,
 			ahead: aheadBehind.ahead,

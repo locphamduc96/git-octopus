@@ -50,4 +50,39 @@ describe('loadStatus', () => {
 		// one staged + two unstaged
 		expect(reply.type === 'statusUpdate' && reply.changeCount).toBe(3);
 	});
+
+	it('names the branch a repository with no commits is sitting on', async () => {
+		// `# branch.oid (initial)` is git's own sentinel for "no commits yet". Reading the name from
+		// it keeps `currentBranch` filled, which is what stops the bar drawing "detached HEAD" over
+		// a repository that is on `main`.
+		const git = fakeGit({
+			status: ['# branch.oid (initial)', '# branch.head main', '? new.txt', ''].join('\0'),
+		});
+
+		const reply = await loadStatus(makeRepoContext({ executor: git }));
+
+		expect(reply.type === 'statusUpdate' && reply.currentBranch).toBe('main');
+		expect(reply.type === 'statusUpdate' && reply.isUnborn).toBe(true);
+	});
+
+	it('reports a detached HEAD as having no branch, and not as unborn', async () => {
+		const git = fakeGit({
+			status: ['# branch.oid 55f6846', '# branch.head (detached)', ''].join('\0'),
+		});
+
+		const reply = await loadStatus(makeRepoContext({ executor: git }));
+
+		expect(reply.type === 'statusUpdate' && reply.currentBranch).toBeNull();
+		expect(reply.type === 'statusUpdate' && reply.isUnborn).toBe(false);
+	});
+
+	it('does not spend a process asking rev-parse for the branch name', async () => {
+		const git = fakeGit({
+			status: ['# branch.oid b69925a', '# branch.head main', ''].join('\0'),
+		});
+
+		await loadStatus(makeRepoContext({ executor: git }));
+
+		expect(git.ranArgv('rev-parse --abbrev-ref HEAD')).toBe(false);
+	});
 });

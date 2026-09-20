@@ -5,12 +5,11 @@ import type {
 	FileChange,
 	FileStatus,
 	UpstreamTracking,
-	WorkingTreeStatus,
 } from '@git-octopus/shared';
 import { isBinaryDiff, parseUnifiedDiff } from './diffParser.js';
 import type { GitExecutor } from './GitExecutor.js';
 import { LOG_FORMAT, parseLog } from './logParser.js';
-import { STATUS_ARGS, parseStatus } from './statusParser.js';
+import { STATUS_ARGS, parseStatus, type StatusResult } from './statusParser.js';
 import { parseUpstreamTracking } from './upstreamTrack.js';
 import { parseNumstat } from './numstatParser.js';
 
@@ -21,10 +20,19 @@ export interface GraphFilterOptions {
 	showTags?: boolean;
 }
 
-/** Which refs `git log` should walk for the current filters. */
-function refArgs(filters: GraphFilterOptions): string[] {
+/**
+ * Which refs `git log` should walk for the current filters.
+ *
+ * `--branches`, `--remotes` and `--tags` are patterns: they match nothing in a repository without
+ * those refs and the walk still succeeds. `HEAD` is a revision, so git fails the entire walk when
+ * it cannot resolve one — which is every repository before its first commit. It still has to go in
+ * whenever it does resolve: a detached HEAD can sit on commits no branch or tag reaches, and those
+ * disappear from the graph without it.
+ */
+function refArgs(filters: GraphFilterOptions, headResolves: boolean): string[] {
 	if (filters.branch) return [filters.branch];
-	const listRefs = ['--branches', 'HEAD'];
+	const listRefs = ['--branches'];
+	if (headResolves) listRefs.push('HEAD');
 	if (filters.showRemoteBranches) listRefs.push('--remotes');
 	if (filters.showTags ?? true) listRefs.push('--tags');
 	return listRefs;
@@ -45,6 +53,8 @@ export async function getCommits(
 	cwd: string,
 	limit: number,
 	filters: GraphFilterOptions,
+	/** Whether HEAD names a commit — false in a repository that has none yet. See `refArgs`. */
+	headResolves: boolean,
 	listExtraRevs: string[] = [],
 	/** Configured remote names — the only thing that can say where a remote's name ends. */
 	listRemotes: string[] = []
@@ -55,7 +65,7 @@ export async function getCommits(
 			// Full ref paths so a local `feature/x` is never mistaken for a remote branch.
 			'--decorate=full',
 			`--pretty=format:${LOG_FORMAT}`,
-			...refArgs(filters),
+			...refArgs(filters, headResolves),
 			...listExtraRevs,
 			mapOrderArg[filters.commitOrder ?? 'date'],
 			'-n',
@@ -219,11 +229,24 @@ export async function getSubmodules(executor: GitExecutor, cwd: string): Promise
 	}
 }
 
-/** The checked-out branch name, or null when HEAD is detached. */
+/**
+ * The checked-out branch name, or null when HEAD is detached.
+ *
+ * `rev-parse` has to resolve HEAD to a commit before it can name it, so it fails on a branch that
+ * has no commits yet — and answering "no branch" there would report a detached HEAD that is not
+ * detached at all. `symbolic-ref` reads the ref HEAD points at without resolving it, which is the
+ * only way to name an unborn branch. It fails in turn when HEAD really is detached, and that is
+ * the case null is for.
+ */
 export async function getCurrentBranch(executor: GitExecutor, cwd: string): Promise<string | null> {
 	try {
 		const name = (await executor.run(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)).trim();
-		return name === '' || name === 'HEAD' ? null : name;
+		if (name !== '' && name !== 'HEAD') return name;
+	} catch {
+		// Fall through: an unresolvable HEAD is the unborn case, not an absent one.
+	}
+	try {
+		return (await executor.run(['symbolic-ref', '--short', 'HEAD'], cwd)).trim() || null;
 	} catch {
 		return null;
 	}
@@ -302,8 +325,8 @@ export async function getRepoState(
 	return null;
 }
 
-/** Read the working tree status (staged & unstaged changes). */
-export async function getStatus(executor: GitExecutor, cwd: string): Promise<WorkingTreeStatus> {
+/** Read where HEAD is and what changed in the working tree — one command answers both. */
+export async function getStatus(executor: GitExecutor, cwd: string): Promise<StatusResult> {
 	return parseStatus(await executor.run(STATUS_ARGS, cwd));
 }
 

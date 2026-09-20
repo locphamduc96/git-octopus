@@ -25,6 +25,14 @@ export function friendlyGitError(message: string): string | null {
 			'this remote (ssh-add -l).'
 		);
 	}
+	// Two different phrasings for the same repository: one from the history walkers, one from the
+	// commands that need something to build on.
+	if (
+		/does not have any commits yet/.test(message) ||
+		message.includes('You do not have the initial commit yet')
+	) {
+		return 'This repository has no commits yet. Make the first commit before running this.';
+	}
 	if (message.includes('Host key verification failed')) {
 		return (
 			"The remote's SSH host key does not match what this machine has seen before. Verify " +
