@@ -39,11 +39,72 @@
 	/** A submenu needs about this much room to the right before it has to open leftwards instead. */
 	const SUBMENU_W = 240;
 
+	/** Keeps a menu off the very edge of the webview when it has to be pulled back into view. */
+	const MARGIN = 4;
+
+	let menuEl = $state<HTMLElement | null>(null);
+	let submenuEl = $state<HTMLElement | null>(null);
+	let posX = $state(0);
+	let posY = $state(0);
+	/** Held invisible — but laid out, so it can be measured — until the first pass has placed it. */
+	let placed = $state(false);
+	/** Set only when the menu is taller than the viewport, which is the one case worth scrolling. */
+	let scroll = $state(false);
+	let submenuShift = $state(0);
+
 	function openSubmenu(id: Id, event: MouseEvent): void {
 		const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
 		flip = rect.right + SUBMENU_W > window.innerWidth;
+		submenuShift = 0;
 		openId = id;
 	}
+
+	/**
+	 * The pointer position is only where the menu would *like* to sit. Near the bottom or right
+	 * edge it opens the other way round — bottom-right of the cursor becomes top-left of it — and
+	 * falls back to a plain clamp when the opposite side has no room either. Only `offsetWidth` /
+	 * `offsetHeight` are read, and neither depends on `left`/`top`, so writing the position back
+	 * cannot re-trigger this.
+	 */
+	$effect(() => {
+		const el = menuEl;
+		if (!el) return;
+		void x;
+		void y;
+		void items;
+
+		const vw = window.innerWidth;
+		const vh = window.innerHeight;
+		scroll = el.scrollHeight > vh - MARGIN * 2;
+		const w = el.offsetWidth;
+		const h = el.offsetHeight;
+
+		let nx = x;
+		if (nx + w > vw - MARGIN) nx = x - w;
+		posX = nx < MARGIN ? Math.max(MARGIN, vw - MARGIN - w) : nx;
+
+		let ny = y;
+		if (ny + h > vh - MARGIN) ny = y - h;
+		posY = ny < MARGIN ? Math.max(MARGIN, vh - MARGIN - h) : ny;
+		placed = true;
+	});
+
+	/**
+	 * A flyout is anchored to its parent row, so it can only be nudged vertically. The nudge is a
+	 * transform rather than a `top` change to keep `offsetTop` — the measurement it is derived
+	 * from — independent of the correction.
+	 */
+	$effect(() => {
+		const el = submenuEl;
+		void openId;
+		if (!el) return;
+
+		const parent = el.offsetParent as HTMLElement | null;
+		if (!parent) return;
+		const naturalTop = parent.getBoundingClientRect().top + el.offsetTop;
+		const limit = window.innerHeight - MARGIN - el.offsetHeight;
+		submenuShift = Math.max(MARGIN, Math.min(naturalTop, limit)) - naturalTop;
+	});
 </script>
 
 <svelte:window
@@ -58,7 +119,7 @@
 	oncontextmenu={(e) => e.preventDefault()}
 	aria-label="Close menu"
 ></button>
-<ul class="menu" style="left:{x}px; top:{y}px">
+<ul bind:this={menuEl} class="menu" class:scroll class:placed style="left:{posX}px; top:{posY}px">
 	{#each items as item, index (item.id)}
 		<!-- A separator before the first item would be a rule with nothing above it: the flag says
 		     "start a group here", and the menu edge already does that. -->
@@ -81,7 +142,12 @@
 				{#if item.checked}<span class="check">✓</span>{/if}
 			</button>
 			{#if item.children && openId === item.id}
-				<ul class="menu submenu" class:flip>
+				<ul
+					bind:this={submenuEl}
+					class="menu submenu"
+					class:flip
+					style="transform: translateY({submenuShift}px)"
+				>
 					{#each item.children as child, childIndex (child.id)}
 						{#if child.separatorBefore && childIndex > 0}
 							<li class="sep" role="separator"></li>
@@ -124,6 +190,15 @@
 		border: 1px solid var(--vscode-menu-border, var(--gg-border));
 		border-radius: 4px;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+	}
+	/* Flyouts are never `.placed`; they are positioned by their parent row, not by this pass. */
+	.menu:not(.submenu, .placed) {
+		visibility: hidden;
+	}
+	/* Only when the menu itself outgrows the viewport; it clips flyouts, so never by default. */
+	.menu.scroll {
+		max-height: calc(100vh - 8px);
+		overflow-y: auto;
 	}
 	.menu li {
 		position: relative;
