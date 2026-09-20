@@ -320,7 +320,17 @@ export type WorkingTreeAction =
 	| 'amend'
 	| 'undoCommit';
 
-export type RepoActionId = 'fetch' | 'push' | 'pushForce' | 'pull' | 'pullRebase' | 'pullFf';
+export type RepoActionId =
+	| 'fetch'
+	| 'push'
+	| 'pushForce'
+	/** Plain `git pull`: whatever `pull.ff` / `pull.rebase` say for this repository. */
+	| 'pull'
+	| 'pullRebase'
+	/** `--ff-only`: refuses rather than write a merge commit. */
+	| 'pullFf'
+	/** `--ff --no-rebase`: git's own default, stated so a repository's `pull.ff false` cannot undo it. */
+	| 'pullFfIfPossible';
 
 export interface RepoActionMessage {
 	type: 'repoAction';

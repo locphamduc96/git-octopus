@@ -24,6 +24,11 @@ export type CheckoutPlan =
 	| { kind: 'createTracking' }
 	/** Check the local branch out and leave it alone; `note` explains a gap left unclosed. */
 	| { kind: 'checkoutOnly'; note?: string }
+	/**
+	 * Both sides moved: nothing here is safe to run unasked. The counts let a caller name what
+	 * each way of closing the gap would cost; `note` is what to say when it does not ask.
+	 */
+	| { kind: 'checkoutDiverged'; ahead: number; behind: number; note: string }
 	/** Check the local branch out, then fast-forward it onto the remote. */
 	| { kind: 'checkoutFastForward'; count: number };
 
@@ -38,7 +43,12 @@ export function planCheckout(state: CheckoutState): CheckoutPlan {
 
 	const gap = `${state.behind} commit${state.behind === 1 ? '' : 's'} behind`;
 	if (state.ahead > 0) {
-		return { kind: 'checkoutOnly', note: `${gap} and ${state.ahead} ahead — branches diverged` };
+		return {
+			kind: 'checkoutDiverged',
+			ahead: state.ahead,
+			behind: state.behind,
+			note: `${gap} and ${state.ahead} ahead — branches diverged`,
+		};
 	}
 	if (!state.autoFastForward) return { kind: 'checkoutOnly', note: gap };
 	if (state.dirty)

@@ -1,4 +1,4 @@
-import type { CommitOrder } from '@git-octopus/shared';
+import type { CommitOrder, RepoActionId } from '@git-octopus/shared';
 import { DEFAULT_AUTO_FETCH_MINUTES } from '@git-octopus/shared';
 import type { FileViewMode } from './fileTree';
 import type { GraphStyle } from './graphPath';
@@ -48,6 +48,33 @@ export const LIST_GRAPH_STYLES = membersOf<GraphStyle>()([
 export const LIST_COMMIT_ORDERS = membersOf<CommitOrder>()(['date', 'authorDate', 'topo']);
 export const LIST_DATE_TYPES = membersOf<DateType>()(['commit', 'author']);
 
+/**
+ * What the Pull button runs. `config` is a plain `git pull` — the repository's own `pull.ff` and
+ * `pull.rebase` decide, as they always have. The others state a strategy on the command line, so
+ * a repository configured to write a merge commit on every pull (`pull.ff false`) can be pulled
+ * cleanly without touching its config.
+ */
+export type PullStrategy = 'config' | 'ff' | 'ffOnly' | 'rebase';
+export const LIST_PULL_STRATEGIES = membersOf<PullStrategy>()(['config', 'ff', 'ffOnly', 'rebase']);
+
+export const MAP_PULL_STRATEGY_LABEL: Record<PullStrategy, string> = {
+	config: 'Follow git config',
+	ff: 'Fast-forward if possible',
+	ffOnly: 'Fast-forward only',
+	rebase: 'Rebase',
+};
+
+/** The host action the Pull button sends for a strategy. */
+export function pullActionFor(strategy: PullStrategy): RepoActionId {
+	const mapAction: Record<PullStrategy, RepoActionId> = {
+		config: 'pull',
+		ff: 'pullFfIfPossible',
+		ffOnly: 'pullFf',
+		rebase: 'pullRebase',
+	};
+	return mapAction[strategy];
+}
+
 /** The member `raw` names, or nothing when it names none. */
 export function pickOption<T extends string>(listValid: readonly T[], raw: string): T | undefined {
 	return listValid.find((option) => option === raw);
@@ -77,6 +104,7 @@ export interface ViewSettings {
 	showUncommitted: boolean;
 	scrollToHeadOnLoad: boolean;
 	autoFastForwardOnCheckout: boolean;
+	pullStrategy: PullStrategy;
 	/** Minutes between background fetches; 0 is never. Default lives in `shared`, see below. */
 	autoFetchMinutes: number;
 	/** Apply a saved identity automatically when exactly one matches the repository's remotes. */
@@ -137,6 +165,8 @@ export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
 	showUncommitted: true,
 	scrollToHeadOnLoad: false,
 	autoFastForwardOnCheckout: true,
+	// `config` changes nothing for anyone: it is what the button always ran.
+	pullStrategy: 'config',
 	autoFetchMinutes: DEFAULT_AUTO_FETCH_MINUTES,
 	// Off by default: silently changing what a commit is signed as must be asked for.
 	autoApplyIdentity: false,

@@ -16,6 +16,8 @@
 		LIST_DATE_TYPES,
 		LIST_DIFF_TARGETS,
 		LIST_GRAPH_STYLES,
+		LIST_PULL_STRATEGIES,
+		MAP_PULL_STRATEGY_LABEL,
 		pickOption,
 		type RepoIdentityState,
 		type ViewSettings,
@@ -286,12 +288,35 @@
 						</div>
 						<div class="row">
 							<span class="row-label">
+								Pull strategy
+								<span class="note">
+									What the Pull button runs. "Follow git config" is a plain <code>git pull</code>
+									— this repository's <code>pull.ff</code> and <code>pull.rebase</code> decide. The others
+									say so on the command line, so a repository set to write a merge commit on every pull
+									can still be pulled clean. The Pull menu ⌄ offers each one for a single pull.
+								</span>
+							</span>
+							<select
+								value={settings.pullStrategy}
+								onchange={(event) =>
+									set(
+										'pullStrategy',
+										pickOption(LIST_PULL_STRATEGIES, event.currentTarget.value) ?? 'config'
+									)}
+							>
+								{#each LIST_PULL_STRATEGIES as strategy (strategy)}
+									<option value={strategy}>{MAP_PULL_STRATEGY_LABEL[strategy]}</option>
+								{/each}
+							</select>
+						</div>
+						<div class="row">
+							<span class="row-label">
 								Auto-fetch
 								<span class="note">
-									Fetch in the background so the drift shown on branch chips stays true. Never
-									pulls — your checked-out branch does not move. Pauses while the window is in
-									the background or a merge is unresolved, and stops itself after repeated
-									failures rather than asking for a password again and again.
+									Fetch in the background so the drift shown on branch chips stays true. Never pulls
+									— your checked-out branch does not move. Pauses while the window is in the
+									background or a merge is unresolved, and stops itself after repeated failures
+									rather than asking for a password again and again.
 								</span>
 							</span>
 							<select
@@ -494,8 +519,8 @@
 							<span class="row-label">
 								Name the lane of a commit with no ref
 								<span class="note">
-									Selecting or hovering a commit that carries no branch or tag shows, faintly,
-									the branch line it is drawn on.
+									Selecting or hovering a commit that carries no branch or tag shows, faintly, the
+									branch line it is drawn on.
 								</span>
 							</span>
 							<input

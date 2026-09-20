@@ -34,7 +34,7 @@
 	import type { MultiAction, RefTarget } from './lib/graphMenu';
 	import { nextRowIndex } from './lib/keyNav';
 	import { buildPanelFiles, stepPath, type PanelMode } from './lib/panelFiles';
-	import { settingsRequireReload } from './lib/viewSettings';
+	import { pullActionFor, settingsRequireReload } from './lib/viewSettings';
 	import ControlBar from './features/control-bar/ControlBar.svelte';
 	import DiffPanel from './features/diff/DiffPanel.svelte';
 	import FindWidget from './features/find/FindWidget.svelte';
@@ -1037,7 +1037,11 @@
 					onfetch={() =>
 						postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'fetch' })}
 					onpull={() =>
-						postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'pull' })}
+						postToHost({
+							type: 'repoAction',
+							repoPath: session.repoPath,
+							action: pullActionFor(prefs.settings.pullStrategy),
+						})}
 					onpullOption={(action) =>
 						postToHost({ type: 'repoAction', repoPath: session.repoPath, action })}
 					onpush={() =>

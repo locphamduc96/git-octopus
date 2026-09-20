@@ -51,6 +51,7 @@ export class RepoActionService {
 			pull: ['pull'],
 			pullRebase: ['pull', '--rebase'],
 			pullFf: ['pull', '--ff-only'],
+			pullFfIfPossible: ['pull', '--ff', '--no-rebase'],
 		};
 		const mapTitle: Record<RepoActionMessage['action'], string> = {
 			fetch: 'Git Octopus: fetching…',
@@ -59,6 +60,7 @@ export class RepoActionService {
 			pull: 'Git Octopus: pulling…',
 			pullRebase: 'Git Octopus: pulling (rebase)…',
 			pullFf: 'Git Octopus: pulling (fast-forward only)…',
+			pullFfIfPossible: 'Git Octopus: pulling (fast-forward if possible)…',
 		};
 		const mapDone: Record<RepoActionMessage['action'], string> = {
 			fetch: 'fetched from remotes.',
@@ -67,6 +69,7 @@ export class RepoActionService {
 			pull: 'pulled from remote.',
 			pullRebase: 'pulled with rebase.',
 			pullFf: 'fast-forwarded from remote.',
+			pullFfIfPossible: 'pulled from remote.',
 		};
 
 		return vscode.window.withProgress(

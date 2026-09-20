@@ -5,8 +5,10 @@ import {
 	LIST_DATE_TYPES,
 	LIST_DIFF_TARGETS,
 	LIST_GRAPH_STYLES,
+	LIST_PULL_STRATEGIES,
 	mergePreferences,
 	pickOption,
+	pullActionFor,
 	settingsRequireReload,
 	type GlobalPreferences,
 	type ViewSettings,
@@ -133,5 +135,22 @@ describe('pickOption', () => {
 		expect(LIST_GRAPH_STYLES).toContain(DEFAULT_VIEW_SETTINGS.graphStyle);
 		expect(LIST_COMMIT_ORDERS).toContain(DEFAULT_VIEW_SETTINGS.commitOrder);
 		expect(LIST_DATE_TYPES).toContain(DEFAULT_VIEW_SETTINGS.dateType);
+	});
+});
+
+describe('pullActionFor', () => {
+	it('sends a plain pull for the default, so nothing changes for anyone who never chose', () => {
+		expect(pullActionFor('config')).toBe('pull');
+	});
+
+	it('states every other strategy on the command line', () => {
+		// A repository's `pull.ff false` must not turn the chosen fast-forward into a merge commit.
+		expect(pullActionFor('ff')).toBe('pullFfIfPossible');
+		expect(pullActionFor('ffOnly')).toBe('pullFf');
+		expect(pullActionFor('rebase')).toBe('pullRebase');
+	});
+
+	it('names an action for every listed strategy', () => {
+		for (const strategy of LIST_PULL_STRATEGIES) expect(pullActionFor(strategy)).toBeTruthy();
 	});
 });

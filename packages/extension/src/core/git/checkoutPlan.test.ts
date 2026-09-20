@@ -23,11 +23,22 @@ describe('planCheckout', () => {
 		expect(planCheckout({ ...BASE, behind: 3 })).toEqual({ kind: 'checkoutFastForward', count: 3 });
 	});
 
-	it('leaves a diverged branch alone and says so', () => {
-		// `--ff-only` would refuse this; saying it plainly beats relaying git's error.
-		const plan = planCheckout({ ...BASE, ahead: 2, behind: 3 });
-		expect(plan.kind).toBe('checkoutOnly');
-		expect(plan).toHaveProperty('note', '3 commits behind and 2 ahead — branches diverged');
+	it('reports a diverged branch with both counts and says so', () => {
+		// `--ff-only` would refuse this; saying it plainly beats relaying git's error. The counts
+		// are what a caller needs to name the cost of each way out.
+		expect(planCheckout({ ...BASE, ahead: 2, behind: 3 })).toEqual({
+			kind: 'checkoutDiverged',
+			ahead: 2,
+			behind: 3,
+			note: '3 commits behind and 2 ahead — branches diverged',
+		});
+	});
+
+	it('is diverged even when only one commit is ahead', () => {
+		expect(planCheckout({ ...BASE, ahead: 1, behind: 1 })).toMatchObject({
+			kind: 'checkoutDiverged',
+			note: '1 commit behind and 1 ahead — branches diverged',
+		});
 	});
 
 	it('does not touch the working tree while it is dirty', () => {

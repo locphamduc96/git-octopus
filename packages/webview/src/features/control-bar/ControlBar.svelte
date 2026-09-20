@@ -90,8 +90,8 @@
 		onfind: () => void;
 		onfetch: () => void;
 		onpull: () => void;
-		/** Pull with a strategy chosen from the right-click menu. */
-		onpullOption: (action: 'pullRebase' | 'pullFf') => void;
+		/** Pull with a strategy chosen from the right-click menu, for this once. */
+		onpullOption: (action: 'pullRebase' | 'pullFf' | 'pullFfIfPossible') => void;
 		onpush: () => void;
 		onpushForce: () => void;
 		onsequencer: (action: SequencerActionMessage['action']) => void;
@@ -153,10 +153,11 @@
 		}
 	}
 	let pullMenu = $state<{ x: number; y: number } | null>(null);
-	const listPullItems: MenuItem<'pull' | 'pullRebase' | 'pullFf'>[] = [
-		{ id: 'pull', label: 'Pull' },
-		{ id: 'pullRebase', label: 'Pull (rebase)' },
+	const listPullItems: MenuItem<'pull' | 'pullRebase' | 'pullFf' | 'pullFfIfPossible'>[] = [
+		{ id: 'pull', label: 'Pull (default strategy)' },
+		{ id: 'pullFfIfPossible', label: 'Pull (fast-forward if possible)' },
 		{ id: 'pullFf', label: 'Pull (fast-forward only)' },
+		{ id: 'pullRebase', label: 'Pull (rebase)' },
 	];
 
 	const mapStateLabel: Record<RepoState, string> = {

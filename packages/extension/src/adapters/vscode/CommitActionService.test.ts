@@ -190,6 +190,112 @@ describe('checkout from a remote branch', () => {
 	});
 });
 
+/** A local branch with commits of its own, three behind its remote, on a clean tree. */
+const DIVERGED: Record<string, string> = {
+	'rev-parse --verify --quiet refs/heads/': 'abc123\n',
+	'rev-list --count --left-right': '2\t3\n',
+	'status --porcelain': '',
+};
+
+const DIVERGED_LOCAL: Record<string, string> = {
+	...DIVERGED,
+	'for-each-ref --format=%(upstream)': 'refs/remotes/origin/wikz\0origin/wikz\n',
+};
+
+/** A prompt that answers every pick with `choice` and remembers what it was shown. */
+function choosing(
+	choice: string | null
+): UserPrompt & { listTitles: string[]; listIds: string[][] } {
+	const prompt = {
+		listTitles: [] as string[],
+		listIds: [] as string[][],
+		confirm: () => Promise.resolve(true),
+		inputText: () => Promise.resolve(undefined),
+		pickOptions: (request: Parameters<UserPrompt['pickOptions']>[0]) => {
+			prompt.listTitles.push(request.title);
+			prompt.listIds.push(request.listOptions.map((option) => option.id));
+			return Promise.resolve(choice === null ? undefined : [choice]);
+		},
+	};
+	return prompt;
+}
+
+const REMOTE_WIKZ = { remoteBranches: [{ remote: 'origin', branch: 'wikz' }] };
+
+describe('checkout of a diverged branch', () => {
+	it('checks out first, then asks how to meet the remote when pointed at the remote ref', async () => {
+		// Fast-forward is impossible here, and the old answer was a sentence and nothing else. The
+		// checkout still happens before any question: dismissing must leave the user on the branch.
+		const git = new FakeGit(DIVERGED);
+		const prompt = choosing(null);
+		await makeService(git, { autoFastForwardOnCheckout: true }).run(
+			makeMessage(REMOTE_WIKZ),
+			'/repo',
+			prompt
+		);
+		expect(git.callsTo('checkout')).toEqual([['checkout', 'wikz']]);
+		expect(prompt.listTitles).toEqual([
+			'wikz has diverged from origin/wikz — 2 commits ahead, 3 commits behind',
+		]);
+		expect(prompt.listIds).toEqual([['merge', 'rebase', 'reset']]);
+		expect(git.ran('merge')).toBe(false);
+		expect(git.ran('rebase')).toBe(false);
+		expect(git.ran('reset')).toBe(false);
+	});
+
+	it('merges the remote ref in by its full path when asked to', async () => {
+		const git = new FakeGit(DIVERGED);
+		await makeService(git).run(makeMessage(REMOTE_WIKZ), '/repo', choosing('merge'));
+		expect(git.callsTo('merge')).toEqual([['merge', '--no-edit', 'refs/remotes/origin/wikz']]);
+	});
+
+	it('rebases onto the remote ref when asked to', async () => {
+		const git = new FakeGit(DIVERGED);
+		await makeService(git).run(makeMessage(REMOTE_WIKZ), '/repo', choosing('rebase'));
+		expect(git.callsTo('rebase')).toEqual([['rebase', 'refs/remotes/origin/wikz']]);
+	});
+
+	it('hard-resets to the remote ref when asked to, after the checkout', async () => {
+		const git = new FakeGit(DIVERGED);
+		await makeService(git).run(makeMessage(REMOTE_WIKZ), '/repo', choosing('reset'));
+		expect(git.listCalls.filter((args) => args[0] === 'checkout' || args[0] === 'reset')).toEqual([
+			['checkout', 'wikz'],
+			['reset', '--hard', 'refs/remotes/origin/wikz'],
+		]);
+	});
+
+	it('withholds reset while the tree is dirty', async () => {
+		// `reset --hard` would take the uncommitted work along with the commits it names.
+		const git = new FakeGit({ ...DIVERGED, 'status --porcelain': ' M a.txt\n' });
+		const prompt = choosing(null);
+		await makeService(git).run(makeMessage(REMOTE_WIKZ), '/repo', prompt);
+		expect(prompt.listIds).toEqual([['merge', 'rebase']]);
+	});
+
+	it('does not ask when the user pointed at the local branch', async () => {
+		// Someone keeping unpushed work on a branch checks it out to work on it, not to be asked
+		// how to discard it each time. The gap is still said.
+		const git = new FakeGit(DIVERGED_LOCAL);
+		const prompt = choosing('reset');
+		await makeService(git).run(makeMessage({ branches: ['wikz'] }), '/repo', prompt);
+		expect(prompt.listTitles).toEqual([]);
+		expect(git.callsTo('checkout')).toEqual([['checkout', 'wikz']]);
+		expect(git.ran('reset')).toBe(false);
+		expect(recorded.listInfo.at(-1)).toContain('3 commits behind and 2 ahead — branches diverged');
+	});
+
+	it('asks through the explicit checkoutRemote action as well', async () => {
+		const git = new FakeGit(DIVERGED);
+		const prompt = choosing(null);
+		await makeService(git).run(
+			makeMessage({ action: 'checkoutRemote', ...REMOTE_WIKZ }),
+			'/repo',
+			prompt
+		);
+		expect(prompt.listIds).toEqual([['merge', 'rebase', 'reset']]);
+	});
+});
+
 describe('remote branch commands', () => {
 	it('separates options from a remote name when deleting a remote branch', async () => {
 		const git = new FakeGit();
@@ -499,7 +605,7 @@ describe('pushing a branch that is not checked out', () => {
 	const PUSHABLE: Record<string, string> = {
 		'rev-parse --verify --quiet refs/heads/': 'abc123\n',
 		'for-each-ref --format=%(upstream)': 'refs/remotes/origin/wikz\0origin/wikz\n',
-		'remote': 'origin\n',
+		remote: 'origin\n',
 	};
 
 	it('pushes a fully-qualified refspec, never through HEAD', async () => {
@@ -528,13 +634,7 @@ describe('pushing a branch that is not checked out', () => {
 			SILENT_PROMPT
 		);
 		expect(git.callsTo('push')).toEqual([
-			[
-				'push',
-				'--set-upstream',
-				'--end-of-options',
-				'origin',
-				'refs/heads/wikz:refs/heads/wikz',
-			],
+			['push', '--set-upstream', '--end-of-options', 'origin', 'refs/heads/wikz:refs/heads/wikz'],
 		]);
 	});
 

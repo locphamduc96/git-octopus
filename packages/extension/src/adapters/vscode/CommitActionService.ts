@@ -171,9 +171,10 @@ export class CommitActionService {
 			case 'checkoutBranch': {
 				const local = message.branches[0];
 				if (local) return this.checkoutLocal(local, message.remoteBranches[0] ?? null, cwd);
+				// No local name in the payload: the user pointed at the remote ref itself.
 				const remote = message.remoteBranches[0];
 				if (!remote || !(await this.ownsRefUnambiguously(remote, cwd))) return false;
-				return this.checkoutFromRemote(remote, cwd);
+				return this.checkoutFromRemote(remote, cwd, prompt);
 			}
 			case 'checkoutPrevious':
 				return this.checkoutPrevious(message, cwd);
@@ -184,7 +185,7 @@ export class CommitActionService {
 					'Checkout which remote branch?'
 				);
 				if (!remote || !(await this.ownsRefUnambiguously(remote, cwd))) return false;
-				return this.checkoutFromRemote(remote, cwd);
+				return this.checkoutFromRemote(remote, cwd, prompt);
 			}
 			case 'pushBranch': {
 				// The entry is built from a remote-scoped target, so the branch name arrives on the
@@ -430,7 +431,9 @@ export class CommitActionService {
 	): Promise<boolean> {
 		const branch = await this.pickOne(prompt, message.branches, 'Delete which branch?');
 		if (!branch) return false;
-		if (!(await this.proveRefStillAt(`refs/heads/${branch}`, `branch ${branch}`, message.hash, cwd)))
+		if (
+			!(await this.proveRefStillAt(`refs/heads/${branch}`, `branch ${branch}`, message.hash, cwd))
+		)
 			return false;
 		try {
 			await this.executor.run(['branch', '-d', branch], cwd);
@@ -752,17 +755,24 @@ export class CommitActionService {
 	 * branches drawn on the commit it is asking from, so it cannot tell a remote-only branch from
 	 * one whose local copy has fallen behind and sits on an earlier row — git is asked here instead,
 	 * and checking a branch out to leave it stale was never what the double-click meant.
+	 *
+	 * A diverged branch cannot be closed without choosing something, so it is only ever asked about
+	 * — and only through `reconcile`, which the remote-ref gestures pass. Pointing at the local
+	 * branch means "take me there", and someone keeping unpushed work on it must not be asked how
+	 * to throw it away on every checkout.
 	 */
 	private async checkoutTracking(
 		name: string,
 		refPath: string,
 		label: string,
-		cwd: string
+		cwd: string,
+		reconcile?: UserPrompt
 	): Promise<boolean> {
+		const dirty = await this.isDirty(cwd);
 		const plan = planCheckout({
 			localExists: await this.branchExists(name, cwd),
 			...(await this.aheadBehind(name, refPath, cwd)),
-			dirty: await this.isDirty(cwd),
+			dirty,
 			autoFastForward: this.autoFastForwardEnabled(),
 		});
 
@@ -773,6 +783,12 @@ export class CommitActionService {
 			const note = plan.note ? ` — ${plan.note}` : '';
 			return this.runGit(['checkout', name], cwd, `Checked out ${name}${note}.`);
 		}
+		if (plan.kind === 'checkoutDiverged') {
+			if (!(await this.runGit(['checkout', name], cwd, `Checked out ${name} — ${plan.note}.`)))
+				return false;
+			if (!reconcile) return true;
+			return this.reconcileDiverged(name, refPath, label, plan, dirty, cwd, reconcile);
+		}
 		if (!(await this.runGit(['checkout', name], cwd, `Checked out ${name}.`))) return false;
 		return this.runGit(
 			['merge', '--ff-only', refPath],
@@ -781,8 +797,72 @@ export class CommitActionService {
 		);
 	}
 
-	/** Check out the branch behind a remote ref, whether or not a local one already exists. */
-	private async checkoutFromRemote(remote: RemoteBranchRef, cwd: string): Promise<boolean> {
+	/**
+	 * Offer the ways a checked-out, diverged branch can meet the ref it tracks.
+	 *
+	 * Reset is the one that discards commits, so its label counts them, and it is withheld while
+	 * the tree is dirty — `--hard` would take the uncommitted work too. Whatever runs here runs
+	 * inside the caller's undo record, so the Undo button reverses it. Dismissing keeps the branch
+	 * exactly where the checkout left it.
+	 */
+	private async reconcileDiverged(
+		name: string,
+		refPath: string,
+		label: string,
+		plan: { ahead: number; behind: number },
+		dirty: boolean,
+		cwd: string,
+		prompt: UserPrompt
+	): Promise<boolean> {
+		const commits = (count: number): string => `${count} commit${count === 1 ? '' : 's'}`;
+		const listOptions = [
+			{
+				id: 'merge',
+				label: `Merge ${label} into ${name}`,
+				description: `keeps all ${commits(plan.ahead)} of yours; adds a merge commit`,
+			},
+			{
+				id: 'rebase',
+				label: `Rebase ${name} onto ${label}`,
+				description: `replays your ${commits(plan.ahead)} on top of ${label}`,
+			},
+			...(dirty
+				? []
+				: [
+						{
+							id: 'reset',
+							label: `Reset ${name} to ${label}`,
+							description: `discards your ${commits(plan.ahead)} — undoable`,
+						},
+					]),
+		];
+		const [choice] =
+			(await prompt.pickOptions({
+				title: `${name} has diverged from ${label} — ${commits(plan.ahead)} ahead, ${commits(plan.behind)} behind`,
+				listOptions,
+			})) ?? [];
+		if (choice === 'merge')
+			return this.runGit(['merge', '--no-edit', refPath], cwd, `Merged ${label} into ${name}.`);
+		if (choice === 'rebase')
+			return this.runGit(['rebase', refPath], cwd, `Rebased ${name} onto ${label}.`);
+		if (choice === 'reset')
+			return this.runGit(
+				['reset', '--hard', refPath],
+				cwd,
+				`Reset ${name} to ${label} — ${commits(plan.ahead)} discarded.`
+			);
+		return true;
+	}
+
+	/**
+	 * Check out the branch behind a remote ref, whether or not a local one already exists.
+	 * `reconcile` is passed by the gestures that pointed at the remote ref; see `checkoutTracking`.
+	 */
+	private async checkoutFromRemote(
+		remote: RemoteBranchRef,
+		cwd: string,
+		reconcile?: UserPrompt
+	): Promise<boolean> {
 		// Never the `origin/main` short form in argv: a remote may be called `-evil`, and the ref
 		// path can never be read as an option. It is also the only form that stays unambiguous
 		// when the remote's own name contains a slash.
@@ -790,7 +870,8 @@ export class CommitActionService {
 			remote.branch,
 			remoteRefPath(remote),
 			remoteRefLabel(remote),
-			cwd
+			cwd,
+			reconcile
 		);
 	}
 
