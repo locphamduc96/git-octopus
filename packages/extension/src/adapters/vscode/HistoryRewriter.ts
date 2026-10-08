@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { showGitError } from './staleLockNotice.js';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import { isFirstParentRun } from '../../core/git/rewriteGuards.js';
 
@@ -108,10 +109,10 @@ export class HistoryRewriter {
 			} catch {
 				// Leave HEAD as it stands; the error below tells the user where things stopped.
 			}
-			vscode.window.showErrorMessage(
-				`Git Octopus: rewrite failed — ${err instanceof Error ? err.message : String(err)} ` +
-					`Branch ${branch} was not changed.`
-			);
+			void showGitError(err instanceof Error ? err.message : String(err), cwd, {
+				lead: 'rewrite failed',
+				note: `Branch ${branch} was not changed.`,
+			});
 		}
 		// HEAD moved either way, so the graph needs a refresh even after a failure.
 		return true;
@@ -145,10 +146,10 @@ export class HistoryRewriter {
 			} catch {
 				// Leave HEAD as it stands; the error below says where things stopped.
 			}
-			vscode.window.showErrorMessage(
-				`Git Octopus: rebase failed — ${err instanceof Error ? err.message : String(err)} ` +
-					`Branch ${branch} was not changed.`
-			);
+			void showGitError(err instanceof Error ? err.message : String(err), cwd, {
+				lead: 'rebase failed',
+				note: `Branch ${branch} was not changed.`,
+			});
 		}
 		// A conflict stops the rebase mid-run and leaves the sequencer open, so the graph refreshes
 		// either way — the banner is what tells the user what to do next.

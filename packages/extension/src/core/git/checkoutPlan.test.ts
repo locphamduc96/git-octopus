@@ -18,6 +18,20 @@ describe('planCheckout', () => {
 		expect(planCheckout(BASE)).toEqual({ kind: 'checkoutOnly' });
 	});
 
+	it('says a branch is only ahead instead of checking it out in silence', () => {
+		// Checking out cannot move it to the remote's commit — only a push or a reset can, so the
+		// caller needs the count to offer them.
+		expect(planCheckout({ ...BASE, ahead: 1 })).toEqual({
+			kind: 'checkoutAhead',
+			ahead: 1,
+			note: '1 commit ahead',
+		});
+		expect(planCheckout({ ...BASE, ahead: 3, dirty: true })).toMatchObject({
+			kind: 'checkoutAhead',
+			note: '3 commits ahead',
+		});
+	});
+
 	it('fast-forwards a local branch that has only fallen behind', () => {
 		// The case that used to fail with "branch already exists": pulled once, then left alone.
 		expect(planCheckout({ ...BASE, behind: 3 })).toEqual({ kind: 'checkoutFastForward', count: 3 });

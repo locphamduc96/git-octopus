@@ -12,6 +12,7 @@ import { LOG_FORMAT, parseLog } from './logParser.js';
 import { STATUS_ARGS, parseStatus, type StatusResult } from './statusParser.js';
 import { parseUpstreamTracking } from './upstreamTrack.js';
 import { parseNumstat } from './numstatParser.js';
+import { EMPTY_TREE, workingTreeDiffArgs } from './workingTreeDiff.js';
 
 export interface GraphFilterOptions {
 	branch: string | null;
@@ -460,11 +461,8 @@ function diffArgs(request: FileDiffRequest): string[] {
 			...listPaths,
 		];
 	}
-	return ['diff', 'HEAD', ...rename, context, '--', ...listPaths];
+	return workingTreeDiffArgs('HEAD', [...rename, context], listPaths);
 }
-
-/** The hash of git's empty tree — what HEAD effectively is before the first commit exists. */
-const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 /** Raw diff output above this is rejected before parsing — see the guard in `getFileDiff`. */
 const MAX_DIFF_BYTES = 10 * 1024 * 1024;
@@ -486,7 +484,7 @@ export async function getFileDiff(
 			!request.hash && !request.fromHash && !request.untracked
 				? await tryRun(
 						executor,
-						['diff', EMPTY_TREE, `-U${String(request.context)}`, '--', request.path],
+						workingTreeDiffArgs(EMPTY_TREE, [`-U${String(request.context)}`], [request.path]),
 						cwd
 					)
 				: null;

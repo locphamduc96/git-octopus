@@ -5,7 +5,13 @@ import {
 	type CommitPlanProgress,
 	type WebviewToHost,
 } from '@git-octopus/shared';
-import { postToHost, readState, updateState, STATE_VERSION, type PersistedAiCommit } from '../bridge';
+import {
+	postToHost,
+	readState,
+	updateState,
+	STATE_VERSION,
+	type PersistedAiCommit,
+} from '../bridge';
 import { onHostError, onHostType, onRepoReset } from '../hostRouter';
 import { session } from './session.svelte';
 import {
@@ -96,8 +102,13 @@ function showPlan(next: EditablePlan, nextMode: CommitMode, generationId: number
  */
 function planMatchesTree(candidate: EditablePlan): boolean {
 	const listFiles = listPlanFiles(candidate);
-	return listFiles.length === setOpenPaths.size && listFiles.every((file) => setOpenPaths.has(file));
+	return (
+		listFiles.length === setOpenPaths.size && listFiles.every((file) => setOpenPaths.has(file))
+	);
 }
+
+/** Whether the run the dialog is about to start must stage the tree first. */
+let stageAllFirst = false;
 
 function startGenerate(): void {
 	phase = 'generating';
@@ -105,7 +116,13 @@ function startGenerate(): void {
 	error = null;
 	executed = null;
 	progress = null;
-	postToHost({ type: 'generateCommitPlan', repoPath: session.repoPath });
+	postToHost({
+		type: 'generateCommitPlan',
+		repoPath: session.repoPath,
+		...(stageAllFirst ? { stageAll: true } : {}),
+	});
+	// Spent: a regenerate later in the same dialog is working on an already-staged tree.
+	stageAllFirst = false;
 }
 
 function maybeAutoGenerate(): void {
@@ -268,7 +285,8 @@ export const aiCommit = {
 		return progress;
 	},
 
-	openDialog(listChangedPaths: string[] = []): void {
+	openDialog(listChangedPaths: string[] = [], options: { stageAll?: boolean } = {}): void {
+		stageAllFirst = options.stageAll === true;
 		open = true;
 		phase = 'setup';
 		plan = null;

@@ -62,7 +62,10 @@ describe('DiffPanel', () => {
 	it('survives the diff being swapped underneath it, repeatedly', async () => {
 		const { rerender, container } = mount();
 		for (let round = 0; round < 3; round++) {
-			await rerender({ path: `src/file-${round}.ts`, listHunks: [hunk(30, 5 + round, `r${round}`)] });
+			await rerender({
+				path: `src/file-${round}.ts`,
+				listHunks: [hunk(30, 5 + round, `r${round}`)],
+			});
 		}
 		expect(screen.getByText(/r2 line 5/)).toBeTruthy();
 		expect(container.querySelector('.flash')).toBeTruthy();
@@ -80,5 +83,25 @@ describe('DiffPanel', () => {
 		// Two added lines, no deletions.
 		expect(screen.getByText('+2')).toBeTruthy();
 		expect(screen.getByText('−0')).toBeTruthy();
+	});
+
+	it('sizes the scroll area to the widest line of the whole file, not of the rows on screen', () => {
+		// Row 180 is far below the first screenful and its overscan, so it is not rendered — its
+		// width must count anyway, or the sideways bar would change length as scrolling brought it in.
+		const long = hunk(200, 2, 'a');
+		long.listLines[180] = { ...long.listLines[180], text: 'x'.repeat(300) };
+		const { container } = mount({ listHunks: [long] });
+		expect(screen.queryByText('x'.repeat(300))).toBeNull();
+		const spacer = container.querySelector<HTMLElement>('.spacer-v');
+		// +1 column for the +/- marker; jsdom reorders the calc() terms, so only the part that
+		// comes from the line is pinned.
+		expect(spacer?.style.width).toContain('301ch');
+	});
+
+	it('draws long lines whole instead of cutting them off', () => {
+		const long = hunk(10, 2, 'a');
+		long.listLines[0] = { ...long.listLines[0], text: `import { X } from "${'y'.repeat(200)}";` };
+		mount({ listHunks: [long] });
+		expect(screen.getByText(new RegExp(`${'y'.repeat(200)}";$`))).toBeTruthy();
 	});
 });

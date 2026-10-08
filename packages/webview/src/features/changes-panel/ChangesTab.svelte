@@ -242,10 +242,10 @@
 		confirmLabel="Stage all & continue"
 		onconfirm={() => {
 			dialog = null;
-			onaction('stageAll');
-			aiCommit.openDialog([
-				...new Set([...conflicts, ...changes, ...untracked].map((f) => f.path)),
-			]);
+			aiCommit.openDialog(
+				[...new Set([...conflicts, ...changes, ...untracked].map((f) => f.path))],
+				{ stageAll: true }
+			);
 		}}
 		oncancel={() => (dialog = null)}
 	/>

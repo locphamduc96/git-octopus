@@ -296,6 +296,91 @@ describe('checkout of a diverged branch', () => {
 	});
 });
 
+/** A local branch one commit ahead of its remote and nothing behind, on a clean tree. */
+const AHEAD: Record<string, string> = {
+	'rev-parse --verify --quiet refs/heads/': 'abc123\n',
+	'rev-list --count --left-right': '1\t0\n',
+	'status --porcelain': '',
+};
+
+const AHEAD_LOCAL: Record<string, string> = {
+	...AHEAD,
+	'for-each-ref --format=%(upstream)': 'refs/remotes/origin/wikz\0origin/wikz\n',
+};
+
+describe('checkout of a branch that is only ahead', () => {
+	it('checks out first, then offers reset or push when pointed at the remote ref', async () => {
+		// Checking out cannot put the branch on the remote's commit: it is ahead, not behind. The
+		// old answer was a plain "Checked out", which read as the gesture doing nothing.
+		const git = new FakeGit(AHEAD);
+		const prompt = choosing(null);
+		await makeService(git).run(makeMessage(REMOTE_WIKZ), '/repo', prompt);
+		expect(git.callsTo('checkout')).toEqual([['checkout', 'wikz']]);
+		expect(prompt.listTitles).toEqual(['wikz is 1 commit ahead of origin/wikz']);
+		expect(prompt.listIds).toEqual([['reset', 'push']]);
+		expect(git.ran('reset')).toBe(false);
+		expect(git.ran('push')).toBe(false);
+	});
+
+	it('hard-resets to the remote ref when asked to', async () => {
+		const git = new FakeGit(AHEAD);
+		await makeService(git).run(makeMessage(REMOTE_WIKZ), '/repo', choosing('reset'));
+		expect(git.callsTo('reset')).toEqual([['reset', '--hard', 'refs/remotes/origin/wikz']]);
+	});
+
+	it('pushes the branch to the remote it was reached from by full refspec', async () => {
+		const git = new FakeGit(AHEAD_LOCAL);
+		await makeService(git).run(makeMessage(REMOTE_WIKZ), '/repo', choosing('push'));
+		expect(git.callsTo('push')).toEqual([
+			['push', '--end-of-options', 'origin', 'refs/heads/wikz:refs/heads/wikz'],
+		]);
+		expect(git.ran('reset')).toBe(false);
+	});
+
+	it('sets the upstream while pushing a branch that has none', async () => {
+		const git = new FakeGit(AHEAD);
+		await makeService(git).run(makeMessage(REMOTE_WIKZ), '/repo', choosing('push'));
+		expect(git.callsTo('push')[0]).toContain('--set-upstream');
+	});
+
+	it('says where the commits a reset would drop still live', async () => {
+		const withMaster = {
+			...AHEAD,
+			'for-each-ref --format=%(refname) --contains':
+				'refs/heads/master\nrefs/heads/wikz\nrefs/remotes/origin/master\n',
+		};
+		const kept = choosing(null);
+		const listDescriptions: string[] = [];
+		kept.pickOptions = (request) => {
+			listDescriptions.push(...request.listOptions.map((option) => option.description ?? ''));
+			return Promise.resolve(undefined);
+		};
+		await makeService(new FakeGit(withMaster)).run(makeMessage(REMOTE_WIKZ), '/repo', kept);
+		expect(listDescriptions[0]).toBe('drops 1 commit from wikz — still on master');
+
+		listDescriptions.length = 0;
+		const alone = { ...AHEAD, 'for-each-ref --format=%(refname) --contains': 'refs/heads/wikz\n' };
+		await makeService(new FakeGit(alone)).run(makeMessage(REMOTE_WIKZ), '/repo', kept);
+		expect(listDescriptions[0]).toBe('drops 1 commit from wikz — only on this branch; undoable');
+	});
+
+	it('withholds reset while the tree is dirty', async () => {
+		const git = new FakeGit({ ...AHEAD, 'status --porcelain': ' M a.txt\n' });
+		const prompt = choosing(null);
+		await makeService(git).run(makeMessage(REMOTE_WIKZ), '/repo', prompt);
+		expect(prompt.listIds).toEqual([['push']]);
+	});
+
+	it('does not ask when the user pointed at the local branch, but says it is ahead', async () => {
+		const git = new FakeGit(AHEAD_LOCAL);
+		const prompt = choosing('reset');
+		await makeService(git).run(makeMessage({ branches: ['wikz'] }), '/repo', prompt);
+		expect(prompt.listTitles).toEqual([]);
+		expect(git.ran('reset')).toBe(false);
+		expect(recorded.listInfo.at(-1)).toContain('Checked out wikz — 1 commit ahead of origin/wikz');
+	});
+});
+
 describe('remote branch commands', () => {
 	it('separates options from a remote name when deleting a remote branch', async () => {
 		const git = new FakeGit();

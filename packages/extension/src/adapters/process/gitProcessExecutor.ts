@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { AskpassBridge, GitAuthRequest, GitExecutor } from '../../core/git/GitExecutor.js';
+import { skipsOptionalLocks } from '../../core/git/indexLock.js';
 
 /**
  * Everything buffered from one git call is capped: a runaway command (a million-line diff of a
@@ -26,7 +27,17 @@ export class GitProcessExecutor implements GitExecutor {
 				cwd,
 				// No terminal is attached, so a credential prompt on stdin would hang forever with a
 				// spinner in the view. The askpass lease (when present) is the sanctioned way to ask.
-				env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...(lease ? lease.mapEnv : {}) },
+				//
+				// `GIT_OPTIONAL_LOCKS=0` goes only on the commands that honour it — `status`, and not
+				// the writes. A background status that refreshes the stat cache rewrites `.git/index`,
+				// which RepoWatcher is watching, so the extension's own polling wakes its own watcher
+				// and contends for the lock a user action may be about to need.
+				env: {
+					...process.env,
+					GIT_TERMINAL_PROMPT: '0',
+					...(skipsOptionalLocks(args) ? { GIT_OPTIONAL_LOCKS: '0' } : {}),
+					...(lease ? lease.mapEnv : {}),
+				},
 			});
 			let stdout = '';
 			let stderr = '';

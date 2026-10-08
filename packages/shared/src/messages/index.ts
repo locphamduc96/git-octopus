@@ -614,6 +614,17 @@ export interface GenerateCommitPlanMessage {
 	 * action when it does not match the active repository.
 	 */
 	repoPath: string;
+	/**
+	 * Stage everything before reading the tree — the "Stage all & continue" answer to starting an
+	 * AI commit with nothing staged.
+	 *
+	 * Carried on this message rather than sent as a separate `workingTreeAction` because the two
+	 * halves have to happen in that order: `git add -A` takes `.git/index.lock`, generation's
+	 * `git status` refreshes the index, and nothing in the host orders two independent messages.
+	 * Sent apart, they raced — the status could report nothing staged, or the add could lose the
+	 * lock and fail outright.
+	 */
+	stageAll?: boolean;
 }
 
 export interface CancelCommitPlanMessage {

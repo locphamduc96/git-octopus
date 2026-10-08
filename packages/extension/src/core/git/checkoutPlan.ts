@@ -29,6 +29,12 @@ export type CheckoutPlan =
 	 * each way of closing the gap would cost; `note` is what to say when it does not ask.
 	 */
 	| { kind: 'checkoutDiverged'; ahead: number; behind: number; note: string }
+	/**
+	 * The local branch has commits the remote lacks and nothing to catch up on. Checking out cannot
+	 * close that gap — only a push forward or a reset back can — so a caller that pointed at the
+	 * remote asks which; `note` is what to say when it does not ask.
+	 */
+	| { kind: 'checkoutAhead'; ahead: number; note: string }
 	/** Check the local branch out, then fast-forward it onto the remote. */
 	| { kind: 'checkoutFastForward'; count: number };
 
@@ -39,7 +45,14 @@ export type CheckoutPlan =
  */
 export function planCheckout(state: CheckoutState): CheckoutPlan {
 	if (!state.localExists) return { kind: 'createTracking' };
-	if (state.behind === 0) return { kind: 'checkoutOnly' };
+	if (state.behind === 0) {
+		if (state.ahead === 0) return { kind: 'checkoutOnly' };
+		return {
+			kind: 'checkoutAhead',
+			ahead: state.ahead,
+			note: `${state.ahead} commit${state.ahead === 1 ? '' : 's'} ahead`,
+		};
+	}
 
 	const gap = `${state.behind} commit${state.behind === 1 ? '' : 's'} behind`;
 	if (state.ahead > 0) {

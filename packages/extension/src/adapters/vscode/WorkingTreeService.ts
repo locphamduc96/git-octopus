@@ -6,6 +6,7 @@ import { assertNever } from '@git-octopus/shared';
 import { withIgnoreEntry } from '../../core/git/gitignoreEntry.js';
 import type { UserPrompt } from '../../app/ports/userPrompt.js';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
+import { showGitError } from './staleLockNotice.js';
 
 /** Runs working-tree actions (stage / unstage / commit). Adapter: mutates repo + shows UI errors. */
 export class WorkingTreeService {
@@ -36,10 +37,19 @@ export class WorkingTreeService {
 				});
 				if (!confirmed) return false;
 				// Untracked files aren't in HEAD, so checkout fails — fall back to removing them.
+				//
+				// Only for that one failure, and it has to be proven from the message. `checkout` also
+				// fails when `.git/index.lock` is held, and treating that as "must be untracked" would
+				// delete a tracked file the user only asked to revert.
 				try {
 					await this.executor.run(['checkout', 'HEAD', '--', message.path], cwd);
 					return true;
-				} catch {
+				} catch (err) {
+					const raw = err instanceof Error ? err.message : String(err);
+					if (!/did not match any file/.test(raw)) {
+						void showGitError(raw, cwd);
+						return false;
+					}
 					return this.runGit(['clean', '-fd', '--', message.path], cwd);
 				}
 			}
@@ -153,9 +163,7 @@ export class WorkingTreeService {
 			if (successMessage) vscode.window.showInformationMessage(`Git Octopus: ${successMessage}`);
 			return true;
 		} catch (err) {
-			vscode.window.showErrorMessage(
-				`Git Octopus: ${err instanceof Error ? err.message : String(err)}`
-			);
+			void showGitError(err instanceof Error ? err.message : String(err), cwd);
 			return false;
 		}
 	}

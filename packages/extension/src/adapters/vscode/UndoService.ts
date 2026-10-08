@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
-import { friendlyGitError } from '../../core/git/friendlyGitError.js';
+import { showGitError } from './staleLockNotice.js';
 import {
 	describeRefusal,
 	diffSnapshots,
@@ -34,11 +34,7 @@ export class UndoService {
 	 * snapshotted twice: it did nothing, so there is nothing to remember, and the previous entry
 	 * stays the one Undo offers.
 	 */
-	public async record(
-		label: string,
-		cwd: string,
-		work: () => Promise<boolean>
-	): Promise<boolean> {
+	public async record(label: string, cwd: string, work: () => Promise<boolean>): Promise<boolean> {
 		const before = await this.snapshot(cwd);
 		const changed = await work();
 		if (!changed) return false;
@@ -67,9 +63,9 @@ export class UndoService {
 				await this.executor.run(args, cwd);
 			} catch (err) {
 				const raw = err instanceof Error ? err.message : String(err);
-				vscode.window.showErrorMessage(
-					`Git Octopus: could not undo ${plan.label} — ${friendlyGitError(raw) ?? raw}`
-				);
+				// Undo runs a chain of index writes, so it is one of the likeliest places to meet a
+				// stale lock — hence the offer to clear one, on top of saying what failed.
+				void showGitError(raw, cwd, { lead: `could not undo ${plan.label}` });
 				// Whatever ran before the failure has already happened, so the recorded entry no
 				// longer describes the repository. Drop it rather than offer a second wrong undo.
 				this.mapEntries.delete(cwd);

@@ -43,6 +43,59 @@ export interface StubRecord {
 	listTerminals: StubTerminal[];
 	/** Lines written to any output channel — the trace an adapter leaves behind. */
 	listLog: string[];
+	/** Editor tabs created through `window.createWebviewPanel`, in order. */
+	listPanels: StubWebviewPanel[];
+}
+
+export interface StubWebviewPanel {
+	viewType: string;
+	title: string;
+	webview: { id: string };
+	iconPath: unknown;
+	visible: boolean;
+	disposed: boolean;
+	/** How many times the tab was brought forward after it was created. */
+	revealCount: number;
+	reveal(): void;
+	dispose(): void;
+	onDidDispose(listener: () => void): { dispose(): void };
+	onDidChangeViewState(listener: () => void): { dispose(): void };
+	/** Stands in for the user switching to another tab and back. */
+	setVisible(visible: boolean): void;
+}
+
+/** A tab as `createWebviewPanel` makes it, or as VS Code hands one back to a serializer. */
+export function makeWebviewPanel(viewType: string, title: string): StubWebviewPanel {
+	const listDisposeListeners: (() => void)[] = [];
+	const listStateListeners: (() => void)[] = [];
+	const panel: StubWebviewPanel = {
+		viewType,
+		title,
+		webview: { id: `${viewType}#${Math.random()}` },
+		iconPath: undefined,
+		visible: true,
+		disposed: false,
+		revealCount: 0,
+		reveal: () => void (panel.revealCount += 1),
+		dispose: () => {
+			if (panel.disposed) return;
+			panel.disposed = true;
+			for (const listener of listDisposeListeners) listener();
+		},
+		onDidDispose: (listener) => {
+			listDisposeListeners.push(listener);
+			return { dispose: () => undefined };
+		},
+		onDidChangeViewState: (listener) => {
+			listStateListeners.push(listener);
+			return { dispose: () => undefined };
+		},
+		setVisible: (visible) => {
+			panel.visible = visible;
+			for (const listener of listStateListeners) listener();
+		},
+	};
+	return panel;
 }
 
 export const recorded: StubRecord = {
@@ -55,6 +108,13 @@ export const recorded: StubRecord = {
 	listCommands: [],
 	listTerminals: [],
 	listLog: [],
+	listPanels: [],
+};
+
+/** VS Code's own numbering for the two symbolic columns. */
+export const ViewColumn = {
+	Active: -1,
+	Beside: -2,
 };
 
 /** Settings, keyed `<section>.<key>`. Seeded by a test, written by `getConfiguration().update`. */
@@ -91,6 +151,7 @@ export function resetRecorded(): void {
 	recorded.listCommands.length = 0;
 	recorded.listTerminals.length = 0;
 	recorded.listLog.length = 0;
+	recorded.listPanels.length = 0;
 	mapConfig.clear();
 	mapConfigTarget.clear();
 	mapFiles.clear();
@@ -192,6 +253,11 @@ export const window = {
 		dispose: (): void => undefined,
 	}),
 	activeColorTheme: { kind: ColorThemeKind.Dark },
+	createWebviewPanel: (viewType: string, title: string): StubWebviewPanel => {
+		const panel = makeWebviewPanel(viewType, title);
+		recorded.listPanels.push(panel);
+		return panel;
+	},
 	createTerminal: (options?: { name?: string; cwd?: string }) => {
 		const entry: StubTerminal = { name: options?.name, cwd: options?.cwd, shown: false };
 		recorded.listTerminals.push(entry);

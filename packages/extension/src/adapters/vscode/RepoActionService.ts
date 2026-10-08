@@ -3,6 +3,7 @@ import type { RepoActionMessage, SequencerActionMessage } from '@git-octopus/sha
 import type { UserPrompt } from '../../app/ports/userPrompt.js';
 import type { GitAuthRequest, GitExecutor } from '../../core/git/GitExecutor.js';
 import { friendlyGitError } from '../../core/git/friendlyGitError.js';
+import { showGitError } from './staleLockNotice.js';
 import { getRepoState } from '../../core/git/gitService.js';
 import { redactSecrets } from '../../core/git/redactSecrets.js';
 import { parseRemoteHosts } from '../../core/git/remoteHosts.js';
@@ -91,7 +92,7 @@ export class RepoActionService {
 					) {
 						return this.offerForcePush(cwd, detail, auth, prompt);
 					}
-					vscode.window.showErrorMessage(`Git Octopus: ${friendlyGitError(detail) ?? detail}`);
+					void showGitError(detail, cwd);
 					return false;
 				}
 			}

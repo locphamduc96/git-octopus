@@ -9,7 +9,7 @@ import type {
 import { assertNever, remoteRefLabel, remoteRefPath } from '@git-octopus/shared';
 import type { UserPrompt } from '../../app/ports/userPrompt.js';
 import type { GitAuthRequest, GitExecutor } from '../../core/git/GitExecutor.js';
-import { friendlyGitError } from '../../core/git/friendlyGitError.js';
+import { showGitError } from './staleLockNotice.js';
 import { redactSecrets } from '../../core/git/redactSecrets.js';
 import { remoteCommitUrl } from '../../core/git/remoteUrl.js';
 import { parseRemoteHosts } from '../../core/git/remoteHosts.js';
@@ -442,7 +442,7 @@ export class CommitActionService {
 		} catch (err) {
 			const raw = redactSecrets(err instanceof Error ? err.message : String(err));
 			if (!/not fully merged/i.test(raw)) {
-				vscode.window.showErrorMessage(`Git Octopus: ${friendlyGitError(raw) ?? raw}`);
+				void showGitError(raw, cwd);
 				return false;
 			}
 		}
@@ -756,17 +756,17 @@ export class CommitActionService {
 	 * one whose local copy has fallen behind and sits on an earlier row — git is asked here instead,
 	 * and checking a branch out to leave it stale was never what the double-click meant.
 	 *
-	 * A diverged branch cannot be closed without choosing something, so it is only ever asked about
-	 * — and only through `reconcile`, which the remote-ref gestures pass. Pointing at the local
-	 * branch means "take me there", and someone keeping unpushed work on it must not be asked how
-	 * to throw it away on every checkout.
+	 * A diverged branch, or one that is only ahead, cannot be closed without choosing something, so
+	 * it is only ever asked about — and only through `reconcile`, which the remote-ref gestures
+	 * pass. Pointing at the local branch means "take me there", and someone keeping unpushed work on
+	 * it must not be asked how to throw it away on every checkout.
 	 */
 	private async checkoutTracking(
 		name: string,
 		refPath: string,
 		label: string,
 		cwd: string,
-		reconcile?: UserPrompt
+		reconcile?: { prompt: UserPrompt; remote: string }
 	): Promise<boolean> {
 		const dirty = await this.isDirty(cwd);
 		const plan = planCheckout({
@@ -787,7 +787,19 @@ export class CommitActionService {
 			if (!(await this.runGit(['checkout', name], cwd, `Checked out ${name} — ${plan.note}.`)))
 				return false;
 			if (!reconcile) return true;
-			return this.reconcileDiverged(name, refPath, label, plan, dirty, cwd, reconcile);
+			return this.reconcileDiverged(name, refPath, label, plan, dirty, cwd, reconcile.prompt);
+		}
+		if (plan.kind === 'checkoutAhead') {
+			if (
+				!(await this.runGit(
+					['checkout', name],
+					cwd,
+					`Checked out ${name} — ${plan.note} of ${label}.`
+				))
+			)
+				return false;
+			if (!reconcile) return true;
+			return this.reconcileAhead(name, refPath, label, plan.ahead, dirty, reconcile, cwd);
 		}
 		if (!(await this.runGit(['checkout', name], cwd, `Checked out ${name}.`))) return false;
 		return this.runGit(
@@ -855,6 +867,95 @@ export class CommitActionService {
 	}
 
 	/**
+	 * Offer the two ways a branch that is only ahead of the ref it tracks can meet it.
+	 *
+	 * Checking out cannot: there is nothing to catch up on. Reset moves the branch back and so takes
+	 * commits off it — the description says whether they still live on another ref or only in the
+	 * undo record — and is withheld while the tree is dirty, as in `reconcileDiverged`. Push moves
+	 * the remote up instead and loses nothing. Dismissing keeps the branch where the checkout left it.
+	 */
+	private async reconcileAhead(
+		name: string,
+		refPath: string,
+		label: string,
+		ahead: number,
+		dirty: boolean,
+		target: { prompt: UserPrompt; remote: string },
+		cwd: string
+	): Promise<boolean> {
+		const count = `${ahead} commit${ahead === 1 ? '' : 's'}`;
+		const keptOn = dirty ? null : await this.otherRefHolding(name, cwd);
+		const listOptions = [
+			...(dirty
+				? []
+				: [
+						{
+							id: 'reset',
+							label: `Reset ${name} to ${label}`,
+							description: keptOn
+								? `drops ${count} from ${name} — still on ${keptOn}`
+								: `drops ${count} from ${name} — only on this branch; undoable`,
+						},
+					]),
+			{
+				id: 'push',
+				label: `Push ${name} to ${label}`,
+				description: `${label} moves up to match — nothing is lost`,
+			},
+		];
+		const [choice] =
+			(await target.prompt.pickOptions({
+				title: `${name} is ${count} ahead of ${label}`,
+				listOptions,
+			})) ?? [];
+		if (choice === 'reset')
+			return this.runGit(
+				['reset', '--hard', refPath],
+				cwd,
+				`Reset ${name} to ${label} — ${count} dropped from ${name}.`
+			);
+		if (choice === 'push') {
+			const track = (await this.upstreamOf(name, cwd)) ? [] : ['--set-upstream'];
+			return this.runGit(
+				['push', ...track, END_OF_OPTIONS, target.remote, `refs/heads/${name}:refs/heads/${name}`],
+				cwd,
+				`Pushed ${name} to ${label}.`,
+				await this.authFor('push', cwd)
+			);
+		}
+		return true;
+	}
+
+	/**
+	 * Another ref that holds the tip of `name`, and with it every commit a reset would take off the
+	 * branch — a local branch first, as the name people recognise. Null when only `name` holds it.
+	 */
+	private async otherRefHolding(name: string, cwd: string): Promise<string | null> {
+		const own = `refs/heads/${name}`;
+		try {
+			const output = await this.executor.run(
+				[
+					'for-each-ref',
+					'--format=%(refname)',
+					'--contains',
+					own,
+					'refs/heads',
+					'refs/remotes',
+					'refs/tags',
+				],
+				cwd
+			);
+			const listRefs = output
+				.split('\n')
+				.filter((ref) => ref !== '' && ref !== own && !ref.endsWith('/HEAD'));
+			const pick = listRefs.find((ref) => ref.startsWith('refs/heads/')) ?? listRefs[0];
+			return pick ? pick.replace(/^refs\/(heads|remotes|tags)\//, '') : null;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
 	 * Check out the branch behind a remote ref, whether or not a local one already exists.
 	 * `reconcile` is passed by the gestures that pointed at the remote ref; see `checkoutTracking`.
 	 */
@@ -871,7 +972,7 @@ export class CommitActionService {
 			remoteRefPath(remote),
 			remoteRefLabel(remote),
 			cwd,
-			reconcile
+			reconcile && { prompt: reconcile, remote: remote.remote }
 		);
 	}
 
@@ -1187,7 +1288,7 @@ export class CommitActionService {
 			return true;
 		} catch (err) {
 			const raw = redactSecrets(err instanceof Error ? err.message : String(err));
-			vscode.window.showErrorMessage(`Git Octopus: ${friendlyGitError(raw) ?? raw}`);
+			void showGitError(raw, cwd);
 			return false;
 		}
 	}

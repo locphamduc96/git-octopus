@@ -84,18 +84,18 @@ describe('getFileDiff', () => {
 		expect(argv.slice(argv.indexOf('--') + 1)).toEqual(['old.txt', 'new.txt']);
 	});
 
-	it('diffs the working tree against HEAD by default', async () => {
+	it('diffs the working tree against HEAD by default, with plumbing that leaves the index alone', async () => {
 		const git = fakeGit({ diff: MODIFIED_DIFF });
 
 		await getFileDiff(git, '/repo', { path: 'a.txt', context: 3 });
 
-		expect(git.listCalls[0]).toEqual(['diff', 'HEAD', '-U3', '--', 'a.txt']);
+		expect(git.listCalls[0]).toEqual(['diff-index', '-p', '-U3', 'HEAD', '--', 'a.txt']);
 	});
 
 	it('falls back to the empty tree when HEAD does not exist yet', async () => {
 		// A file staged in a repository with no first commit still deserves its diff.
-		const git = fakeGit({ 'diff 4b825dc': MODIFIED_DIFF }).rejectOn(
-			'diff HEAD',
+		const git = fakeGit({ 'diff-index -p -U3 4b825dc': MODIFIED_DIFF }).rejectOn(
+			'diff-index -p -U3 HEAD',
 			"fatal: ambiguous argument 'HEAD'"
 		);
 
@@ -104,9 +104,10 @@ describe('getFileDiff', () => {
 		expect(result.notice).toBeUndefined();
 		expect(result.listHunks).toHaveLength(1);
 		expect(git.listCalls[1]).toEqual([
-			'diff',
-			'4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+			'diff-index',
+			'-p',
 			'-U3',
+			'4b825dc642cb6eb9a060e54bf8d69288fbee4904',
 			'--',
 			'a.txt',
 		]);

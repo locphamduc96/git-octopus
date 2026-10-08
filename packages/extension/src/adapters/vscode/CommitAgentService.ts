@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
 	AgentId,
@@ -17,6 +18,8 @@ import type {
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import { getCurrentBranch, getHeadHash, getStatus } from '../../core/git/gitService.js';
 import { parseNumstat } from '../../core/git/numstatParser.js';
+import { chunkPaths, splitDiffByPath } from '../../core/git/diffSplit.js';
+import { promptDiffArgs, promptNumstatArgs } from '../../core/git/workingTreeDiff.js';
 import { redactSecrets } from '../../core/git/redactSecrets.js';
 import { classifyChanges, type ChangeEntry } from '../../core/agent/classifyChanges.js';
 import { buildCommitPrompt, type PromptFile } from '../../core/agent/commitPrompt.js';
@@ -42,10 +45,20 @@ export const STATE_AI_CONSENT = 'gitOctopus.aiConsent';
 export class CommitAgentService {
 	private readonly cache = new PlanCache();
 
+	/**
+	 * `agentWorkdir` is where the agent CLI runs — an empty folder of our own, never the repository.
+	 * The prompt already carries every diff the agent may read, and an agent started inside the
+	 * repository may run git there on its own (Claude Code reads the repository's state as it
+	 * starts): a process
+	 * holding `.git/index.lock` that this extension neither started nor can wait for, and one that a
+	 * cancel or a timeout kills mid-write. Fixed rather than fresh per run, so a CLI that asks to
+	 * trust its folder asks once.
+	 */
 	public constructor(
 		private readonly executor: GitExecutor,
 		private readonly globalState: vscode.Memento,
-		private readonly runner: AgentProcessRunner = new AgentProcessRunner()
+		private readonly runner: AgentProcessRunner = new AgentProcessRunner(),
+		private readonly agentWorkdir: string = path.join(os.tmpdir(), 'git-octopus-agent')
 	) {}
 
 	private aiConfig(): vscode.WorkspaceConfiguration {
@@ -94,11 +107,7 @@ export class CommitAgentService {
 			const thinking = message.mapThinking[provider.id];
 			// Only agents with a declared *Thinking setting — an undeclared key refuses the update.
 			if (thinking !== undefined && SET_THINKING_AGENTS.has(provider.id)) {
-				await config.update(
-					`${provider.id}Thinking`,
-					thinking,
-					vscode.ConfigurationTarget.Global
-				);
+				await config.update(`${provider.id}Thinking`, thinking, vscode.ConfigurationTarget.Global);
 			}
 		}
 		if (message.language !== undefined) {
@@ -158,7 +167,12 @@ export class CommitAgentService {
 		if (result === 'cancelled') {
 			// Nothing worth replaying: a rehydrating view should see idle, not a dead run.
 			this.cache.clear(message.repoPath, generationId);
-			return { type: 'commitPlanResult', repoPath: message.repoPath, generationId, error: 'Cancelled.' };
+			return {
+				type: 'commitPlanResult',
+				repoPath: message.repoPath,
+				generationId,
+				error: 'Cancelled.',
+			};
 		}
 		this.cache.complete(message.repoPath, generationId, result);
 		return { type: 'commitPlanResult', repoPath: message.repoPath, generationId, ...result };
@@ -193,10 +207,11 @@ export class CommitAgentService {
 			const model = config.get<string>(`${provider.id}Model`, '').trim();
 			const thinking = config.get<string>(`${provider.id}Thinking`, '').trim();
 			const spec = provider.runSpec(model || undefined, thinking || undefined);
+			await fs.mkdir(this.agentWorkdir, { recursive: true });
 			({ stdout, stderr, code } = await this.runner.run(
 				spec.bin,
 				spec.promptInArgs ? [...spec.listArgs, prompt] : spec.listArgs,
-				cwd,
+				this.agentWorkdir,
 				spec.promptInArgs ? '' : prompt,
 				generationId
 			));
@@ -274,6 +289,30 @@ export class CommitAgentService {
 		return { type: 'commitPlanExecuted', nonce: message.nonce, committed, total };
 	}
 
+	/**
+	 * The unified diff of each source file, read in as few git processes as the argv allows.
+	 *
+	 * One command per file was the previous shape, and on a large staging it meant hundreds of git
+	 * processes starting at once. A chunk that fails falls back to reading its files one at a time,
+	 * so a single oversized diff costs only its own file rather than every file sharing the command.
+	 */
+	private async readDiffs(cwd: string, listPaths: string[]): Promise<Map<string, string>> {
+		const mapDiffs = new Map<string, string>();
+		for (const listChunk of chunkPaths(listPaths)) {
+			const output = await this.executor.run(promptDiffArgs(listChunk), cwd).catch(() => null);
+			if (output !== null) {
+				for (const [file, diff] of splitDiffByPath(output, listChunk)) mapDiffs.set(file, diff);
+				continue;
+			}
+			const listFallback = await mapLimited(listChunk, DIFF_CONCURRENCY, async (file) => ({
+				file,
+				diff: await this.executor.run(promptDiffArgs([file]), cwd).catch(() => ''),
+			}));
+			for (const entry of listFallback) if (entry.diff !== '') mapDiffs.set(entry.file, entry.diff);
+		}
+		return mapDiffs;
+	}
+
 	private async buildPrompt(
 		cwd: string,
 		listChanges: FileChange[]
@@ -282,39 +321,40 @@ export class CommitAgentService {
 			.getConfiguration('gitOctopus.aiCommit')
 			.get<string[]>('excludePatterns', []);
 
-		const listEntries: ChangeEntry[] = await Promise.all(
-			listChanges.map(async (change) => ({
+		const listEntries: ChangeEntry[] = await mapLimited(
+			listChanges,
+			STAT_CONCURRENCY,
+			async (change) => ({
 				path: change.path,
 				status: change.status,
 				bytes: await fileSize(path.join(cwd, change.path)),
-			}))
+			})
 		);
 		const listClassified = classifyChanges(listEntries, listExcludePatterns);
 
 		const mapCounts = parseNumstat(
-			await this.executor.run(['diff', 'HEAD', '--numstat'], cwd).catch(() => '')
+			await this.executor.run(promptNumstatArgs(), cwd).catch(() => '')
 		);
 
-		const listFiles: PromptFile[] = await Promise.all(
-			listClassified.map(async (entry) => {
-				const counts = mapCounts.get(entry.path);
-				const file: PromptFile = {
-					path: entry.path,
-					status: entry.status,
-					tier: entry.tier,
-					...(counts ?? {}),
-				};
-				if (entry.tier !== 'source') return file;
-				const diff =
-					entry.status === '?'
-						? // `--no-index` exits 1 whenever the files differ — that IS the diff.
-							await this.executor
-								.run(['diff', '--no-index', '--', '/dev/null', entry.path], cwd, [1])
-								.catch(() => undefined)
-						: await this.executor.run(['diff', 'HEAD', '--', entry.path], cwd).catch(() => undefined);
-				return diff ? { ...file, diff } : file;
-			})
+		// Only source-tier files are ever shown to the agent, so only their diffs are fetched — an
+		// asset-heavy staging must not pull megabytes of generated content into memory, and
+		// `excludePatterns` is a promise about what leaves the machine, not just about what is printed.
+		const mapDiffs = await this.readDiffs(
+			cwd,
+			listClassified.filter((entry) => entry.tier === 'source').map((entry) => entry.path)
 		);
+
+		const listFiles: PromptFile[] = listClassified.map((entry) => {
+			const counts = mapCounts.get(entry.path);
+			const file: PromptFile = {
+				path: entry.path,
+				status: entry.status,
+				tier: entry.tier,
+				...(counts ?? {}),
+			};
+			const diff = mapDiffs.get(entry.path);
+			return diff === undefined ? file : { ...file, diff };
+		});
 
 		const [branch, listRecentSubjects] = await Promise.all([
 			getCurrentBranch(this.executor, cwd),
@@ -350,6 +390,29 @@ function dedupeByPath(listChanges: FileChange[]): FileChange[] {
 		if (!mapByPath.has(change.path)) mapByPath.set(change.path, change);
 	}
 	return [...mapByPath.values()];
+}
+
+/** How many files to stat at once — enough to stay fast, few enough to stay under EMFILE. */
+const STAT_CONCURRENCY = 8;
+/** How many single-file diffs to run at once when a batched read had to be abandoned. */
+const DIFF_CONCURRENCY = 4;
+
+/** `Promise.all` with a ceiling, for lists that are as long as the user's staging happens to be. */
+async function mapLimited<T, R>(
+	listItems: T[],
+	limit: number,
+	transform: (item: T) => Promise<R>
+): Promise<R[]> {
+	const listResults: R[] = new Array<R>(listItems.length);
+	let next = 0;
+	const worker = async (): Promise<void> => {
+		while (next < listItems.length) {
+			const index = next++;
+			listResults[index] = await transform(listItems[index]);
+		}
+	};
+	await Promise.all(Array.from({ length: Math.min(limit, listItems.length) }, worker));
+	return listResults;
 }
 
 async function fileSize(absolutePath: string): Promise<number | undefined> {

@@ -149,7 +149,8 @@ export class GitOctopusController {
 
 	/** Bring the graph forward and scroll it to a commit (used by the sidebar tree). */
 	public async revealCommit(hash: string): Promise<void> {
-		await vscode.commands.executeCommand('git-octopus.view.focus');
+		// The command, not a view id: the graph may live in an editor tab rather than the Panel.
+		await vscode.commands.executeCommand('git-octopus.focus');
 		this.broadcast({ type: 'revealCommit', hash });
 	}
 
@@ -645,6 +646,17 @@ export class GitOctopusController {
 				return;
 			case 'generateCommitPlan': {
 				if (!cwd || this.repoMismatch(message)) return;
+				if (message.stageAll) {
+					// Awaited: generation reads the tree, so it must not start until the staging it was
+					// asked to generate over has actually landed.
+					const staged = await this.workingTree.run(
+						{ type: 'workingTreeAction', repoPath: message.repoPath, action: 'stageAll' },
+						cwd,
+						prompt
+					);
+					if (!staged) return;
+					await this.refresh();
+				}
 				// Broadcast, not reply: the view that asked may be gone by the time the agent
 				// answers, and every attached view (panel, editor tab) shows the same plan.
 				const result = await this.commitAgent.generate(message, cwd, (progress) => {

@@ -5,7 +5,10 @@ import {
 	STATE_VIEW_SETTINGS,
 } from './adapters/vscode/GitOctopusController.js';
 import { GitOctopusViewProvider } from './adapters/vscode/GitOctopusViewProvider.js';
+import { GitOctopusTab, pickGraphLocation } from './adapters/vscode/GitOctopusTab.js';
 import { GitProcessExecutor } from './adapters/process/gitProcessExecutor.js';
+import { SerializingGitExecutor } from './adapters/process/serializingGitExecutor.js';
+import { LockRetryGitExecutor } from './adapters/process/lockRetryGitExecutor.js';
 import { DiffService } from './adapters/vscode/DiffService.js';
 import {
 	CommitActionService,
@@ -43,7 +46,12 @@ async function startAskpass(context: vscode.ExtensionContext): Promise<AskpassSe
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	// Awaited before the executor exists: a git command must never race the socket into being.
 	const askpass = await startAskpass(context);
-	const executor = new GitProcessExecutor(askpass);
+	// Wrapped once, here: this is the only place a git executor is constructed in production, and
+	// every service below shares the instance — so the queue covers every git command we run. The
+	// lock retry sits inside the queue, so a write waiting out another process keeps its turn.
+	const executor = new SerializingGitExecutor(
+		new LockRetryGitExecutor(new GitProcessExecutor(askpass))
+	);
 	const diff = new DiffService(executor);
 	// The stored blob is everything the view persists — settings, columns, panel state. Only the
 	// settings half is a preference the host acts on, so only that half is handed over.
@@ -57,7 +65,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		actions,
 		new WorkingTreeService(executor),
 		new RepoActionService(executor),
-		new CommitAgentService(executor, context.globalState),
+		new CommitAgentService(
+			executor,
+			context.globalState,
+			undefined,
+			vscode.Uri.joinPath(context.globalStorageUri, 'agent-workdir').fsPath
+		),
 		context.workspaceState,
 		context.globalState
 	);
@@ -68,8 +81,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	void watcher.start();
 
 	// Fetch on a schedule so the drift drawn on branch chips describes the repository as it is.
-	// Off unless the user asks for it: a background fetch can raise a credential prompt nobody
-	// pressed a button to get.
+	// On by default, every minute (`DEFAULT_AUTO_FETCH_MINUTES`), until the user picks another
+	// interval or 0; it gives up with one warning after repeated failures.
 	const autoFetch = new AutoFetchScheduler({
 		executor,
 		activeRepo: () => controller.activeRepoPath,
@@ -111,6 +124,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			listBadgeViews = listBadgeViews.filter((item) => item !== view);
 		});
 	};
+
+	const tab = new GitOctopusTab(controller, context.extensionUri);
+	const focusPanelView = (): Thenable<unknown> =>
+		vscode.commands.executeCommand(`${GitOctopusViewProvider.viewType}.focus`);
+	/** Bring the graph forward wherever it belongs — see `pickGraphLocation`. */
+	const showGraph = async (): Promise<void> => {
+		const location = pickGraphLocation(
+			tab.isOpen,
+			vscode.workspace.getConfiguration('gitOctopus').get('defaultLocation')
+		);
+		if (location === 'editor') await tab.open();
+		else await focusPanelView();
+	};
+
 	const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 	statusBar.command = 'git-octopus.focus';
 	/** Branch name when there is one, else the repository's; null while no repository is open. */
@@ -234,22 +261,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 				void runTreeAction({ action: 'stashDrop', hash: node.hash, stashName: node.name });
 		}),
 		vscode.commands.registerCommand('git-octopus.refresh', () => void controller.refresh()),
-		vscode.commands.registerCommand(
-			'git-octopus.focus',
-			() => void vscode.commands.executeCommand('git-octopus.view.focus')
-		),
-		vscode.commands.registerCommand('git-octopus.openInTab', () => {
-			const panel = vscode.window.createWebviewPanel(
-				'git-octopus.tab',
-				'Git Octopus',
-				vscode.ViewColumn.Active,
-				{ enableScripts: true, retainContextWhenHidden: true }
-			);
-			void controller.attach(panel.webview, panel.onDidDispose);
-			// The tab reports its own visibility: auto-refresh must keep serving it while the
-			// Panel view is hidden or closed.
-			panel.onDidChangeViewState(() => controller.setWebviewVisible(panel.webview, panel.visible));
+		vscode.commands.registerCommand('git-octopus.focus', showGraph),
+		vscode.commands.registerCommand('git-octopus.openInTab', () => tab.open()),
+		vscode.commands.registerCommand('git-octopus.moveToEditor', async () => {
+			const panelShowsGraph = listBadgeViews.some((view) => view.visible);
+			await tab.open();
+			// Closing the Panel area only hides it — a terminal the user had there is one toggle
+			// away. Left alone when the Panel was showing something else, or nothing.
+			if (panelShowsGraph) await vscode.commands.executeCommand('workbench.action.closePanel');
 		}),
+		vscode.commands.registerCommand('git-octopus.moveToPanel', async () => {
+			tab.close();
+			await focusPanelView();
+		}),
+		vscode.window.registerWebviewPanelSerializer(GitOctopusTab.viewType, tab),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if (event.affectsConfiguration('workbench.iconTheme')) void controller.refreshIconTheme();
 		}),

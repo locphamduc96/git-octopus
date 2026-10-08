@@ -229,6 +229,85 @@ describe('a view whose container has closed', () => {
 		expect(staying.webview.postedOfType('revealCommit')).toEqual([
 			{ type: 'revealCommit', hash: 'abc1234' },
 		]);
-		expect(recorded.listCommands.map((entry) => entry.command)).toEqual(['git-octopus.view.focus']);
+		expect(recorded.listCommands.map((entry) => entry.command)).toEqual(['git-octopus.focus']);
+	});
+});
+
+describe('AI commit asked to stage the tree first', () => {
+	/** Both halves of the flow, in the order the host actually ran them. */
+	function makeRecordingController(listOrder: string[]) {
+		return makeController({
+			workspaceState: memento({ [STATE_ACTIVE_REPO]: ACTIVE_REPO }),
+			workingTree: {
+				run: (message) => {
+					listOrder.push(`workingTree:${message.action}`);
+					return Promise.resolve(true);
+				},
+			},
+			commitAgent: {
+				generate: (message) => {
+					listOrder.push('generate');
+					return Promise.resolve({
+						type: 'commitPlanResult',
+						repoPath: message.repoPath,
+						generationId: 0,
+						error: 'no agent',
+					});
+				},
+			},
+		});
+	}
+
+	it('stages before it reads the tree, not alongside it', async () => {
+		// Sent as two independent messages these raced: `git add -A` takes .git/index.lock while
+		// generation's `git status` refreshes the index, so either the add lost the lock or the
+		// status ran first and reported nothing staged.
+		const listOrder: string[] = [];
+		const view = await attachView(makeRecordingController(listOrder));
+
+		await view.webview.receive({
+			type: 'generateCommitPlan',
+			repoPath: ACTIVE_REPO,
+			stageAll: true,
+		});
+
+		expect(listOrder).toEqual(['workingTree:stageAll', 'generate']);
+	});
+
+	it('does not generate at all when the staging failed', async () => {
+		const listOrder: string[] = [];
+		const controller = makeController({
+			workspaceState: memento({ [STATE_ACTIVE_REPO]: ACTIVE_REPO }),
+			workingTree: { run: () => Promise.resolve(false) },
+			commitAgent: {
+				generate: (message) => {
+					listOrder.push('generate');
+					return Promise.resolve({
+						type: 'commitPlanResult',
+						repoPath: message.repoPath,
+						generationId: 0,
+						error: 'no agent',
+					});
+				},
+			},
+		});
+		const view = await attachView(controller);
+
+		await view.webview.receive({
+			type: 'generateCommitPlan',
+			repoPath: ACTIVE_REPO,
+			stageAll: true,
+		});
+
+		expect(listOrder).toEqual([]);
+	});
+
+	it('leaves the tree alone when it was not asked to stage', async () => {
+		const listOrder: string[] = [];
+		const view = await attachView(makeRecordingController(listOrder));
+
+		await view.webview.receive({ type: 'generateCommitPlan', repoPath: ACTIVE_REPO });
+
+		expect(listOrder).toEqual(['generate']);
 	});
 });

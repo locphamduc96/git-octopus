@@ -2,7 +2,7 @@
 	"name": "git-octopus",
 	"displayName": "Git Octopus",
 	"description": "View a Git graph of your repository and perform Git actions from it.",
-	"version": "0.19.14",
+	"version": "0.19.17",
 	"publisher": "locpham",
 	"license": "MIT",
 	"icon": "media/icon.png",
@@ -30,7 +30,8 @@
 	},
 	"main": "./dist/extension.js",
 	"activationEvents": [
-		"onStartupFinished"
+		"onStartupFinished",
+		"onWebviewPanel:git-octopus.tab"
 	],
 	"repository": {
 		"type": "git",
@@ -134,7 +135,23 @@
 			{
 				"category": "Git Octopus",
 				"command": "git-octopus.openInTab",
-				"title": "Open Git Octopus in Editor Tab"
+				"title": "Open Git Octopus in Editor Tab",
+				"icon": {
+					"light": "media/octopus-light.svg",
+					"dark": "media/octopus-dark.svg"
+				}
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.moveToEditor",
+				"title": "Move to Editor Tab",
+				"icon": "$(link-external)"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.moveToPanel",
+				"title": "Move to Panel",
+				"icon": "$(layout-panel)"
 			}
 		],
 		"menus": {
@@ -184,10 +201,33 @@
 					"when": "false"
 				}
 			],
+			"editor/title": [
+				{
+					"command": "git-octopus.openInTab",
+					"when": "activeWebviewPanelId != 'git-octopus.tab'",
+					"group": "navigation"
+				},
+				{
+					"command": "git-octopus.moveToPanel",
+					"when": "activeWebviewPanelId == 'git-octopus.tab'",
+					"group": "navigation"
+				}
+			],
+			"editor/title/context": [
+				{
+					"command": "git-octopus.openInTab",
+					"group": "z_gitOctopus"
+				}
+			],
 			"view/title": [
 				{
 					"command": "git-octopus.tree.refresh",
 					"when": "view == git-octopus.repoTree",
+					"group": "navigation"
+				},
+				{
+					"command": "git-octopus.moveToEditor",
+					"when": "view == git-octopus.view",
 					"group": "navigation"
 				}
 			],
@@ -251,6 +291,19 @@
 					"type": "boolean",
 					"default": true,
 					"markdownDescription": "Reload the graph when the repository changes on disk — commits made in a terminal, files edited by another tool, or a branch checked out elsewhere. Only a moved `HEAD` reloads history; anything else re-reads the working tree alone."
+				},
+				"gitOctopus.defaultLocation": {
+					"type": "string",
+					"enum": [
+						"panel",
+						"editor"
+					],
+					"enumDescriptions": [
+						"The bottom Panel, next to the terminal.",
+						"An editor tab, like a file — it can be split, dragged to another group, or moved into its own window."
+					],
+					"default": "panel",
+					"markdownDescription": "Where **Open Git Octopus** (the status bar item, the command) shows the graph. A Git Octopus editor tab that is already open is always brought forward instead, so the graph is never shown twice. The octopus button on the editor title bar always opens the tab."
 				},
 				"gitOctopus.aiCommit.claudeModel": {
 					"type": "string",

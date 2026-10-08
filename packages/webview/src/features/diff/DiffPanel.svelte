@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { DiffHunk } from '@git-octopus/shared';
 	import { computeRulerMarks } from '../../lib/diffRuler';
+	import { displayColumns } from '../../lib/displayColumns';
 	import type { HighlightToken } from '../../lib/highlight';
 	import IconButton from '../../lib/ui/IconButton.svelte';
 	import { tooltip } from '../../lib/ui/tooltip';
@@ -32,6 +33,9 @@
 
 	const ROW_H = 18;
 	const OVERSCAN = 20;
+	/** Matches `tab-size` on the rows, so the width computed here is the width drawn. */
+	const TAB_SIZE = 8;
+	const GUTTER_W = 44;
 
 	/**
 	 * Hunks flattened into one list of rows, each hunk preceded by its own separator row. Drawing
@@ -99,6 +103,20 @@
 		return list;
 	});
 
+	/**
+	 * The widest line of the whole file, not of the rows on screen: sized from what is rendered, the
+	 * horizontal bar would change length every time scrolling down virtualised a longer line in.
+	 */
+	const maxColumns = $derived.by(() => {
+		let max = 0;
+		for (const row of listRows) {
+			if (row.kind === 'line') max = Math.max(max, displayColumns(row.line.text, TAB_SIZE));
+		}
+		return max;
+	});
+	// `ch` resolves against the code font set on `.spacer-v`; +1 is the +/- marker, the px the slack.
+	const contentWidth = $derived(`calc(${GUTTER_W * 2}px + ${maxColumns + 1}ch + 16px)`);
+
 	const listMarks = $derived(
 		computeRulerMarks(listRows.map((row) => (row.kind === 'line' ? row.line.kind : 'gap')))
 	);
@@ -152,6 +170,60 @@
 	function endRulerDrag(event: PointerEvent): void {
 		if (!dragging) return;
 		dragging = false;
+		(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+	}
+
+	/**
+	 * The horizontal bar, built like the ruler for the same reason: the native bars are hidden. It is
+	 * only drawn when the code is wider than the view.
+	 */
+	let scrollLeft = $state(0);
+	let viewportW = $state(0);
+	let contentW = $state(0);
+	let hbarW = $state(0);
+	let hDragging = $state(false);
+	let hGrabOffset = 0;
+
+	const overflowsX = $derived(contentW > viewportW + 1);
+	const hThumb = $derived.by(() => {
+		if (contentW === 0) return { left: 0, width: 100 };
+		return {
+			left: Math.min(100, (scrollLeft / contentW) * 100),
+			width: Math.min(100, (viewportW / contentW) * 100),
+		};
+	});
+
+	function scrollLeftFromPointer(clientX: number, bounds: DOMRect): void {
+		if (!viewport || hbarW === 0 || contentW === 0) return;
+		const max = Math.max(0, contentW - viewportW);
+		const left = ((clientX - bounds.left - hGrabOffset) / hbarW) * contentW;
+		viewport.scrollLeft = Math.min(max, Math.max(0, left));
+	}
+
+	function startHbarDrag(event: PointerEvent): void {
+		if (!viewport || hbarW === 0 || contentW === 0 || event.button !== 0) return;
+		const element = event.currentTarget as HTMLElement;
+		const bounds = element.getBoundingClientRect();
+		const thumbLeft = (scrollLeft / contentW) * hbarW;
+		const thumbW = (viewportW / contentW) * hbarW;
+		const offset = event.clientX - bounds.left - thumbLeft;
+		hGrabOffset = offset >= 0 && offset <= thumbW ? offset : thumbW / 2;
+		hDragging = true;
+		element.setPointerCapture(event.pointerId);
+		scrollLeftFromPointer(event.clientX, bounds);
+	}
+
+	function moveHbarDrag(event: PointerEvent): void {
+		if (!hDragging) return;
+		scrollLeftFromPointer(
+			event.clientX,
+			(event.currentTarget as HTMLElement).getBoundingClientRect()
+		);
+	}
+
+	function endHbarDrag(event: PointerEvent): void {
+		if (!hDragging) return;
+		hDragging = false;
 		(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
 	}
 
@@ -235,7 +307,8 @@
 		// The state is set too: while a diff loads the viewport is unmounted, so a remount would
 		// otherwise virtualise from the previous file's offset and draw a blank screenful.
 		scrollTop = top;
-		viewport?.scrollTo({ top });
+		scrollLeft = 0;
+		viewport?.scrollTo({ top, left: 0 });
 		// Landing on the first change is a jump the user did not steer, so it flashes like one.
 		if (first !== undefined) flashChange(first);
 	});
@@ -308,48 +381,87 @@
 			one line of text — the rows go empty instead and the hint sits over the top.
 		-->
 		<div class="body" class:gg-enter-fade={!loading}>
-			<div
-				class="viewport"
-				id="diff-viewport"
-				bind:this={viewport}
-				bind:clientHeight={viewportH}
-				onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
-			>
-				<div class="spacer-v" style="height:{totalH}px">
-					{#each visible as v (v.index)}
-						{#if v.row.kind === 'gap'}
-							<div class="row gap" style="top:{v.index * ROW_H}px; height:{ROW_H}px">
-								<span class="gutter"></span>
-								<span class="gutter"></span>
-								<span class="text">{v.row.label}{v.row.heading ? ` ${v.row.heading}` : ''}</span>
-							</div>
-						{:else}
-							{@const listTokens = listLineTokens?.[v.row.lineIndex]}
-							<div class="row {v.row.line.kind}" style="top:{v.index * ROW_H}px; height:{ROW_H}px">
-								<span class="gutter">{v.row.line.oldLine ?? ''}</span>
-								<span class="gutter">{v.row.line.newLine ?? ''}</span>
-								<!-- Token spans carry nothing but a colour, so the row keeps exactly the height
-								     and ellipsis behaviour of the plain branch it replaces. -->
-								<span class="text"
-									><span class="marker"
-										>{v.row.line.kind === 'add' ? '+' : v.row.line.kind === 'del' ? '-' : ' '}</span
-									>{#if listTokens}{#each listTokens as token}<span style:color={token.color}
-												>{token.content}</span
-											>{/each}{:else}{v.row.line.text}{/if}</span
+			<div class="pane">
+				<div
+					class="viewport"
+					id="diff-viewport"
+					bind:this={viewport}
+					bind:clientHeight={viewportH}
+					bind:clientWidth={viewportW}
+					onscroll={(event) => {
+						scrollTop = event.currentTarget.scrollTop;
+						scrollLeft = event.currentTarget.scrollLeft;
+					}}
+				>
+					<div
+						class="spacer-v"
+						style="height:{totalH}px; width:{contentWidth}"
+						bind:offsetWidth={contentW}
+					>
+						{#each visible as v (v.index)}
+							{#if v.row.kind === 'gap'}
+								<div class="row gap" style="top:{v.index * ROW_H}px; height:{ROW_H}px">
+									<span class="gutter"></span>
+									<span class="gutter"></span>
+									<span class="text">{v.row.label}{v.row.heading ? ` ${v.row.heading}` : ''}</span>
+								</div>
+							{:else}
+								{@const listTokens = listLineTokens?.[v.row.lineIndex]}
+								<div
+									class="row {v.row.line.kind}"
+									style="top:{v.index * ROW_H}px; height:{ROW_H}px"
 								>
-							</div>
+									<span class="gutter">{v.row.line.oldLine ?? ''}</span>
+									<span class="gutter">{v.row.line.newLine ?? ''}</span>
+									<!-- Token spans carry nothing but a colour, so the row keeps exactly the height
+								     of the plain branch it replaces. -->
+									<span class="text"
+										><span class="marker"
+											>{v.row.line.kind === 'add'
+												? '+'
+												: v.row.line.kind === 'del'
+													? '-'
+													: ' '}</span
+										>{#if listTokens}{#each listTokens as token}<span style:color={token.color}
+													>{token.content}</span
+												>{/each}{:else}{v.row.line.text}{/if}</span
+									>
+								</div>
+							{/if}
+						{/each}
+						{#if flash}
+							{#key flash.seq}
+								<div
+									class="flash"
+									style="top:{flash.start * ROW_H}px; height:{(flash.end - flash.start + 1) *
+										ROW_H}px"
+								></div>
+							{/key}
 						{/if}
-					{/each}
-					{#if flash}
-						{#key flash.seq}
-							<div
-								class="flash"
-								style="top:{flash.start * ROW_H}px; height:{(flash.end - flash.start + 1) *
-									ROW_H}px"
-							></div>
-						{/key}
-					{/if}
+					</div>
 				</div>
+
+				{#if overflowsX}
+					<div
+						class="hbar"
+						class:dragging={hDragging}
+						bind:clientWidth={hbarW}
+						onpointerdown={startHbarDrag}
+						onpointermove={moveHbarDrag}
+						onpointerup={endHbarDrag}
+						onpointercancel={endHbarDrag}
+						role="scrollbar"
+						aria-controls="diff-viewport"
+						aria-orientation="horizontal"
+						aria-valuemin={0}
+						aria-valuemax={100}
+						aria-valuenow={Math.round(hThumb.left)}
+						aria-label="Scroll the diff sideways"
+						tabindex="-1"
+					>
+						<span class="hthumb" style="left:{hThumb.left}%; width:{hThumb.width}%"></span>
+					</div>
+				{/if}
 			</div>
 
 			<!-- The whole file at a glance and the scrollbar in one strip: every change is a mark at
@@ -492,7 +604,7 @@
 	 * one too many. `scrollbar-width` is a property on the element, so nothing a host stylesheet
 	 * says about `::-webkit-scrollbar` can put the bar back — which the pseudo-element route could
 	 * not promise, and a macOS overlay scrollbar still showed through it inside the VS Code webview.
-	 * Nothing is lost on the other axis: long lines ellipsize, so this never scrolls sideways.
+	 * The horizontal axis gets its own drawn bar (`.hbar`) for the same reason.
 	 */
 	.viewport {
 		flex: 1;
@@ -505,6 +617,40 @@
 	}
 	.viewport::-webkit-scrollbar {
 		display: none;
+	}
+	/* The code and the horizontal bar under it, beside the ruler that spans the full height. */
+	.pane {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		min-height: 0;
+	}
+	.hbar {
+		position: relative;
+		flex: none;
+		height: 10px;
+		cursor: pointer;
+		border-top: 1px solid var(--gg-border);
+		background: var(--gg-bg);
+		touch-action: none;
+		user-select: none;
+	}
+	.hthumb {
+		position: absolute;
+		top: 2px;
+		bottom: 2px;
+		min-width: 24px;
+		border-radius: 3px;
+		background: color-mix(in srgb, var(--gg-fg) 30%, transparent);
+		pointer-events: none;
+		transition: background-color 60ms var(--gg-ease);
+	}
+	.hbar:hover .hthumb {
+		background: color-mix(in srgb, var(--gg-fg) 42%, transparent);
+	}
+	.hbar.dragging .hthumb {
+		background: color-mix(in srgb, var(--gg-fg) 55%, transparent);
 	}
 	/* Sits beside the scroll area rather than over it, so the two never fight for the same pixels. */
 	.ruler {
@@ -556,34 +702,47 @@
 	.ruler.dragging .thumb {
 		background: color-mix(in srgb, var(--gg-fg) 55%, transparent);
 	}
+	/* The code font lives here rather than on the rows: the width set inline is counted in `ch`. */
 	.spacer-v {
 		position: relative;
+		min-width: 100%;
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-size: var(--vscode-editor-font-size, 12px);
 	}
+	/* Rows span the spacer, so a row's tint runs the full width however far it is scrolled. */
 	.row {
+		--row-tint: transparent;
 		position: absolute;
 		left: 0;
 		right: 0;
 		display: flex;
 		align-items: center;
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: var(--vscode-editor-font-size, 12px);
 		white-space: pre;
+		tab-size: 8;
+		background: var(--row-tint);
 	}
-	/* Line numbers sit in their own fixed columns so the code starts on one vertical line. */
+	/*
+	 * Line numbers sit in their own fixed columns so the code starts on one vertical line, and stay
+	 * put while the code scrolls sideways under them — opaque, with the row's own tint on top.
+	 */
 	.gutter {
+		position: sticky;
+		left: 0;
+		z-index: 1;
 		flex: none;
 		width: 44px;
 		padding-right: var(--gg-space-2);
 		box-sizing: border-box;
 		text-align: right;
 		color: var(--vscode-editorLineNumber-foreground, var(--gg-fg-muted));
+		background: linear-gradient(var(--row-tint), var(--row-tint)), var(--gg-bg);
 		user-select: none;
 	}
+	.gutter + .gutter {
+		left: 44px;
+	}
 	.text {
-		flex: 1;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		flex: 1 0 auto;
 	}
 	.marker {
 		display: inline-block;
@@ -591,13 +750,13 @@
 		color: var(--gg-fg-muted);
 	}
 	.row.add {
-		background: var(--vscode-diffEditor-insertedTextBackground, rgba(63, 185, 80, 0.15));
+		--row-tint: var(--vscode-diffEditor-insertedTextBackground, rgba(63, 185, 80, 0.15));
 	}
 	.row.del {
-		background: var(--vscode-diffEditor-removedTextBackground, rgba(248, 81, 73, 0.15));
+		--row-tint: var(--vscode-diffEditor-removedTextBackground, rgba(248, 81, 73, 0.15));
 	}
 	.row.gap {
-		background: var(--vscode-diffEditor-diagonalFill, rgba(128, 128, 128, 0.12));
+		--row-tint: var(--vscode-diffEditor-diagonalFill, rgba(128, 128, 128, 0.12));
 		color: var(--gg-fg-muted);
 	}
 	/* The jump landing: VS Code's own reveal tint over the run, plus a bar so the block reads even
@@ -610,6 +769,8 @@
 		border-left: 3px solid var(--vscode-focusBorder, #007fd4);
 		box-sizing: border-box;
 		pointer-events: none;
+		/* Above the sticky line numbers, or they would cover its bar. */
+		z-index: 2;
 		animation: gg-flash-fade 600ms var(--gg-ease) forwards;
 	}
 	@keyframes gg-flash-fade {
