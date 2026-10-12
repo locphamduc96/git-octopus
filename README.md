@@ -31,13 +31,19 @@ Requires VS Code 1.90 or newer, Node 20+, pnpm, and `git` 2.24 or newer on your 
 ## What it does
 
 Commit graph with branch lanes and colours, in four lane styles · branch, tag and stash chips, and
-a `HEAD` chip when it is detached · commit details with the file list as a flat list or a folder
-tree · file icons from whichever icon theme you use · working tree: stage, unstage, discard, stash,
-commit, undo commit · diff any file, or compare two commits with Ctrl/Cmd + click · fetch, pull,
-push and force-push with confirmation, against remotes that ask for credentials · 20+ Git actions
-from the commit menu, asked in the view's own dialogs · right-click a chip to act on that ref, or
-hover the ref column to read every name in full · a Git identity per repository, matched to the
-remote · find (Ctrl+F) · several repositories in one workspace.
+a `HEAD` chip when it is detached · ahead/behind drift on every branch chip, kept fresh by
+auto-fetch · show one branch only · commit details with the file list as a flat list or a folder
+tree, and a merge's files against the branch it was merged into · file icons from whichever icon
+theme you use · working tree: stage, unstage, discard, stash, commit, undo commit · diff any file,
+with long lines scrolling sideways, or compare two commits with Ctrl/Cmd + click · fetch, pull,
+push and force-push with confirmation, a pull strategy setting, and remotes that ask for
+credentials · 20+ Git actions from the commit menu, asked in the view's own dialogs, and undo for
+the last one that moved a branch · checkout that brings a stale branch up to date and offers a way
+out of a diverged one · right-click a chip to act on that ref, or hover the ref column to read every
+name in full · AI commit through an agent CLI you already use, as one commit or a reviewed split ·
+a Git identity per repository, matched to the remote · the Panel or an editor tab · waits out
+another tool's `index.lock` instead of failing · find (Ctrl+F) · several repositories in one
+workspace.
 
 Several Git accounts? Save an identity per client in the Identity tab, apply one to a repository
 without touching your global config, match identities to remotes by pattern, and get asked before a
@@ -51,6 +57,10 @@ Taken against a demo repository; the full set lives in [docs/screenshots](docs/s
 ![The commit graph, with the working tree beside it](docs/screenshots/01-graph-overview.png)
 
 ![Inline diff with syntax highlighting and the change ruler](docs/screenshots/04-diff-syntax-highlight.png)
+
+![AI commit splits the staged changes into commits you review first](docs/screenshots/10-ai-commit-plan.png)
+
+![A merge commit lists what it brought in](docs/screenshots/09-merge-commit-files.png)
 
 ![Drag a branch onto another to merge, rebase or fast-forward](docs/screenshots/05-branch-drag-merge.png)
 

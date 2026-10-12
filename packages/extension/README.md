@@ -15,40 +15,69 @@ View a Git graph of your repository and perform Git actions from it, inside Visu
   types (`feat`, `fix`, `chore`, …) render as chips, and hovering a row or branch chip highlights
   that branch's whole line. Rest on an avatar to see who wrote the commit. A long-lived branch
   keeps its own lane through fork points instead of drifting left.
+- **Upstream drift on every branch**: a local branch's chip shows how far it is ahead of or behind
+  the branch it tracks, and **auto-fetch** (every minute by default; 5, 15, 30 or 60 minutes, or
+  off) keeps those counts true. It pauses while the window is in the background and gives up after
+  repeated failures rather than asking for a password again and again.
+- **Show only one branch**: pick **Show Only** on a branch chip to draw that branch alone; a pill
+  in the control bar clears the filter.
 - **Commit details**: message, author and committer, parents, and the changed files as a flat list or
-  a folder tree — with the file icons from whichever icon theme you already use.
+  a folder tree — with the file icons from whichever icon theme you already use. A merge commit
+  lists what it brought in: its files against the branch it was merged into.
 - **Working tree**: stage, unstage and discard per file, stage or unstage everything, stash, commit,
   and undo the last commit.
 - **Diffs in the view**: any file's changes open in an inline panel with syntax highlighting and an
   overview ruler of every change — or Ctrl/Cmd + click a second commit to compare two commits.
-  ↑/↓ step through the commit's files while a diff is open; Alt + ↑/↓ still move between commits.
-- **Git actions**: checkout, branch, merge, rebase, cherry-pick, revert, reset, tag, and the stash
-  actions, from the commit's context menu; drag one branch chip onto another to merge, rebase or
-  fast-forward; fetch, pull, push and force-push ask before running. Merge options, squash and
-  reword messages and the confirmations are asked in the view's own dialogs, with a real
-  multi-line editor for commit messages.
+  Long lines scroll sideways while the line numbers stay put. ↑/↓ step through the commit's files
+  while a diff is open; Alt + ↑/↓ still move between commits.
+- **Git actions**: checkout, branch, rename, merge, rebase, cherry-pick, revert, reset, lightweight
+  and annotated tags, and the stash actions, from the commit's context menu; drag one branch chip
+  onto another to merge, rebase or fast-forward; push a branch without checking it out; fetch,
+  pull, push and force-push ask before running. Deleting an unmerged branch offers a force delete
+  instead of failing. Merge options, squash and reword messages and the confirmations are asked in
+  the view's own dialogs, with a real multi-line editor for commit messages.
+- **Undo**: the last graph action that moved a branch or HEAD — a merge, rebase, reset,
+  cherry-pick, squash or branch change — is undone with the Undo button in the control bar.
+  Everything is checked again before the undo runs, and a dirty working tree is refused rather
+  than overwritten.
 - **Refs where you clicked them**: right-click a branch, remote branch or tag chip and the menu
   belongs to that ref, named in the label — no second question about which ref you meant. Hover the
   ref column and it unfolds, every ref on the row at full length, still draggable and still
   right-clickable.
-- **Checkout that keeps up**: checking a branch out from its remote finds the local branch even
-  when it has fallen behind, and brings it up to date in the same step — never over uncommitted
-  work, and switchable off. A detached HEAD is marked in the graph, with one click back to the
-  branch you left.
+- **Checkout that keeps up**: every way of checking a branch out — double-click, the menu, or its
+  remote chip — finds the local branch even when it has fallen behind, and brings it up to date in
+  the same step, never over uncommitted work and switchable off. Checked out from its remote chip,
+  a branch that has diverged is checked out first and then you choose: merge, rebase, or reset
+  onto the remote; one that is only ahead offers to push it up or reset it back, and says whether
+  the commits a reset drops still live on another branch. A detached HEAD is marked in the graph,
+  with one click back to the branch you left.
+- **Pull strategy**: the Pull button follows your git config by default, or uses fast-forward if
+  possible, fast-forward only, or rebase — so a repository set to write a merge commit on every
+  pull can still be pulled clean. The pull menu offers each one for a single pull.
 - **Remotes that ask for credentials** work without a terminal: git's prompt is answered through
   VS Code, and nothing secret reaches a log or notification.
-- **AI commit**, opt-in: the wand beside Commit hands your changes to an agent CLI you already have
-  installed and logged in — Claude Code, Codex, Gemini, Copilot, OpenCode or Qwen Code — and it
-  writes the message, or a split into several commits you can edit, regroup and approve before
-  anything is written. No API key is stored; generated assets, binaries and any glob you exclude
-  are sent by name only.
+- **AI commit**, opt-in: the wand beside Commit hands your staged changes to an agent CLI you
+  already have installed and logged in — Claude Code, Codex, Gemini, Copilot, OpenCode or Qwen Code —
+  and it writes the message, or a split into several commits you can edit, regroup and approve
+  before anything is written. Each step of the run is shown while it works. No API key is stored;
+  generated assets, binaries and any glob you exclude are sent by name only, and the agent runs in
+  a folder of its own, never inside your repository.
 - **Branch cleanup**: scan local branches by age, see which are merged or have lost their remote,
   and delete a batch in one pass — every result comes back with the hash to undo it.
 - **Git identities per repository**: keep an identity per client, each with one or more remote
   patterns, and apply it to a repository without touching your global config — optionally applied
   on its own when a repository's remote matches exactly one of them.
-- **Find** with Ctrl+F, several repositories in one workspace, and a view you can open as an editor
-  tab.
+- **In the Panel or an editor tab**: the graph opens in the bottom Panel or as an editor tab you
+  can split, drag to another group or move into its own window. The octopus button on the editor
+  title bar opens it, **Move to Editor Tab** / **Move to Panel** swap between the two, and the
+  **Default location** setting decides where **Open Git Octopus** goes. An open tab is brought
+  forward rather than opening a second graph.
+- **Gets along with other Git tools**: every git command runs in turn, a write that meets a lock
+  another tool holds for a moment waits it out, and reading the working tree never takes the
+  index lock — so a commit made in a terminal or another client is not refused because the graph
+  was refreshing. A lock file left behind by an interrupted command is reported as exactly that,
+  with an offer to remove it.
+- **Find** with Ctrl+F, and several repositories in one workspace.
 
 ## Managing multiple Git identities
 
@@ -84,17 +113,25 @@ sent anywhere by the extension.
 
 ![Inline diff panel](docs/screenshots/04-diff-syntax-highlight.png)
 
+**AI commit splits the staged changes into commits you review before anything is written**
+
+![AI commit plan editor](docs/screenshots/10-ai-commit-plan.png)
+
+**A merge commit lists what it brought in**
+
+![Files of a merge commit](docs/screenshots/09-merge-commit-files.png)
+
 **Drag a branch onto another to merge, rebase or fast-forward**
 
 ![Branch drag and drop](docs/screenshots/05-branch-drag-merge.png)
 
-**Hover highlights the branch under the pointer**
-
-![Branch hover highlight](docs/screenshots/02-branch-hover-highlight.png)
-
 **Clean up stale local branches in one pass**
 
 ![Branch cleanup dialog](docs/screenshots/06-branch-cleanup.png)
+
+**Settings, with the pull strategy and auto-fetch interval**
+
+![Settings dialog](docs/screenshots/07-settings.png)
 
 ## Requirements
 
@@ -106,6 +143,11 @@ No telemetry, no tracking — the extension talks to your local `git` and nothin
 exception: the **Fetch avatars** setting (off by default) loads author images from gravatar.com,
 which sends a hash of each author's email address to that service. Nothing is fetched until you
 turn it on in the view's settings.
+
+Two things reach beyond your machine through tools you already use, never through the extension
+itself: **auto-fetch** runs `git fetch` against your repository's own remotes (set it to Off in the
+settings to stop it), and **AI commit**, only when you press the wand, hands your staged changes to
+the agent CLI you picked.
 
 ## Licence
 
