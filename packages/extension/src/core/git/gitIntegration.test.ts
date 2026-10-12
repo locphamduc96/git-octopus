@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { GitProcessExecutor } from '../../adapters/process/gitProcessExecutor';
 import { createTempRepo, type TempRepo } from '../../test/tempRepo';
-import { getFileDiff, getRemoteNames } from './gitService';
+import { getCommitDetails, getFileDiff, getRemoteNames } from './gitService';
 import { listCandidateRemotes } from './remoteOwnership';
 import { parseAheadBehind } from './checkoutPlan';
 
@@ -188,5 +188,40 @@ describe('git integration', () => {
 			repo.cwd
 		);
 		expect(parseAheadBehind(output)).toEqual({ ahead: 1, behind: 2 });
+	});
+
+	it('lists what a merge brought in, measured against the branch it was merged into', async () => {
+		const merged = await createTempRepo();
+		try {
+			const root = await merged.commit('base.txt', 'base\n', 'base');
+			await merged.git('checkout', '-b', 'topic');
+			await merged.commit('topic.txt', 'one\ntwo\n', 'topic work');
+			await merged.git('checkout', 'main');
+			const plain = await merged.commit('main.txt', 'main\n', 'main work');
+			await merged.git('merge', '--no-ff', '--no-edit', 'topic');
+			const merge = (await merged.git('rev-parse', 'HEAD')).trim();
+
+			const details = await getCommitDetails(executor, merged.cwd, merge);
+			expect(details.parents).toHaveLength(2);
+			expect(details.files).toEqual([
+				{ status: 'A', path: 'topic.txt', additions: 2, deletions: 0 },
+			]);
+			const diff = await getFileDiff(executor, merged.cwd, {
+				path: 'topic.txt',
+				hash: merge,
+				context: 3,
+			});
+			expect(diff.listHunks).toHaveLength(1);
+
+			// One parent, and none: the flags must leave both reading as they always did.
+			expect(
+				(await getCommitDetails(executor, merged.cwd, plain)).files.map((f) => f.path)
+			).toEqual(['main.txt']);
+			expect((await getCommitDetails(executor, merged.cwd, root)).files.map((f) => f.path)).toEqual(
+				['base.txt']
+			);
+		} finally {
+			await merged.dispose();
+		}
 	});
 });

@@ -343,18 +343,31 @@ export async function getHeadHash(executor: GitExecutor, cwd: string): Promise<s
 /** Metadata for a single commit; the body comes last so it may contain anything. */
 const DETAIL_FORMAT = '%H%x00%P%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%B';
 
+/**
+ * The commit arguments `diff-tree` needs to say what a commit changed.
+ *
+ * Handed a merge alone, `diff-tree` names no parent to compare with and prints nothing, so a merge
+ * read as "0 files changed". Against its first parent — the branch merged into — the diff is what
+ * the merge brought in, spelled as two trees so every git version reads it the same way.
+ * `-m --first-parent` looks like the same request and is not: next to `--root` it still mixes in
+ * the other parent's side. A root commit keeps `--root`, which diffs it against the empty tree.
+ */
+function commitDiffRange(hash: string, listParents: string[]): string[] {
+	return listParents.length > 1 ? [listParents[0], hash] : ['--root', hash];
+}
+
+async function getParents(executor: GitExecutor, cwd: string, hash: string): Promise<string[]> {
+	const output = await executor.run(['rev-list', '--parents', '-n', '1', hash], cwd);
+	return output.trim().split(' ').slice(1);
+}
+
 /** Load metadata, the full message and the changed files (with line counts) for one commit. */
 export async function getCommitDetails(
 	executor: GitExecutor,
 	cwd: string,
 	hash: string
 ): Promise<CommitDetails> {
-	const [meta, nameStatus, numstat] = await Promise.all([
-		executor.run(['show', '-s', `--format=${DETAIL_FORMAT}`, hash], cwd),
-		executor.run(['diff-tree', '--no-commit-id', '--name-status', '-r', '--root', hash], cwd),
-		executor.run(['diff-tree', '--no-commit-id', '--numstat', '-r', '--root', hash], cwd),
-	]);
-
+	const meta = await executor.run(['show', '-s', `--format=${DETAIL_FORMAT}`, hash], cwd);
 	const [
 		fullHash,
 		parents,
@@ -366,6 +379,12 @@ export async function getCommitDetails(
 		committedAt,
 		...bodyParts
 	] = meta.split('\0');
+	const listParents = parents ? parents.split(' ').filter((parent) => parent !== '') : [];
+	const listRange = commitDiffRange(hash, listParents);
+	const [nameStatus, numstat] = await Promise.all([
+		executor.run(['diff-tree', '--no-commit-id', '--name-status', '-r', ...listRange], cwd),
+		executor.run(['diff-tree', '--no-commit-id', '--numstat', '-r', ...listRange], cwd),
+	]);
 	const mapCounts = parseNumstat(numstat);
 	const files = parseNameStatus(nameStatus).map((file) => ({
 		...file,
@@ -374,7 +393,7 @@ export async function getCommitDetails(
 
 	return {
 		hash: fullHash ?? hash,
-		parents: parents ? parents.split(' ').filter((parent) => parent !== '') : [],
+		parents: listParents,
 		author: { name: authorName ?? '', email: authorEmail ?? '' },
 		authoredAt: Number.parseInt(authoredAt ?? '0', 10) || 0,
 		committer: { name: committerName ?? '', email: committerEmail ?? '' },
@@ -431,7 +450,7 @@ export interface FileDiffResult {
 	notice?: string;
 }
 
-function diffArgs(request: FileDiffRequest): string[] {
+function diffArgs(request: FileDiffRequest, listParents: string[]): string[] {
 	const context = `-U${String(request.context)}`;
 	// A rename needs both paths in the pathspec and rename detection on, or git reports the new
 	// path as a whole-file add.
@@ -447,16 +466,14 @@ function diffArgs(request: FileDiffRequest): string[] {
 		return ['diff', ...rename, context, request.fromHash, request.toHash, '--', ...listPaths];
 	}
 	if (request.hash) {
-		// `--root` so the first commit in history diffs against the empty tree instead of nothing.
 		return [
 			'diff-tree',
 			'-p',
 			'-r',
 			...rename,
-			'--root',
 			'--no-commit-id',
 			context,
-			request.hash,
+			...commitDiffRange(request.hash, listParents),
 			'--',
 			...listPaths,
 		];
@@ -475,7 +492,12 @@ export async function getFileDiff(
 ): Promise<FileDiffResult> {
 	let output: string | null;
 	try {
-		output = await executor.run(diffArgs(request), cwd, request.untracked ? [1] : undefined);
+		const listParents = request.hash ? await getParents(executor, cwd, request.hash) : [];
+		output = await executor.run(
+			diffArgs(request, listParents),
+			cwd,
+			request.untracked ? [1] : undefined
+		);
 	} catch {
 		// The working-tree diff runs against HEAD, which an empty repository does not have yet —
 		// but a staged file there still deserves its diff, taken against the empty tree instead.

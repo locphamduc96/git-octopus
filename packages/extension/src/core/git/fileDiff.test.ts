@@ -55,17 +55,36 @@ describe('getFileDiff', () => {
 
 		await getFileDiff(git, '/repo', { path: 'a.txt', hash: 'abc', context: 3 });
 
-		expect(git.listCalls[0]).toEqual([
+		expect(git.callsTo('diff-tree')[0]).toEqual([
 			'diff-tree',
 			'-p',
 			'-r',
-			'--root',
 			'--no-commit-id',
 			'-U3',
+			'--root',
 			'abc',
 			'--',
 			'a.txt',
 		]);
+	});
+
+	it('diffs a merge against its first parent as two trees, or diff-tree prints nothing for it', async () => {
+		const git = fakeGit({ 'rev-list': 'abc p1 p2\n', 'diff-tree': MODIFIED_DIFF });
+
+		const result = await getFileDiff(git, '/repo', { path: 'a.txt', hash: 'abc', context: 3 });
+
+		expect(git.callsTo('diff-tree')[0]).toEqual([
+			'diff-tree',
+			'-p',
+			'-r',
+			'--no-commit-id',
+			'-U3',
+			'p1',
+			'abc',
+			'--',
+			'a.txt',
+		]);
+		expect(result.listHunks.length).toBeGreaterThan(0);
 	});
 
 	it('turns rename detection on and names both paths, or git reports a whole-file add', async () => {
@@ -120,6 +139,7 @@ describe('getFileDiff', () => {
 		const result = await getFileDiff(git, '/repo', { path: 'a.txt', hash: 'abc', context: 3 });
 
 		expect(result.notice).toBe('This file has no diff to show.');
-		expect(git.listCalls).toHaveLength(1);
+		expect(git.callsTo('diff-tree')).toHaveLength(1);
+		expect(git.callsTo('diff-index')).toHaveLength(0);
 	});
 });

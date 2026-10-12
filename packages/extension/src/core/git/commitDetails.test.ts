@@ -136,4 +136,15 @@ describe('getCommitDetails', () => {
 			expect(argv).toContain('-r');
 		}
 	});
+
+	it('compares a merge with its first parent, or diff-tree lists no files for it', async () => {
+		const git = gitWith({ meta: meta('merge', 'p1 p2') });
+		await getCommitDetails(git, '/repo', HASH);
+
+		expect(git.callsTo('diff-tree')).toHaveLength(2);
+		for (const argv of git.callsTo('diff-tree')) {
+			expect(argv.slice(-2)).toEqual(['p1', HASH]);
+			expect(argv).not.toContain('--root');
+		}
+	});
 });
