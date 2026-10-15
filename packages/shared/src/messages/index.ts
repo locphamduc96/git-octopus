@@ -7,6 +7,8 @@ import type {
 	CommitDetails,
 	DiffHunk,
 	FileChange,
+	FileStatus,
+	Person,
 	UpstreamTracking,
 	WorkingTreeStatus,
 } from '../model/index.js';
@@ -67,9 +69,20 @@ export function remoteRefLabel(ref: RemoteBranchRef): string {
 export type CommitOrder = 'date' | 'authorDate' | 'topo';
 
 /** Filters and options applied when loading the graph. */
+/** Refs left out of the graph, each named the way its namespace names it (`feature`, `origin/x`, `v1`). */
+export interface HiddenRefs {
+	listBranches: string[];
+	listRemotes: string[];
+	listTags: string[];
+}
+
 export interface GraphFilters {
-	/** A specific branch to show, or null for "Show All". */
+	/** A specific branch to show, or null for "Show All". The first of `listSoloRefs` when that is set. */
 	branch: string | null;
+	/** Walk these refs and nothing else; empty or absent walks everything. */
+	listSoloRefs?: string[];
+	/** Leave these refs out of the walk, and their chips off the commits that remain. */
+	hiddenRefs?: HiddenRefs;
 	showRemoteBranches: boolean;
 	/**
 	 * Opt-in: derive Gravatar URLs from author emails. Enabling this means author email hashes
@@ -131,6 +144,99 @@ export interface LoadFileDiffMessage {
 	untracked?: boolean;
 	/** Context lines: small for the changes-only view, larger than any file for the whole-file one. */
 	context: number;
+	/** Diff with `-w`, so changes that are only whitespace drop out. */
+	ignoreWhitespace?: boolean;
+	/** A working-tree file: only its unstaged or only its staged part, instead of HEAD → disk. */
+	side?: WorkingDiffSide;
+}
+
+/** The commits that touched one file, newest first, following it across renames. */
+export interface LoadFileHistoryMessage {
+	type: 'loadFileHistory';
+	path: string;
+	/** Walk from this commit; absent walks from HEAD. */
+	rev?: string;
+}
+
+export interface FileHistoryEntry {
+	hash: string;
+	subject: string;
+	author: Person;
+	authoredAt: number;
+	/** What this commit did to the file. */
+	status: FileStatus;
+	/** The file's name at this commit, which a rename further on may have changed. */
+	path: string;
+	/** Set on the commit that renamed the file: its name before. */
+	oldPath?: string;
+}
+
+export interface FileHistoryMessage {
+	type: 'fileHistory';
+	path: string;
+	rev: string | null;
+	listEntries: FileHistoryEntry[];
+	/** More commits touched the file than were read. */
+	truncated: boolean;
+	/** Set when the history could not be read, and says why. */
+	error?: string;
+}
+
+/**
+ * Whether a commit or amend asked from the commit dialog went through. Sent only to the view that
+ * asked: a refused commit (a hook, an empty message) brings the dialog back with what was typed.
+ */
+export interface CommitOutcomeMessage {
+	type: 'commitOutcome';
+	ok: boolean;
+}
+
+/** How big each of these commits is, for the Changes column. Asked only for the rows on screen. */
+export interface LoadCommitStatsMessage {
+	type: 'loadCommitStats';
+	listHashes: string[];
+}
+
+/** A commit's size: a merge is measured against its first parent, like its file list. */
+export interface CommitStat {
+	hash: string;
+	files: number;
+	insertions: number;
+	deletions: number;
+}
+
+export interface CommitStatsMessage {
+	type: 'commitStats';
+	/** One per hash asked that could be read; a hash left out could not be. */
+	listStats: CommitStat[];
+}
+
+/** Who last changed each line of a file, at a commit or in the working tree. */
+export interface LoadBlameMessage {
+	type: 'loadBlame';
+	/** Echoed back, like `loadFileDiff`'s, so a late answer for another file is recognisable. */
+	key: string;
+	path: string;
+	/** Blame the file as of this commit; absent blames the working tree copy. */
+	rev?: string;
+}
+
+export interface BlameCommit {
+	author: string;
+	authoredAt: number;
+	summary: string;
+}
+
+export interface BlameMessage {
+	type: 'blame';
+	key: string;
+	path: string;
+	listLines: string[];
+	/** The commit of each line, by index; all zeros for a line not committed yet. */
+	listLineHashes: string[];
+	mapCommits: Record<string, BlameCommit>;
+	/** Set when there is nothing to draw, and says why. */
+	notice?: string;
 }
 
 export interface FileDiffMessage {
@@ -170,6 +276,8 @@ export type CommitActionId =
 	| 'copyRemoteUrl'
 	| 'deleteBranch'
 	| 'renameBranch'
+	| 'setUpstream'
+	| 'unsetUpstream'
 	| 'checkoutBranch'
 	| 'checkoutRemote'
 	| 'checkoutPrevious'
@@ -254,6 +362,19 @@ export interface MultiCommitActionMessage {
 	subjects: string[];
 }
 
+/** Cherry-pick commits in the order the cherry-pick editor left them. */
+export interface CherryPickCommitsMessage {
+	type: 'cherryPickCommits';
+	/** See `MultiCommitActionMessage.repoPath`. */
+	repoPath: string;
+	/** In the order they are applied. */
+	listHashes: string[];
+	/** `-x`: note the commit each pick came from in its message. */
+	recordOrigin: boolean;
+	/** `--no-commit`: leave the changes staged instead of committing them. */
+	noCommit: boolean;
+}
+
 /** Drive an in-progress rebase / merge / cherry-pick / revert forward or abandon it. */
 export interface SequencerActionMessage {
 	type: 'sequencerAction';
@@ -267,7 +388,7 @@ export interface SequencerActionMessage {
 }
 
 /** What dropping one branch chip onto another can do. */
-export type BranchActionId = 'mergeInto' | 'rebaseOnto' | 'fastForward';
+export type BranchActionId = 'mergeInto' | 'rebaseOnto' | 'fastForward' | 'resetTo' | 'pushTo';
 
 export interface BranchActionMessage {
 	type: 'branchAction';
@@ -286,8 +407,12 @@ export interface BranchActionMessage {
 	source: string;
 	/** The same branch as the user saw it named, for prompts and confirmations. */
 	sourceLabel: string;
-	/** The branch dropped onto — always local, since Git can only write a local ref. */
+	/**
+	 * The branch dropped onto: a local name — or, with `targetRemote`, the branch's name on that
+	 * remote, for the two actions that write no remote-tracking ref here (rebase onto it, push to it).
+	 */
 	target: string;
+	targetRemote?: string;
 }
 
 /**
@@ -318,7 +443,13 @@ export type WorkingTreeAction =
 	| 'stash'
 	| 'commit'
 	| 'amend'
-	| 'undoCommit';
+	| 'undoCommit'
+	| 'restoreFromCommit'
+	| 'stashFile'
+	| 'takeOurs'
+	| 'takeTheirs'
+	| 'restoreConflict'
+	| 'openMergeEditor';
 
 export type RepoActionId =
 	| 'fetch'
@@ -354,6 +485,167 @@ export interface WorkingTreeActionMessage {
 	action: WorkingTreeAction;
 	path?: string;
 	message?: string;
+	/** The commit `restoreFromCommit` takes the file from. */
+	hash?: string;
+	/** `commit` / `amend`: run with `--no-verify`, skipping the repository's hooks this once. */
+	noVerify?: boolean;
+	/** `commit`: push once the commit is made, the way the Push button would. */
+	pushAfter?: boolean;
+}
+
+export interface RemoteInfo {
+	name: string;
+	fetchUrl: string;
+	/** Only when it differs from the fetch URL. */
+	pushUrl?: string;
+}
+
+/** One of the repository's worktrees, as `git worktree list` reports it. */
+export interface WorktreeInfo {
+	path: string;
+	/** The commit checked out there; null for a bare entry. */
+	head: string | null;
+	/** The branch checked out there, short name; null when detached or bare. */
+	branch: string | null;
+	/** The worktree holding the repository's own `.git` directory — the one that cannot be removed. */
+	isMain: boolean;
+	/** The worktree this window has open. */
+	isCurrent: boolean;
+	locked: boolean;
+	/** Its folder is gone; `git worktree prune` forgets it. */
+	prunable: boolean;
+}
+
+export interface LoadWorktreesMessage {
+	type: 'loadWorktrees';
+}
+
+export interface WorktreesMessage {
+	type: 'worktrees';
+	listWorktrees: WorktreeInfo[];
+}
+
+/** Open, add, remove or prune worktrees. */
+export interface WorktreeActionMessage {
+	type: 'worktreeAction';
+	/** See `RemoteActionMessage.repoPath`. */
+	repoPath: string;
+	action: 'open' | 'add' | 'remove' | 'prune';
+	/** `open` / `remove`: the worktree. `add`: where to put it — absent, the host asks. */
+	path?: string;
+	/** `add`: checked out there when it exists, otherwise created from HEAD. */
+	branch?: string;
+}
+
+/** List the repository's remotes. */
+export interface LoadRemotesMessage {
+	type: 'loadRemotes';
+}
+
+export interface RemotesMessage {
+	type: 'remotes';
+	listRemotes: RemoteInfo[];
+}
+
+/** Add a remote (and fetch it), or remove one. */
+export interface RemoteActionMessage {
+	type: 'remoteAction';
+	/**
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository.
+	 */
+	repoPath: string;
+	action: 'add' | 'remove';
+	name: string;
+	/** `add` only. */
+	url?: string;
+}
+
+export type RebaseStepAction = 'pick' | 'reword' | 'squash' | 'fixup' | 'drop';
+
+/** One commit of an interactive rebase, in the order the rebase applies them. */
+export interface RebaseStep {
+	hash: string;
+	action: RebaseStepAction;
+	/** `reword` only: the whole new message. */
+	message?: string;
+}
+
+/** The commits after `base` up to HEAD, oldest first, for the interactive rebase editor. */
+export interface LoadRebaseTodoMessage {
+	type: 'loadRebaseTodo';
+	base: string;
+	/** The local branch to rewrite onto `base`; absent rewrites HEAD's commits after `base`. */
+	branch?: string;
+}
+
+export interface RebaseTodoCommit {
+	hash: string;
+	subject: string;
+	/** The full message, so a reword starts from all of it, not just the subject. */
+	message: string;
+	author: string;
+}
+
+export interface RebaseTodoMessage {
+	type: 'rebaseTodo';
+	base: string;
+	branch?: string;
+	listCommits: RebaseTodoCommit[];
+	/** Why the commits cannot be rewritten from this base; the editor shows it instead. */
+	error?: string;
+}
+
+export interface InteractiveRebaseMessage {
+	type: 'interactiveRebase';
+	/**
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository.
+	 */
+	repoPath: string;
+	base: string;
+	/** See `LoadRebaseTodoMessage.branch`. */
+	branch?: string;
+	listSteps: RebaseStep[];
+}
+
+/** Read the repository's `commit.template`, to start a commit message from. */
+export interface LoadCommitTemplateMessage {
+	type: 'loadCommitTemplate';
+}
+
+export interface CommitTemplateMessage {
+	type: 'commitTemplate';
+	/** The template with its comment lines removed; null when none is configured or readable. */
+	text: string | null;
+}
+
+/** One changed line picked in the diff view, identified by position and by text. */
+export interface SelectedDiffLine {
+	kind: 'add' | 'del';
+	oldLine: number | null;
+	newLine: number | null;
+	text: string;
+}
+
+/** Which part of a working-tree file a diff shows, and so what a line taken from it can be moved by. */
+export type WorkingDiffSide = 'unstaged' | 'staged';
+
+/**
+ * Stage, unstage or discard some lines of one file. The host reads the file's diff again and
+ * refuses when the lines no longer match — the view may be showing a diff that is out of date.
+ */
+export interface StageLinesMessage {
+	type: 'stageLines';
+	/**
+	 * The repository this action was created against — required, and the host refuses the
+	 * action when it does not match the active repository.
+	 */
+	repoPath: string;
+	path: string;
+	side: WorkingDiffSide;
+	action: 'stage' | 'unstage' | 'discard';
+	listLines: SelectedDiffLine[];
 }
 
 export interface OpenWorkingDiffMessage {
@@ -607,6 +899,22 @@ export interface SelectAgentMessage {
 	agentId: AgentId;
 }
 
+/** What an AI explanation is about. */
+export type ExplainTarget =
+	| { kind: 'commit'; hash: string }
+	/** `ref` is what git is handed (`refs/heads/x`, `refs/remotes/origin/x`); `label` names it. */
+	| { kind: 'branch'; ref: string; label: string }
+	/** Everything not committed yet: staged, unstaged and untracked. */
+	| { kind: 'working' };
+
+/** Hand a commit, a branch or the working changes to the chosen agent CLI and show its account. */
+export interface AiExplainMessage {
+	type: 'aiExplain';
+	/** See `MultiCommitActionMessage.repoPath`. */
+	repoPath: string;
+	target: ExplainTarget;
+}
+
 export interface GenerateCommitPlanMessage {
 	type: 'generateCommitPlan';
 	/**
@@ -765,8 +1073,15 @@ export interface UndoActionMessage {
  * What pressing Undo would undo, as a phrase to finish "Undo …" with — or null when there is
  * nothing recorded. Sent after every action, so the button never offers a stale promise.
  */
+export interface RedoActionMessage {
+	type: 'redoAction';
+	repoPath: string;
+}
+
 export interface UndoStateMessage {
 	type: 'undoState';
+	/** What Redo would redo — the action just undone; null when there is nothing to redo. */
+	redoLabel?: string | null;
 	label: string | null;
 }
 
@@ -776,15 +1091,27 @@ export type WebviewToHost =
 	| LoadCommitDetailsMessage
 	| LoadComparisonMessage
 	| LoadFileDiffMessage
+	| LoadFileHistoryMessage
+	| LoadBlameMessage
+	| LoadCommitStatsMessage
+	| LoadCommitTemplateMessage
+	| LoadRemotesMessage
+	| RemoteActionMessage
+	| LoadWorktreesMessage
+	| WorktreeActionMessage
+	| LoadRebaseTodoMessage
+	| InteractiveRebaseMessage
 	| OpenDiffMessage
 	| OpenCompareDiffMessage
 	| CommitActionMessage
 	| SquashCommitsMessage
 	| MultiCommitActionMessage
+	| CherryPickCommitsMessage
 	| SequencerActionMessage
 	| BranchActionMessage
 	| CheckFastForwardMessage
 	| WorkingTreeActionMessage
+	| StageLinesMessage
 	| RepoActionMessage
 	| OpenWorkingDiffMessage
 	| OpenFileMessage
@@ -802,8 +1129,10 @@ export type WebviewToHost =
 	| DetectAgentsMessage
 	| SelectAgentMessage
 	| UndoActionMessage
+	| RedoActionMessage
 	| SaveAiSettingsMessage
 	| GenerateCommitPlanMessage
+	| AiExplainMessage
 	| CancelCommitPlanMessage
 	| LoadCommitPlanStateMessage
 	| ExecuteCommitPlanMessage;
@@ -979,10 +1308,18 @@ export interface WorkspaceIdentitiesMessage {
 /** Messages sent from the extension host to the webview. */
 export type HostToWebview =
 	| CommitsMessage
+	| CommitOutcomeMessage
+	| CommitStatsMessage
 	| StatusUpdateMessage
 	| CommitDetailsMessage
 	| ComparisonMessage
 	| FileDiffMessage
+	| FileHistoryMessage
+	| BlameMessage
+	| CommitTemplateMessage
+	| RemotesMessage
+	| WorktreesMessage
+	| RebaseTodoMessage
 	| ViewSettingsMessage
 	| FileIconsMessage
 	| ColorThemeMessage

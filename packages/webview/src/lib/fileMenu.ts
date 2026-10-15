@@ -11,7 +11,14 @@ export interface FileMenuAction {
  * handed over. The two spaces share no name, so the id alone says which half it belongs to.
  */
 export type LocalFileMenuId =
-	'openChanges' | 'openFile' | 'openFileAtRev' | 'copyPath' | 'copyRelativePath';
+	| 'openChanges'
+	| 'openFile'
+	| 'openFileAtRev'
+	| 'restoreFromCommit'
+	| 'fileHistory'
+	| 'blame'
+	| 'copyPath'
+	| 'copyRelativePath';
 
 export interface FileMenuOptions {
 	/** Actions the row itself offers — stage, unstage, discard. Listed last, after a separator. */
@@ -20,6 +27,8 @@ export interface FileMenuOptions {
 	atRevision?: boolean;
 	/** The commit deleted this file, so there is no content to open — only the diff. */
 	deleted?: boolean;
+	/** Git does not track the file yet, so it has no history and no blame. */
+	untracked?: boolean;
 }
 
 /** Items for the menu that opens on right-clicking a file, in the order they are shown. */
@@ -34,7 +43,13 @@ export function buildFileMenu(
 		listItems.push({ id: 'openFile', label: 'Open File' });
 		if (options.atRevision) {
 			listItems.push({ id: 'openFileAtRev', label: 'Open File at this Commit' });
+			listItems.push({ id: 'restoreFromCommit', label: 'Restore File from this Commit…' });
 		}
+	}
+
+	if (!options.untracked) {
+		listItems.push({ id: 'fileHistory', label: 'File History', separatorBefore: true });
+		if (!options.deleted) listItems.push({ id: 'blame', label: 'Blame' });
 	}
 
 	listItems.push(

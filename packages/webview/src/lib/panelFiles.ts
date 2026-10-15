@@ -4,7 +4,7 @@ import { buildFileTree, type FileTreeNode, type FileViewMode } from './fileTree'
 import { nextRowIndex } from './keyNav';
 
 /** What the panel shows, derived from the graph selection rather than a tab strip. */
-export type PanelMode = 'changes' | 'commit' | 'compare';
+export type PanelMode = 'changes' | 'commit' | 'compare' | 'history';
 
 /** The files of a tree in the order they are drawn, folders opened as they are in the view. */
 export function flattenTree(listNodes: FileTreeNode[]): FileChange[] {
@@ -49,6 +49,9 @@ export function buildPanelFiles(input: {
 			return order(input.details?.files ?? []);
 		case 'compare':
 			return order(input.listComparisonFiles);
+		case 'history':
+			// A list of commits, not of files: ↑/↓ walk it through its own path in the view.
+			return [];
 		default:
 			// A new panel mode names its own case: falling through here would draw the comparison
 			// list under a mode that never asked for it.

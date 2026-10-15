@@ -96,7 +96,6 @@
 		editing = null;
 		onsaveIdentities(listIdentities.filter((item) => item !== target));
 	}
-
 </script>
 
 {#snippet identityForm()}

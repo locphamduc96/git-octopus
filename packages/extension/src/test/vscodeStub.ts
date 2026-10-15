@@ -45,6 +45,8 @@ export interface StubRecord {
 	listLog: string[];
 	/** Editor tabs created through `window.createWebviewPanel`, in order. */
 	listPanels: StubWebviewPanel[];
+	/** Untitled documents opened through `workspace.openTextDocument`, in order. */
+	listDocuments: { language?: string; content?: string }[];
 }
 
 export interface StubWebviewPanel {
@@ -109,6 +111,7 @@ export const recorded: StubRecord = {
 	listTerminals: [],
 	listLog: [],
 	listPanels: [],
+	listDocuments: [],
 };
 
 /** VS Code's own numbering for the two symbolic columns. */
@@ -152,6 +155,7 @@ export function resetRecorded(): void {
 	recorded.listTerminals.length = 0;
 	recorded.listLog.length = 0;
 	recorded.listPanels.length = 0;
+	recorded.listDocuments.length = 0;
 	mapConfig.clear();
 	mapConfigTarget.clear();
 	mapFiles.clear();
@@ -213,7 +217,32 @@ export function fireWindowState(focused: boolean): void {
 	for (const listener of listWindowStateListeners) listener({ focused });
 }
 
+export const ProgressLocation = {
+	SourceControl: 1,
+	Window: 10,
+	Notification: 15,
+} as const;
+
 export const window = {
+	/** Runs the task straight away: the progress UI itself is VS Code's, not ours to test. */
+	withProgress: <T>(
+		_options: unknown,
+		task: (
+			progress: { report: (value: unknown) => void },
+			token: {
+				isCancellationRequested: boolean;
+				onCancellationRequested: () => { dispose(): void };
+			}
+		) => Promise<T>
+	): Promise<T> =>
+		task(
+			{ report: () => undefined },
+			{
+				isCancellationRequested: false,
+				onCancellationRequested: () => ({ dispose: () => undefined }),
+			}
+		),
+	showTextDocument: (): Promise<undefined> => Promise.resolve(undefined),
 	onDidChangeWindowState: (listener: (state: { focused: boolean }) => void) => {
 		listWindowStateListeners.push(listener);
 		return {
@@ -383,6 +412,10 @@ export const workspace = {
 		},
 		has: (key: string): boolean => mapConfig.has(`${section}.${key}`),
 	}),
+	openTextDocument: (options: { language?: string; content?: string }) => {
+		recorded.listDocuments.push(options);
+		return Promise.resolve({ ...options });
+	},
 	createFileSystemWatcher: (pattern: RelativePattern): StubWatcher => {
 		const watcher = makeWatcher(pattern);
 		listWatchers.push(watcher);

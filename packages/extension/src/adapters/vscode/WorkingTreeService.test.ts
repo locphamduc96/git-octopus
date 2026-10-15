@@ -111,3 +111,83 @@ describe('WorkingTreeService failures', () => {
 		expect(await shownErrors()).toMatch(/holding this repository/i);
 	});
 });
+
+describe('WorkingTreeService restoreFromCommit', () => {
+	beforeEach(resetRecorded);
+
+	const restore = (over: Partial<WorkingTreeActionMessage> = {}): WorkingTreeActionMessage => ({
+		type: 'workingTreeAction',
+		repoPath: CWD,
+		action: 'restoreFromCommit',
+		path: 'src/a.ts',
+		hash: 'abc1234def',
+		...over,
+	});
+
+	it('restores the file from the commit into both the index and the working tree', async () => {
+		const git = new FakeGit();
+
+		expect(await new WorkingTreeService(git).run(restore(), CWD, YES)).toBe(true);
+
+		expect(git.ranArgv('restore --source=abc1234def --staged --worktree -- src/a.ts')).toBe(true);
+	});
+
+	it('runs nothing when the user does not confirm', async () => {
+		const git = new FakeGit();
+		const NO: UserPrompt = { ...YES, confirm: () => Promise.resolve(false) };
+
+		expect(await new WorkingTreeService(git).run(restore(), CWD, NO)).toBe(false);
+
+		expect(git.ran('restore')).toBe(false);
+	});
+
+	it('refuses without a commit to restore from', async () => {
+		const git = new FakeGit();
+
+		expect(await new WorkingTreeService(git).run(restore({ hash: undefined }), CWD, YES)).toBe(
+			false
+		);
+
+		expect(git.ran('restore')).toBe(false);
+	});
+});
+
+describe('WorkingTreeService commit hooks', () => {
+	beforeEach(resetRecorded);
+
+	it('skips the hooks with --no-verify only when asked', async () => {
+		const git = new FakeGit();
+		const service = new WorkingTreeService(git);
+		await service.run(
+			{ type: 'workingTreeAction', repoPath: CWD, action: 'commit', message: 'x', noVerify: true },
+			CWD,
+			YES
+		);
+		await service.run(
+			{ type: 'workingTreeAction', repoPath: CWD, action: 'commit', message: 'y' },
+			CWD,
+			YES
+		);
+		expect(git.ranArgv('commit --no-verify -m x')).toBe(true);
+		expect(git.ranArgv('commit -m y')).toBe(true);
+	});
+});
+
+describe('WorkingTreeService openMergeEditor', () => {
+	beforeEach(resetRecorded);
+
+	it("hands the file to VS Code's own merge editor and runs no git", async () => {
+		const git = new FakeGit();
+		const changed = await new WorkingTreeService(git).run(
+			{ type: 'workingTreeAction', repoPath: CWD, action: 'openMergeEditor', path: 'src/a.ts' },
+			CWD,
+			YES
+		);
+		expect(changed).toBe(false);
+		expect(recorded.listCommands[0]?.command).toBe('git.openMergeEditor');
+		expect(
+			String((recorded.listCommands[0]?.listArgs[0] as { fsPath?: string })?.fsPath)
+		).toContain('src/a.ts');
+		expect(git.listCalls).toEqual([]);
+	});
+});

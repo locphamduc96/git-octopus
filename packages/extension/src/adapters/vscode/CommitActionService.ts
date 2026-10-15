@@ -3,6 +3,7 @@ import type {
 	BranchActionMessage,
 	CommitActionMessage,
 	MultiCommitActionMessage,
+	CherryPickCommitsMessage,
 	RemoteBranchRef,
 	SquashCommitsMessage,
 } from '@git-octopus/shared';
@@ -390,6 +391,58 @@ export class CommitActionService {
 				return this.runStashAction(message.action, message, cwd, prompt);
 			case 'deleteBranch':
 				return this.deleteLocalBranch(message, cwd, prompt);
+			case 'setUpstream': {
+				const branch = await this.pickOne(
+					prompt,
+					message.branches,
+					'Set the upstream of which branch?'
+				);
+				if (!branch) return false;
+				const listRemoteRefs = (
+					await this.executor.run(
+						['for-each-ref', '--format=%(refname:short)', 'refs/remotes'],
+						cwd
+					)
+				)
+					.split('\n')
+					.filter((ref) => ref !== '' && !ref.endsWith('/HEAD'));
+				if (listRemoteRefs.length === 0) {
+					vscode.window.showWarningMessage(
+						'Git Octopus: there is no remote branch to track yet — fetch first.'
+					);
+					return false;
+				}
+				// The branch of the same name on each remote is the usual answer, so it leads the list.
+				const sameName = (ref: string) => ref.slice(ref.indexOf('/') + 1) === branch;
+				const listOrdered = [
+					...listRemoteRefs.filter(sameName),
+					...listRemoteRefs.filter((ref) => !sameName(ref)),
+				];
+				const [upstream] =
+					(await prompt.pickOptions({
+						title: `Upstream for ${branch}`,
+						listOptions: listOrdered.map((ref) => ({ id: ref, label: ref })),
+					})) ?? [];
+				if (!upstream) return false;
+				return this.runGit(
+					['branch', `--set-upstream-to=${upstream}`, END_OF_OPTIONS, branch],
+					cwd,
+					`${branch} now tracks ${upstream}.`
+				);
+			}
+			case 'unsetUpstream': {
+				const branch = await this.pickOne(
+					prompt,
+					message.branches,
+					'Unset the upstream of which branch?'
+				);
+				if (!branch) return false;
+				return this.runGit(
+					['branch', '--unset-upstream', END_OF_OPTIONS, branch],
+					cwd,
+					`${branch} no longer tracks a remote branch.`
+				);
+			}
 			case 'renameBranch': {
 				const branch = await this.pickOne(prompt, message.branches, 'Rename which branch?');
 				if (!branch) return false;
@@ -494,12 +547,64 @@ export class CommitActionService {
 				return this.runGit(mergeArgs(source, listOptions), cwd, `Merged ${source} into ${target}.`);
 			}
 			case 'rebaseOnto': {
-				if (!(await this.confirm(prompt, `Rebase ${source} onto ${target}?`))) return false;
+				const onto = message.targetRemote
+					? `refs/remotes/${message.targetRemote}/${target}`
+					: target;
+				const ontoLabel = message.targetRemote ? `${message.targetRemote}/${target}` : target;
+				if (!(await this.confirm(prompt, `Rebase ${sourceLabel} onto ${ontoLabel}?`))) return false;
 				if (source !== current) {
 					if (!(await this.runGit(['checkout', source], cwd, `Checked out ${source}.`)))
 						return false;
 				}
-				return this.runGit(['rebase', target], cwd, `Rebased ${source} onto ${target}.`);
+				return this.runGit(['rebase', onto], cwd, `Rebased ${sourceLabel} onto ${ontoLabel}.`);
+			}
+			case 'resetTo': {
+				if (message.targetRemote) return false;
+				if (target === current) {
+					// The branch is checked out, so the reset reaches the working tree: the mode is the
+					// whole question, and hard is named for what it throws away.
+					const [mode] =
+						(await prompt.pickOptions({
+							title: `Reset ${target} to ${sourceLabel}`,
+							listOptions: [
+								{ id: 'soft', label: 'Soft', description: 'keep every change, staged' },
+								{ id: 'mixed', label: 'Mixed', description: 'keep every change, unstaged' },
+								{ id: 'hard', label: 'Hard', description: 'discard uncommitted changes' },
+							],
+						})) ?? [];
+					if (mode !== 'soft' && mode !== 'mixed' && mode !== 'hard') return false;
+					return this.runGit(
+						['reset', `--${mode}`, source],
+						cwd,
+						`Reset ${target} to ${sourceLabel} (${mode}).`
+					);
+				}
+				// Not checked out: only the ref moves. The commits it leaves stay in the undo record.
+				if (
+					!(await this.confirm(
+						prompt,
+						`Move ${target} to ${sourceLabel}? ${target} is not checked out, so only the branch moves — no file changes.`
+					))
+				)
+					return false;
+				return this.runGit(
+					['branch', '-f', END_OF_OPTIONS, target, source],
+					cwd,
+					`Moved ${target} to ${sourceLabel}.`
+				);
+			}
+			case 'pushTo': {
+				const remote = message.targetRemote;
+				// Only a local branch has anything of its own to push.
+				if (!remote || source.startsWith('refs/remotes/')) return false;
+				if (!(await this.confirm(prompt, `Push ${sourceLabel} to ${remote}/${target}?`)))
+					return false;
+				return this.runGit(
+					['push', END_OF_OPTIONS, remote, `refs/heads/${source}:refs/heads/${target}`],
+					cwd,
+					`Pushed ${sourceLabel} to ${remote}/${target}.`,
+					await this.authFor('push', cwd)
+				);
 			}
 			case 'fastForward': {
 				// `fetch . <source>:<target>` moves a branch the user is not standing on; Git refuses
@@ -587,6 +692,45 @@ export class CommitActionService {
 			],
 			`Squashed ${count} commits on ${guard.branch}.`
 		);
+	}
+
+	/**
+	 * Cherry-pick the editor's commits in its order. The list is proved first — real commits, none
+	 * of them a merge, which would need a mainline to pick against — because the editor may have
+	 * sat open while history was rewritten under it.
+	 */
+	public async cherryPickList(message: CherryPickCommitsMessage, cwd: string): Promise<boolean> {
+		const listHashes = message.listHashes;
+		if (listHashes.length === 0) return false;
+		if (!listHashes.every((hash) => /^[0-9a-f]{7,64}$/.test(hash))) return false;
+		try {
+			const merges = (
+				await this.executor.run(['rev-list', '--no-walk', '--merges', ...listHashes], cwd)
+			).trim();
+			if (merges !== '') {
+				vscode.window.showErrorMessage(
+					'Git Octopus: a merge commit cannot be cherry-picked from the list — leave it out.'
+				);
+				return false;
+			}
+		} catch {
+			this.rewriter.staleSelectionError();
+			return false;
+		}
+		const count = listHashes.length;
+		const listFlags = [
+			...(message.recordOrigin ? ['-x'] : []),
+			...(message.noCommit ? ['--no-commit'] : []),
+		];
+		await this.runGit(
+			['cherry-pick', ...listFlags, ...listHashes],
+			cwd,
+			message.noCommit
+				? `Applied ${count} commit${count === 1 ? '' : 's'} to the index, uncommitted.`
+				: `Cherry picked ${count} commit${count === 1 ? '' : 's'}.`
+		);
+		// A conflict stops the sequencer mid-run; the graph must refresh to show the banner.
+		return true;
 	}
 
 	/** Act on a multi-selected run of commits (newest → oldest). */

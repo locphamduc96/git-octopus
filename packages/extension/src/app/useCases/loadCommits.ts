@@ -12,6 +12,8 @@ import {
 	getRepoState,
 	getStashes,
 	getStatus,
+	soloRefs,
+	withoutHiddenRefs,
 	type StashEntry,
 } from '../../core/git/gitService.js';
 
@@ -57,7 +59,7 @@ export async function loadCommits(
 		// A branch filter means "walk this ref alone". Stash hashes are extra walk roots, and each
 		// drags in the ancestry of whatever branch it was made on — so they sit out while filtered.
 		const listStashes =
-			(filters.showStashes ?? true) && !filters.branch
+			(filters.showStashes ?? true) && soloRefs(filters).length === 0
 				? await getStashes(ctx.executor, ctx.cwd)
 				: [];
 		// One commit past the limit answers "is there more?" without a second log walk.
@@ -81,7 +83,10 @@ export async function loadCommits(
 			]);
 
 		const hasMore = listRaw.length > limit;
-		const listHistory = applyStashes(listRaw.slice(0, limit), listStashes);
+		const listHistory = withoutHiddenRefs(
+			applyStashes(listRaw.slice(0, limit), listStashes),
+			filters.hiddenRefs
+		);
 		if (filters.fetchAvatars && ctx.avatarUrl) {
 			for (const commit of listHistory) {
 				if (commit.author.email !== '') {
@@ -93,7 +98,8 @@ export async function loadCommits(
 		// The synthetic node hangs off HEAD's commit. Under a branch filter that commit may not be
 		// in the walk at all, and a node whose parent never appears drags an open lane down the whole
 		// graph — so it only shows when the filtered history actually contains its anchor.
-		const headInWalk = !filters.branch || listHistory.some((commit) => commit.hash === headHash);
+		const headInWalk =
+			soloRefs(filters).length === 0 || listHistory.some((commit) => commit.hash === headHash);
 		// `working` is still sent either way — the changes panel needs it even when the graph
 		// does not show the synthetic node.
 		const listCommits =

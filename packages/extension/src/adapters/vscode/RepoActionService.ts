@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
-import type { RepoActionMessage, SequencerActionMessage } from '@git-octopus/shared';
+import type {
+	RemoteActionMessage,
+	RepoActionMessage,
+	SequencerActionMessage,
+} from '@git-octopus/shared';
 import type { UserPrompt } from '../../app/ports/userPrompt.js';
 import type { GitAuthRequest, GitExecutor } from '../../core/git/GitExecutor.js';
 import { friendlyGitError } from '../../core/git/friendlyGitError.js';
@@ -103,6 +107,64 @@ export class RepoActionService {
 	 * Drive the paused operation (rebase / merge / cherry-pick / revert) the banner reported.
 	 * Always returns true: whatever happened, the graph should re-read the repository state.
 	 */
+	/**
+	 * Add a remote and fetch it, or remove one. A fetch that fails after the add leaves the remote in
+	 * place — the URL may need credentials or the network may be down, and the remote is still what
+	 * the user asked for.
+	 */
+	public async runRemoteAction(
+		message: RemoteActionMessage,
+		cwd: string,
+		prompt: UserPrompt
+	): Promise<boolean> {
+		const name = message.name.trim();
+		if (name === '') return false;
+		if (message.action === 'remove') {
+			const confirmed = await prompt.confirm({
+				title: 'Git Octopus',
+				message: `Remove the remote ${name}? Only this clone forgets it: its remote-tracking branches leave the graph, and nothing on the server changes.`,
+				confirmLabel: 'Remove Remote',
+				danger: true,
+			});
+			if (!confirmed) return false;
+			try {
+				await this.executor.run(['remote', 'remove', name], cwd);
+				vscode.window.showInformationMessage(`Git Octopus: removed the remote ${name}.`);
+				return true;
+			} catch (err) {
+				void showGitError(err instanceof Error ? err.message : String(err), cwd);
+				return false;
+			}
+		}
+		const url = message.url?.trim() ?? '';
+		if (url === '') return false;
+		try {
+			await this.executor.run(['remote', 'add', name, url], cwd);
+		} catch (err) {
+			void showGitError(err instanceof Error ? err.message : String(err), cwd);
+			return false;
+		}
+		return vscode.window.withProgress(
+			{ location: vscode.ProgressLocation.Notification, title: `Git Octopus: fetching ${name}…` },
+			async () => {
+				try {
+					await this.executor.run(
+						['fetch', name],
+						cwd,
+						undefined,
+						await this.authFor('fetch', cwd)
+					);
+					vscode.window.showInformationMessage(`Git Octopus: added and fetched ${name}.`);
+				} catch (err) {
+					vscode.window.showWarningMessage(
+						`Git Octopus: added ${name}, but fetching it failed — ${networkError(err)}`
+					);
+				}
+				return true;
+			}
+		);
+	}
+
 	public async runSequencer(
 		message: SequencerActionMessage,
 		cwd: string,

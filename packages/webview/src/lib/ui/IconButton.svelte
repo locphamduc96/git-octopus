@@ -15,6 +15,7 @@
 		label,
 		title,
 		disabled = false,
+		pressed,
 		onclick,
 	}: {
 		/** Codicon id, without the `codicon-` prefix. */
@@ -24,11 +25,20 @@
 		/** Hover text. Defaults to the label. */
 		title?: string;
 		disabled?: boolean;
+		/** Set for an on/off option: announced as a toggle and drawn latched while on. */
+		pressed?: boolean;
 		onclick: (event: MouseEvent) => void;
 	} = $props();
 </script>
 
-<button class="icon-button" {disabled} {onclick} use:tooltip={title ?? label}>
+<button
+	class="icon-button"
+	class:pressed
+	aria-pressed={pressed}
+	{disabled}
+	{onclick}
+	use:tooltip={title ?? label}
+>
 	<Icon {name} {label} />
 </button>
 
@@ -51,6 +61,11 @@
 	}
 	.icon-button:hover:not(:disabled) {
 		background: var(--vscode-toolbar-hoverBackground);
+	}
+	.icon-button.pressed {
+		background: var(--vscode-inputOption-activeBackground, rgba(36, 137, 219, 0.51));
+		color: var(--vscode-inputOption-activeForeground, var(--gg-fg));
+		box-shadow: inset 0 0 0 1px var(--vscode-inputOption-activeBorder, #007acc);
 	}
 	.icon-button:disabled {
 		opacity: 0.4;

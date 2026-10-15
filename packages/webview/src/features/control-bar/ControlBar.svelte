@@ -22,14 +22,18 @@
 		currentBranch,
 		loading,
 		notice,
-		filterBranch,
+		listSolo,
+		hiddenCount,
+		onshowHidden,
 		onclearFilter,
 		onjumpBranch,
 		commitCount,
 		ahead,
 		behind,
 		undoLabel,
+		redoLabel = null,
 		onundo,
+		onredo = () => {},
 		repoState,
 		onselectRepo,
 		onrefresh,
@@ -71,7 +75,11 @@
 		/** Transient message, e.g. when a branch tip sits outside the loaded history. */
 		notice: string | null;
 		/** The ref the graph is filtered down to, or null when it shows everything. */
-		filterBranch: string | null;
+		/** The branches the graph is limited to; empty when it shows all of them. */
+		listSolo: string[];
+		/** How many refs are hidden from the graph. */
+		hiddenCount: number;
+		onshowHidden: () => void;
 		onclearFilter: () => void;
 		/** Scroll the graph to a branch's commit. Never checks anything out. */
 		onjumpBranch: (branch: BranchRef) => void;
@@ -81,7 +89,10 @@
 		behind: number;
 		/** What Undo would undo, as a phrase; null disables the button. */
 		undoLabel: string | null;
+		/** What Redo would put back — the action last undone; null disables the button. */
+		redoLabel?: string | null;
 		onundo: () => void;
+		onredo?: () => void;
 		/** A paused rebase/merge/cherry-pick/revert — shows the Continue/Abort banner. */
 		repoState: RepoState | null;
 		onselectRepo: (path: string) => void;
@@ -235,15 +246,26 @@
 		/>
 	{/if}
 
-	{#if filterBranch}
-		<!-- The one place that says the graph is not showing everything — and undoes it. -->
+	{#if listSolo.length > 0}
+		<!-- The places that say the graph is not showing everything — and undo it. -->
 		<button
 			class="filter-pill"
-			title={`Showing only ${filterBranch} — click to show all branches`}
+			title={`Showing only ${listSolo.join(', ')} — click to show all branches`}
 			onclick={onclearFilter}
 		>
 			<Icon name="filter" />
-			<span class="filter-name">{filterBranch}</span>
+			<span class="filter-name">{listSolo.join(', ')}</span>
+			<Icon name="close" />
+		</button>
+	{/if}
+	{#if hiddenCount > 0}
+		<button
+			class="filter-pill"
+			title={`${hiddenCount} ref${hiddenCount === 1 ? ' is' : 's are'} hidden — click to show them again`}
+			onclick={onshowHidden}
+		>
+			<Icon name="eye-closed" />
+			<span class="filter-name">{hiddenCount} hidden</span>
 			<Icon name="close" />
 		</button>
 	{/if}
@@ -311,6 +333,15 @@
 				: 'Undo — nothing to undo yet'}
 			disabled={!undoLabel}
 			onclick={onundo}
+		/>
+		<IconButton
+			name="redo"
+			label="Redo"
+			title={redoLabel
+				? `Redo ${redoLabel} — puts back what Undo took away`
+				: 'Redo — nothing undone to put back'}
+			disabled={!redoLabel}
+			onclick={onredo}
 		/>
 
 		<span class="divider"></span>

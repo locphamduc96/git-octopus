@@ -151,10 +151,14 @@ describe('isDropTarget', () => {
 		expect(isDropTarget(localChip, 'main')).toBe(false);
 	});
 
-	it('refuses while nothing is dragged, and refuses non-writable refs', () => {
+	it('refuses while nothing is dragged, and refuses a tag', () => {
 		expect(isDropTarget(localChip, null)).toBe(false);
-		expect(isDropTarget(remoteChip, 'feature')).toBe(false);
 		expect(isDropTarget(tagChip, 'feature')).toBe(false);
+	});
+
+	it('accepts a remote-only branch, but never the chip being dragged', () => {
+		expect(isDropTarget(remoteChip, 'feature')).toBe(true);
+		expect(isDropTarget(remoteChip, 'origin/main')).toBe(false);
 	});
 });
 

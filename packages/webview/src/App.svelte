@@ -1,7 +1,11 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import type {
+		FileHistoryEntry,
+		HiddenRefs,
+		SelectedDiffLine,
+		WorkingDiffSide,
 		BranchActionId,
 		GraphFilters,
 		BranchRef,
@@ -22,7 +26,13 @@
 	import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 	import { layoutCommits } from '@git-octopus/graph-layout';
 	import { onHostMessage, postToHost, readState, updateState, STATE_VERSION } from './lib/bridge';
-	import { buildHostFilters, commitsReplyMatches, loadSignature } from './lib/commitsGuard';
+	import {
+		buildHostFilters,
+		commitsReplyMatches,
+		hiddenCount,
+		loadSignature,
+		NO_HIDDEN_REFS,
+	} from './lib/commitsGuard';
 	import {
 		dispatchHostMessage,
 		notifyHostError,
@@ -32,12 +42,30 @@
 	} from './lib/hostRouter';
 	import { buildRefPayload, commitRefPayload, commitStashName } from './lib/refPayload';
 	import type { MultiAction, RefTarget } from './lib/graphMenu';
-	import { nextRowIndex } from './lib/keyNav';
+	import { nextRowIndex, stepAcrossLanes, stepAlongLane } from './lib/keyNav';
 	import { buildPanelFiles, stepPath, type PanelMode } from './lib/panelFiles';
-	import { pullActionFor, settingsRequireReload } from './lib/viewSettings';
+	import {
+		moveColumn,
+		normalizeColumnOrder,
+		pullActionFor,
+		settingsRequireReload,
+	} from './lib/viewSettings';
 	import ControlBar from './features/control-bar/ControlBar.svelte';
 	import DiffPanel from './features/diff/DiffPanel.svelte';
 	import FindWidget from './features/find/FindWidget.svelte';
+	import { buildMatcher, listMatchHashes, stepMatch } from './lib/findMatch';
+	import { fileHistory } from './lib/stores/fileHistory.svelte';
+	import { pinnedChain } from './lib/pinnedBranch';
+	import { rightRevision } from './lib/diffKey';
+	import { isShortcutListKey } from './lib/shortcuts';
+	import ShortcutsDialog from './features/shortcuts/ShortcutsDialog.svelte';
+	import RebaseEditor from './features/rebase/RebaseEditor.svelte';
+	import CherryPickEditor from './features/cherryPick/CherryPickEditor.svelte';
+	import { cherryPickEditor } from './lib/stores/cherryPickEditor.svelte';
+	import { commitStats } from './lib/stores/commitStats.svelte';
+	import { aiCommit } from './lib/stores/aiCommit.svelte';
+	import { worktrees } from './lib/stores/worktrees.svelte';
+	import { rebaseEditor } from './lib/stores/rebaseEditor.svelte';
 	import GraphView from './features/graph/GraphView.svelte';
 	import GraphSkeleton from './features/graph/GraphSkeleton.svelte';
 	import ChangesPanel, { type ComparisonState } from './features/changes-panel/ChangesPanel.svelte';
@@ -51,7 +79,7 @@
 	import { fileIconTheme, setFileIconTheme } from './lib/stores/fileIcons.svelte';
 	import { branchCleanup } from './lib/stores/branchCleanup.svelte';
 	import { diffView } from './lib/stores/diffView.svelte';
-	import { identity } from './lib/stores/identity.svelte';
+	import { identity, type CommitOptions } from './lib/stores/identity.svelte';
 	import { prefs } from './lib/stores/prefs.svelte';
 	import { session } from './lib/stores/session.svelte';
 	import Splitter from './lib/ui/Splitter.svelte';
@@ -106,9 +134,24 @@
 	let behind = $state(0);
 	/** What the Undo button would undo, straight from the host; null while there is nothing. */
 	let undoLabel = $state<string | null>(null);
+	/** What Redo would put back — the action last undone; null while there is nothing. */
+	let redoLabel = $state<string | null>(null);
 
+	/** Repository path → the branch pinned to the left edge there. Kept per window, like the widths. */
+	let mapPinned = $state<Record<string, string>>(saved.mapPinned ?? {});
+	const pinnedRef = $derived(mapPinned[session.repoPath] ?? null);
+	/** Repository path → the refs hidden from the graph there. Kept per window, like the pin. */
+	let mapHidden = $state<Record<string, HiddenRefs>>(saved.mapHidden ?? {});
+	const hiddenRefs = $derived(mapHidden[session.repoPath] ?? NO_HIDDEN_REFS);
+
+	let shortcutsOpen = $state(false);
 	let findOpen = $state(false);
 	let findQuery = $state('');
+	let findMatchCase = $state(false);
+	let findRegex = $state(false);
+	let findFilter = $state(false);
+	/** The match Enter last landed on; null until the user steps. */
+	let findCurrent = $state<string | null>(null);
 
 	let selectedHash = $state<string | null>(null);
 	/** Shift-click range selection, in row order; empty unless it spans at least two commits. */
@@ -122,17 +165,63 @@
 
 	$effect(prefs.save);
 
-	/** "Show only this branch", chosen from a ref menu. Session-only, never persisted. */
-	let filterBranch = $state<string | null>(null);
+	/** "Show only these branches", chosen from ref menus. Session-only, never persisted. */
+	let listSolo = $state<string[]>([]);
 
 	/** Always read live: the guard compares a reply against what the view wants *now*. */
 	function hostFilters(): GraphFilters {
-		return buildHostFilters(prefs.settings, filterBranch);
+		return buildHostFilters(prefs.settings, listSolo, hiddenRefs);
 	}
 
+	/** "Show Only X" — the graph walks X alone; null shows everything again. */
 	function setBranchFilter(ref: string | null): void {
-		if (filterBranch === ref) return;
-		filterBranch = ref;
+		const next = ref === null ? [] : [ref];
+		if (next.join('\0') === listSolo.join('\0')) return;
+		listSolo = next;
+		load();
+	}
+
+	function changeSolo(op: 'add' | 'remove', ref: string): void {
+		listSolo = op === 'add' ? [...listSolo, ref] : listSolo.filter((item) => item !== ref);
+		load();
+	}
+
+	function saveHidden(next: HiddenRefs | null): void {
+		const nextMap = { ...mapHidden };
+		if (next === null || hiddenCount(next) === 0) delete nextMap[session.repoPath];
+		else nextMap[session.repoPath] = next;
+		mapHidden = nextMap;
+		updateState({ mapHidden: nextMap });
+		load();
+	}
+
+	function hideRefs(refs: HiddenRefs): void {
+		const merge = (listOld: string[], listNew: string[]) => [...new Set([...listOld, ...listNew])];
+		saveHidden({
+			listBranches: merge(hiddenRefs.listBranches, refs.listBranches),
+			listRemotes: merge(hiddenRefs.listRemotes, refs.listRemotes),
+			listTags: merge(hiddenRefs.listTags, refs.listTags),
+		});
+	}
+
+	/**
+	 * Limit the graph to the checked-out branch and what it is measured against: its upstream, the
+	 * repository's main line — the first of main, master, trunk and develop that exists — and that
+	 * line's upstream.
+	 */
+	function showRelated(): void {
+		if (!currentBranch) return;
+		const setNames = new Set(listBranches.map((branch) => branch.name));
+		const mainLine = ['main', 'master', 'trunk', 'develop'].find((name) =>
+			listBranches.some((branch) => branch.name === name && !branch.remote)
+		);
+		const listRelated = [
+			currentBranch,
+			mapTracking[currentBranch]?.upstream,
+			mainLine,
+			mainLine ? mapTracking[mainLine]?.upstream : undefined,
+		].filter((name): name is string => !!name && setNames.has(name));
+		listSolo = [...new Set(listRelated)];
 		load();
 	}
 
@@ -184,11 +273,13 @@
 
 	/** The right panel follows the graph selection: no tab strip to keep in sync. */
 	const panelMode = $derived<PanelMode>(
-		comparison.fromHash && comparison.toHash
-			? 'compare'
-			: selectedHash && selectedHash !== UNCOMMITTED_HASH
-				? 'commit'
-				: 'changes'
+		fileHistory.current
+			? 'history'
+			: comparison.fromHash && comparison.toHash
+				? 'compare'
+				: selectedHash && selectedHash !== UNCOMMITTED_HASH
+					? 'commit'
+					: 'changes'
 	);
 
 	let shell = $state<HTMLDivElement | null>(null);
@@ -217,21 +308,66 @@
 		return map;
 	});
 
-	/** Rows shown in the graph: filtered by the find query when one is active. */
-	const visibleRows = $derived.by(() => {
-		const query = findQuery.trim().toLowerCase();
-		if (!findOpen || query === '') return rows;
-		return rows.filter((row) => {
-			const commit = row.commit;
-			return (
-				commit.subject.toLowerCase().includes(query) ||
-				commit.author.name.toLowerCase().includes(query) ||
-				commit.hash.toLowerCase().startsWith(query)
+	const findMatcher = $derived(
+		findOpen ? buildMatcher(findQuery, { matchCase: findMatchCase, regex: findRegex }) : null
+	);
+	const listFindMatches = $derived(listMatchHashes(rows, findMatcher));
+	const setFindMatches = $derived(new Set(listFindMatches));
+
+	/**
+	 * Rows shown in the graph. Find highlights matches in the full graph by default; only the Filter
+	 * toggle drops the others, at the price of lanes cut where the hidden commits were.
+	 */
+	const visibleRows = $derived(
+		findOpen && findFilter && findMatcher !== null && !('error' in findMatcher)
+			? rows.filter((row) => setFindMatches.has(row.commit.hash))
+			: rows
+	);
+
+	/** The query and options the graph last scrolled for — a reload alone must not scroll again. */
+	let lastFindKey = '';
+	// A new query or option starts over: no current match, and the first match at or below the
+	// selection is brought into view without being selected.
+	$effect(() => {
+		const list = listFindMatches;
+		const key = `${findQuery}\u0000${String(findMatchCase)}${String(findRegex)}`;
+		untrack(() => {
+			if (findCurrent !== null && !list.includes(findCurrent)) findCurrent = null;
+			if (key === lastFindKey) return;
+			lastFindKey = key;
+			findCurrent = null;
+			const first = stepMatch(
+				list,
+				null,
+				1,
+				rows.map((row) => row.commit.hash),
+				selectedHash
 			);
+			if (first !== null) scrollTo(first);
 		});
 	});
 
+	/** Enter / Shift+Enter in the find box: select the next or previous match and bring it into view. */
+	function stepFind(step: 1 | -1): void {
+		const next = stepMatch(
+			listFindMatches,
+			findCurrent,
+			step,
+			rows.map((row) => row.commit.hash),
+			selectedHash
+		);
+		if (next === null) return;
+		findCurrent = next;
+		select(next);
+		scrollTo(next);
+	}
+
 	function onKeydown(event: KeyboardEvent): void {
+		if (isShortcutListKey(event) && !isTyping(event)) {
+			event.preventDefault();
+			shortcutsOpen = true;
+			return;
+		}
 		if (event.ctrlKey || event.metaKey) {
 			if (event.key === 'f') {
 				event.preventDefault();
@@ -247,6 +383,13 @@
 				event.preventDefault();
 				const stash = rows.find((row) => row.commit.refs.some((ref) => ref.kind === 'stash'));
 				scrollTo(stash?.commit.hash ?? null);
+			} else if (
+				((event.key === 'z' && event.shiftKey) || event.key === 'Z' || event.key === 'y') &&
+				redoLabel &&
+				!isTyping(event)
+			) {
+				event.preventDefault();
+				postToHost({ type: 'redoAction', repoPath: session.repoPath });
 			} else if (event.key === 'z' && !event.shiftKey && undoLabel && !isTyping(event)) {
 				// Only outside a text field: inside one, Cmd+Z is the editor's own undo, and taking it
 				// would let a keystroke aimed at a half-typed commit message reset a branch instead.
@@ -284,7 +427,8 @@
 	/**
 	 * ↑/↓ move the selection, Shift extends it from the anchor, Home/End jump to the edges. While a
 	 * diff is open the same keys walk the panel's files instead — the thing on screen is the thing
-	 * being browsed — and Alt hands them back to the graph without closing the diff.
+	 * being browsed. Alt+↑/↓ walk along the selected commit's branch in either mode, so a diff stays
+	 * open while the review moves commit by commit; ←/→ step to the neighbouring lane.
 	 */
 	function navigateByKey(event: KeyboardEvent): void {
 		const target = event.target as HTMLElement | null;
@@ -293,9 +437,42 @@
 			(target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
 		)
 			return;
+		if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+			// Along the branch the selected commit is drawn on, whether or not a diff is open: the
+			// rows are in date order, so the row below usually belongs to another lane.
+			event.preventDefault();
+			stepGraph((current) =>
+				stepAlongLane(
+					visibleRows.map((row) => row.nodeBranch),
+					current,
+					event.key === 'ArrowDown' ? 1 : -1
+				)
+			);
+			return;
+		}
+		if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !diffView.target) {
+			event.preventDefault();
+			stepGraph((current) =>
+				stepAcrossLanes(
+					visibleRows.map((row) => row.nodeColumn),
+					current,
+					event.key === 'ArrowRight' ? 1 : -1
+				)
+			);
+			return;
+		}
 		const listKeys = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'];
 		if (!listKeys.includes(event.key)) return;
-		if (diffView.target && !event.altKey && listPanelFiles.length > 0) {
+		const history = fileHistory.current;
+		if (diffView.target && panelMode === 'history' && history && history.listEntries.length > 0) {
+			event.preventDefault();
+			const listEntries = history.listEntries;
+			const current = listEntries.findIndex((entry) => entry.hash === history.activeHash);
+			const next = nextRowIndex(event.key, current, listEntries.length - 1, PAGE_JUMP);
+			if (next !== current) openHistoryEntry(listEntries[next]);
+			return;
+		}
+		if (diffView.target && listPanelFiles.length > 0) {
 			event.preventDefault();
 			const path = stepPath(listPanelFiles, diffView.target.path, event.key, PAGE_JUMP);
 			if (path !== null) openPanelFile(path);
@@ -314,6 +491,23 @@
 		scrollTo(hash);
 	}
 
+	/**
+	 * Move the selection to the row `pick` chooses from the current one. A structural step that finds
+	 * nothing returns `current` and the selection stays put; with nothing selected it starts at the
+	 * first row, as ↑/↓ do.
+	 */
+	function stepGraph(pick: (current: number) => number): void {
+		if (visibleRows.length === 0) return;
+		const current = selectedHash
+			? visibleRows.findIndex((row) => row.commit.hash === selectedHash)
+			: -1;
+		const next = current === -1 ? 0 : pick(current);
+		const hash = visibleRows[next].commit.hash;
+		if (hash === selectedHash) return;
+		select(hash);
+		scrollTo(hash);
+	}
+
 	/** Open a panel file by whichever route the panel's current mode uses. */
 	function openPanelFile(path: string): void {
 		if (panelMode === 'changes') openWorkingFile(path);
@@ -324,6 +518,7 @@
 	function closeFind(): void {
 		findOpen = false;
 		findQuery = '';
+		findCurrent = null;
 	}
 
 	onMount(() => {
@@ -360,8 +555,13 @@
 						detailsLoading = false;
 						comparison = { fromHash: null, toHash: null, files: [], loading: false };
 					}
+					// Which branches other worktrees hold changes with any refresh; the branch menus
+					// offer those worktrees instead of a checkout git would refuse.
+					worktrees.load();
 					const wasFullLoad = status === 'loading';
-					rows = layoutCommits(message.commits);
+					rows = layoutCommits(message.commits, {
+						setPinned: pinnedChain(message.commits, message.listBranches, pinnedRef),
+					});
 					repoState = message.repoState;
 					hasMore = message.hasMore;
 					if (wasFullLoad && prefs.settings.scrollToHeadOnLoad) {
@@ -402,6 +602,9 @@
 					isUnborn = message.isUnborn;
 					previousBranch = message.previousBranch;
 					headHash = message.headHash;
+					// A diff or blame drawn from the working tree is out of date the moment it changes —
+					// and staging lines from it changes it on purpose.
+					if (diffView.target && rightRevision(diffView.target) === null) diffView.refresh();
 					// Rebuilt only when there is an uncommitted row to relabel: reassigning `rows` is
 					// what every graph derivation hangs off, so a no-op update should not touch it.
 					if (rows.some((row) => row.commit.isUncommitted)) {
@@ -454,6 +657,7 @@
 				}
 				case 'undoState': {
 					undoLabel = message.label;
+					redoLabel = message.redoLabel ?? null;
 					break;
 				}
 				case 'uiRequest': {
@@ -574,8 +778,27 @@
 	/** Ctrl/Cmd + click: compare the clicked commit against the selected one. */
 	function compareWith(hash: string): void {
 		if (!selectedHash || selectedHash === hash) return;
-		comparison = { fromHash: selectedHash, toHash: hash, files: [], loading: true };
-		postToHost({ type: 'loadComparison', fromHash: selectedHash, toHash: hash });
+		startComparison(selectedHash, hash);
+	}
+
+	/** "Compare with Working Tree" from a commit's menu. */
+	function compareWorkingTree(hash: string): void {
+		select(hash);
+		startComparison(hash, UNCOMMITTED_HASH);
+	}
+
+	/**
+	 * The working tree is always the right-hand side: the host diffs a commit against the files on
+	 * disk, never the other way round, so a Ctrl+click from the Uncommitted row is turned about.
+	 */
+	function startComparison(first: string, second: string): void {
+		const [fromHash, toHash] = first === UNCOMMITTED_HASH ? [second, first] : [first, second];
+		comparison = { fromHash, toHash, files: [], loading: true };
+		postToHost({ type: 'loadComparison', fromHash, toHash });
+	}
+
+	function comparisonTitle(fromHash: string, toHash: string): string {
+		return `${fromHash.slice(0, 8)} ↔ ${toHash === UNCOMMITTED_HASH ? 'working tree' : toHash.slice(0, 8)}`;
 	}
 
 	function openCompareDiff(path: string): void {
@@ -587,7 +810,7 @@
 					oldPath,
 					fromHash: comparison.fromHash,
 					toHash: comparison.toHash,
-					title: `${comparison.fromHash.slice(0, 8)} ↔ ${comparison.toHash.slice(0, 8)}`,
+					title: comparisonTitle(comparison.fromHash, comparison.toHash),
 				});
 				return;
 			}
@@ -647,7 +870,7 @@
 		graphLimit = 0;
 		// Another repository has its own branches; a filter carried across would ask git to walk
 		// a ref that may not exist there.
-		filterBranch = null;
+		listSolo = [];
 		// Another repository's history, so these rows are not a stale view of the answer — they are
 		// the wrong answer. Dropping them is also what puts the skeleton back up while it loads.
 		rows = [];
@@ -655,6 +878,7 @@
 	}
 
 	function select(hash: string): void {
+		fileHistory.close();
 		selectedHash = hash;
 		listSelected = [];
 		rangeEnd = null;
@@ -693,6 +917,8 @@
 		const subjects = listCommits.map((commit) => commit.subject);
 		if (action === 'squash') {
 			postToHost({ type: 'squashCommits', repoPath: session.repoPath, hashes, subjects });
+		} else if (action === 'cherryPick') {
+			cherryPickEditor.open(listCommits, currentBranch);
 		} else {
 			postToHost({
 				type: 'multiCommitAction',
@@ -799,30 +1025,142 @@
 		postToHost({ type: 'openDiff', hash: selectedHash, path, oldPath });
 	}
 
-	function openWorkingFile(path: string): void {
+	/**
+	 * A working-tree file opens on one part of its change: the unstaged part (index → disk) from the
+	 * upper sections, the staged part (HEAD → index) from Staged Changes — the part a line picked in
+	 * the diff can then be staged or unstaged from. Without a side it is the part the file is listed
+	 * under, unstaged first.
+	 */
+	function openWorkingFile(path: string, side?: WorkingDiffSide): void {
 		if (prefs.settings.diffTarget === 'panel') {
-			const file = [...(working?.staged ?? []), ...(working?.unstaged ?? [])].find(
-				(item) => item.path === path
-			);
+			const unstagedFile = working?.unstaged.find((item) => item.path === path);
+			const stagedFile = working?.staged.find((item) => item.path === path);
+			const resolved: WorkingDiffSide = side ?? (unstagedFile ? 'unstaged' : 'staged');
+			const file = resolved === 'staged' ? stagedFile : unstagedFile;
+			const untracked = file?.status === '?';
 			diffView.show({
 				path,
 				oldPath: file?.oldPath,
-				untracked: file?.status === '?',
-				title: 'Working Tree',
+				untracked,
+				...(untracked ? {} : { side: resolved }),
+				title: resolved === 'staged' ? 'Staged' : 'Working Tree',
 			});
 			return;
 		}
 		postToHost({ type: 'openWorkingDiff', path });
 	}
 
-	function workingAction(action: WorkingTreeAction, path?: string, message?: string): void {
-		if (identity.askBeforeCommit(action, message)) return;
+	function workingAction(
+		action: WorkingTreeAction,
+		path?: string,
+		message?: string,
+		options: CommitOptions = {}
+	): void {
+		if (identity.askBeforeCommit(action, message, options)) return;
 		postToHost({
 			type: 'workingTreeAction',
 			repoPath: session.repoPath,
 			action,
 			path,
 			message,
+			...options,
+		});
+	}
+
+	/**
+	 * Which part of a working-tree file the open diff shows, when its lines can be moved: only a
+	 * modified file — an added, deleted or renamed one is staged whole, which its row already does.
+	 */
+	const diffStaging = $derived.by<WorkingDiffSide | null>(() => {
+		const target = diffView.target;
+		if (!target?.side || target.blame) return null;
+		const listFiles = target.side === 'staged' ? working?.staged : working?.unstaged;
+		return listFiles?.find((file) => file.path === target.path)?.status === 'M'
+			? target.side
+			: null;
+	});
+
+	function stageLines(
+		action: 'stage' | 'unstage' | 'discard',
+		listLines: SelectedDiffLine[]
+	): void {
+		const target = diffView.target;
+		if (!target?.side) return;
+		postToHost({
+			type: 'stageLines',
+			repoPath: session.repoPath,
+			path: target.path,
+			side: target.side,
+			action,
+			listLines,
+		});
+	}
+
+	/** The panel lists the commits that touched `path`, walking from `rev` or from HEAD. */
+	function openFileHistory(path: string, rev: string | null): void {
+		fileHistory.open(path, rev);
+	}
+
+	function openBlame(path: string, rev: string | null): void {
+		diffView.show({
+			path,
+			...(rev ? { hash: rev } : {}),
+			title: rev ? rev.slice(0, 8) : 'Working Tree',
+			blame: true,
+		});
+	}
+
+	/**
+	 * A history entry opens the file as that commit left it — under the name it had then. Blame stays
+	 * on if it was on, so walking the history can read who wrote what at each step.
+	 */
+	function openHistoryEntry(entry: FileHistoryEntry): void {
+		fileHistory.setActive(entry.hash);
+		diffView.show({
+			path: entry.path,
+			oldPath: entry.oldPath,
+			hash: entry.hash,
+			title: entry.hash.slice(0, 8),
+			blame: diffView.target?.blame ?? false,
+		});
+	}
+
+	/**
+	 * Pin a branch to the left edge, or unpin with null. Laid out again on the spot from the commits
+	 * already loaded: which column a line takes is the view's business, not the host's.
+	 */
+	function setPinned(ref: string | null): void {
+		const next = { ...mapPinned };
+		if (ref === null) delete next[session.repoPath];
+		else next[session.repoPath] = ref;
+		mapPinned = next;
+		updateState({ mapPinned: next });
+		const listCommits = rows.map((row) => row.commit);
+		rows = layoutCommits(listCommits, { setPinned: pinnedChain(listCommits, listBranches, ref) });
+	}
+
+	function jumpToPinned(): void {
+		const tip = listBranches.find((branch) => branch.name === pinnedRef)?.hash;
+		if (tip) scrollTo(tip);
+	}
+
+	/** Bring a commit forward in the graph — when it is one of the commits loaded. */
+	function revealCommit(hash: string): void {
+		if (!rows.some((row) => row.commit.hash === hash)) {
+			session.showNotice(`${hash.slice(0, 8)} is not among the commits loaded in the graph.`);
+			return;
+		}
+		select(hash);
+		scrollTo(hash);
+	}
+
+	function restoreFile(path: string, hash: string): void {
+		postToHost({
+			type: 'workingTreeAction',
+			repoPath: session.repoPath,
+			action: 'restoreFromCommit',
+			path,
+			hash,
 		});
 	}
 
@@ -835,7 +1173,8 @@
 		action: BranchActionId,
 		source: string,
 		sourceLabel: string,
-		target: string
+		target: string,
+		targetRemote?: string
 	): void {
 		postToHost({
 			type: 'branchAction',
@@ -844,6 +1183,7 @@
 			source,
 			sourceLabel,
 			target,
+			...(targetRemote ? { targetRemote } : {}),
 		});
 	}
 
@@ -887,6 +1227,13 @@
 </script>
 
 <svelte:window onkeydown={onKeydown} />
+
+{#if shortcutsOpen}
+	<ShortcutsDialog onclose={() => (shortcutsOpen = false)} />
+{/if}
+
+<RebaseEditor />
+<CherryPickEditor />
 
 <div class="app">
 	{#if uiRequest}
@@ -1021,8 +1368,10 @@
 					listBranches={listJumpBranches}
 					{currentBranch}
 					notice={session.notice}
-					{filterBranch}
+					{listSolo}
+					hiddenCount={hiddenCount(hiddenRefs)}
 					onclearFilter={() => setBranchFilter(null)}
+					onshowHidden={() => saveHidden(null)}
 					onjumpBranch={jumpToBranch}
 					commitCount={status === 'ready' ? rows.length : 0}
 					{ahead}
@@ -1031,7 +1380,9 @@
 					onselectRepo={selectRepo}
 					onrefresh={load}
 					{undoLabel}
+					{redoLabel}
 					onundo={() => postToHost({ type: 'undoAction', repoPath: session.repoPath })}
+					onredo={() => postToHost({ type: 'redoAction', repoPath: session.repoPath })}
 					onterminal={() => postToHost({ type: 'openTerminal' })}
 					onfind={() => (findOpen = true)}
 					onfetch={() =>
@@ -1072,8 +1423,18 @@
 				{#if findOpen}
 					<FindWidget
 						query={findQuery}
-						matchCount={visibleRows.length}
+						matchCount={listFindMatches.length}
+						currentIndex={findCurrent === null ? -1 : listFindMatches.indexOf(findCurrent)}
+						error={findMatcher !== null && 'error' in findMatcher ? findMatcher.error : null}
+						partial={hasMore}
+						matchCase={findMatchCase}
+						regex={findRegex}
+						filter={findFilter}
 						onquery={(next) => (findQuery = next)}
+						onstep={stepFind}
+						onmatchCase={() => (findMatchCase = !findMatchCase)}
+						onregex={() => (findRegex = !findRegex)}
+						onfilter={() => (findFilter = !findFilter)}
 						onclose={closeFind}
 					/>
 				{/if}
@@ -1115,6 +1476,33 @@
 							<GraphView
 								rows={visibleRows}
 								{selectedHash}
+								setFindMatches={findFilter ? undefined : setFindMatches}
+								{pinnedRef}
+								{listSolo}
+								columnOrder={prefs.settings.columnOrder}
+								onreorderColumn={(from, to) =>
+									prefs.setSettings({
+										...prefs.settings,
+										columnOrder: moveColumn(
+											normalizeColumnOrder(prefs.settings.columnOrder),
+											from,
+											to
+										),
+									})}
+								onpin={setPinned}
+								onsolo={changeSolo}
+								onhide={hideRefs}
+								onrelated={showRelated}
+								oninteractiveRebase={rebaseEditor.open}
+								onexplain={aiCommit.explain}
+								mapWorktrees={worktrees.mapElsewhere}
+								onworktree={(op, value) =>
+									op === 'open' ? worktrees.open(value) : worktrees.add(value)}
+								oninteractiveRebaseOnto={rebaseEditor.openOnto}
+								mapCommitStats={commitStats.map}
+								onneedStats={commitStats.request}
+								onjumpPinned={jumpToPinned}
+								{findCurrent}
 								listSelectedHashes={listSelected}
 								{currentBranch}
 								lastPicked={lastPickedBranch}
@@ -1137,6 +1525,7 @@
 								onselect={select}
 								onselectRange={selectRangeTo}
 								oncompare={compareWith}
+								oncompareWorking={compareWorkingTree}
 								oncheckoutBranch={checkoutBranch}
 								onaction={runAction}
 								onmulti={runMulti}
@@ -1167,13 +1556,29 @@
 				>
 					<DiffPanel
 						path={open.path}
-						title={open.title}
+						title={open.blame ? `Blame · ${open.title}` : open.title}
 						listHunks={diffView.listHunks}
 						listLineTokens={diffView.listTokens}
 						notice={diffView.notice}
 						loading={diffView.loading}
 						mode={prefs.settings.diffMode}
+						layout={prefs.settings.diffLayout}
+						wrap={prefs.settings.diffWrap}
+						ignoreWhitespace={prefs.settings.diffIgnoreWhitespace}
 						onmode={diffView.setMode}
+						onlayout={diffView.setLayout}
+						onwrap={diffView.toggleWrap}
+						onwhitespace={diffView.toggleIgnoreWhitespace}
+						blame={diffView.blame}
+						canTrace={rightRevision(open) !== undefined}
+						onblame={diffView.toggleBlame}
+						onhistory={() => {
+							const rev = rightRevision(open);
+							if (rev !== undefined) openFileHistory(open.path, rev);
+						}}
+						onrevealCommit={revealCommit}
+						staging={diffStaging}
+						onstageLines={stageLines}
 						onclose={diffView.close}
 					/>
 				</div>
@@ -1207,7 +1612,7 @@
 				metaOpen={prefs.metaOpen}
 				onmetaOpen={prefs.setMetaOpen}
 				onfileView={prefs.setFileView}
-				onclose={closeDetails}
+				onclose={panelMode === 'history' ? fileHistory.close : closeDetails}
 				oncopy={(text) => postToHost({ type: 'copyText', text, label: 'commit hash' })}
 				onselectCommit={(hash) => {
 					select(hash);
@@ -1218,6 +1623,12 @@
 				onopenDiff={openDiff}
 				onopenCompareDiff={openCompareDiff}
 				onopenFile={(path, hash) => postToHost({ type: 'openFile', path, hash })}
+				onrestoreFile={restoreFile}
+				history={fileHistory.current}
+				onfileHistory={openFileHistory}
+				onblame={openBlame}
+				onhistoryOpen={openHistoryEntry}
+				onhistoryReveal={revealCommit}
 				oncopyPath={(path, absolute) => postToHost({ type: 'copyFilePath', path, absolute })}
 			/>
 		</div>

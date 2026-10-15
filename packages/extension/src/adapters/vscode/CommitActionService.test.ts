@@ -848,3 +848,100 @@ describe('rebasing a range of commits onto another branch', () => {
 		expect(git.ran('rebase')).toBe(false);
 	});
 });
+
+describe('upstream of a branch', () => {
+	it('offers the remote branch of the same name first, and sets the pick as upstream', async () => {
+		const git = new FakeGit({
+			'for-each-ref --format=%(refname:short) refs/remotes':
+				'origin/HEAD\norigin/main\nupstream/feature\norigin/feature\n',
+		});
+		const listOffered: string[][] = [];
+		const picking: UserPrompt = {
+			...SILENT_PROMPT,
+			pickOptions: (request) => {
+				listOffered.push(request.listOptions.map((option) => option.id));
+				return Promise.resolve([request.listOptions[0].id]);
+			},
+		};
+		await makeService(git).run(
+			makeMessage({ action: 'setUpstream', branches: ['feature'] }),
+			'/repo',
+			picking
+		);
+		expect(listOffered[0]).toEqual(['upstream/feature', 'origin/feature', 'origin/main']);
+		expect(git.callsTo('branch')).toEqual([
+			['branch', '--set-upstream-to=upstream/feature', '--end-of-options', 'feature'],
+		]);
+	});
+
+	it('unsets the upstream of the branch named', async () => {
+		const git = new FakeGit();
+		await makeService(git).run(
+			makeMessage({ action: 'unsetUpstream', branches: ['feature'] }),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.callsTo('branch')).toEqual([
+			['branch', '--unset-upstream', '--end-of-options', 'feature'],
+		]);
+	});
+});
+
+describe('branch dropped onto a branch: reset and push', () => {
+	const drop = (
+		over: Partial<import('@git-octopus/shared').BranchActionMessage>
+	): import('@git-octopus/shared').BranchActionMessage => ({
+		type: 'branchAction',
+		repoPath: '/repo',
+		action: 'resetTo',
+		source: 'feature',
+		sourceLabel: 'feature',
+		target: 'main',
+		...over,
+	});
+
+	it('moves a branch that is not checked out, touching no files', async () => {
+		const git = new FakeGit({ 'symbolic-ref --short HEAD': 'other\n' });
+		await makeService(git).runBranchAction(drop({}), '/repo', SILENT_PROMPT);
+		expect(git.callsTo('branch')).toEqual([
+			['branch', '-f', '--end-of-options', 'main', 'feature'],
+		]);
+		expect(git.ran('reset')).toBe(false);
+	});
+
+	it('asks for the mode when the branch is checked out, and resets with it', async () => {
+		const git = new FakeGit({ 'symbolic-ref --short HEAD': 'main\n' });
+		const hard: UserPrompt = { ...SILENT_PROMPT, pickOptions: () => Promise.resolve(['hard']) };
+		await makeService(git).runBranchAction(drop({}), '/repo', hard);
+		expect(git.callsTo('reset')).toEqual([['reset', '--hard', 'feature']]);
+	});
+
+	it('does nothing when the mode question is dismissed', async () => {
+		const git = new FakeGit({ 'symbolic-ref --short HEAD': 'main\n' });
+		const dismiss: UserPrompt = { ...SILENT_PROMPT, pickOptions: () => Promise.resolve(undefined) };
+		await makeService(git).runBranchAction(drop({}), '/repo', dismiss);
+		expect(git.ran('reset')).toBe(false);
+	});
+
+	it('pushes the local branch to the remote branch it was dropped on', async () => {
+		const git = new FakeGit();
+		await makeService(git).runBranchAction(
+			drop({ action: 'pushTo', target: 'release', targetRemote: 'origin' }),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.callsTo('push')).toEqual([
+			['push', '--end-of-options', 'origin', 'refs/heads/feature:refs/heads/release'],
+		]);
+	});
+
+	it('rebases onto the remote branch by its full ref', async () => {
+		const git = new FakeGit({ 'symbolic-ref --short HEAD': 'feature\n' });
+		await makeService(git).runBranchAction(
+			drop({ action: 'rebaseOnto', target: 'main', targetRemote: 'origin' }),
+			'/repo',
+			SILENT_PROMPT
+		);
+		expect(git.callsTo('rebase')).toEqual([['rebase', 'refs/remotes/origin/main']]);
+	});
+});

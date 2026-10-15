@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { FileChange } from '@git-octopus/shared';
+	import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 	import FileRow from '../../lib/ui/FileRow.svelte';
 	import FileTree from '../../lib/ui/FileTree.svelte';
 	import { buildFileTree, type FileViewMode } from '../../lib/fileTree';
@@ -34,7 +35,11 @@
 		<p class="hint">Ctrl/Cmd + click a second commit to compare.</p>
 	{:else}
 		<div class="meta">
-			<span class="mono">{fromHash.slice(0, 8)} ↔ {toHash.slice(0, 8)}</span>
+			<span class="mono"
+				>{fromHash.slice(0, 8)} ↔ {toHash === UNCOMMITTED_HASH
+					? 'working tree'
+					: toHash.slice(0, 8)}</span
+			>
 			<span class="count">{files.length} files</span>
 		</div>
 		{#if files.length === 0}

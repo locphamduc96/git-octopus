@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
+import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 import { getFileAtRev } from '../../core/git/gitService.js';
 
 /**
@@ -48,8 +49,12 @@ export class DiffService implements vscode.TextDocumentContentProvider {
 		oldPath?: string
 	): Promise<void> {
 		const left = this.buildUri(fromHash, oldPath ?? filePath, cwd);
-		const right = this.buildUri(toHash, filePath, cwd);
-		const title = `${path.basename(filePath)} (${fromHash.slice(0, 7)} ↔ ${toHash.slice(0, 7)})`;
+		// The working tree side is the real file, so the diff can be edited where it stands.
+		const toWorkingTree = toHash === UNCOMMITTED_HASH;
+		const right = toWorkingTree
+			? vscode.Uri.file(path.join(cwd, filePath))
+			: this.buildUri(toHash, filePath, cwd);
+		const title = `${path.basename(filePath)} (${fromHash.slice(0, 7)} ↔ ${toWorkingTree ? 'Working Tree' : toHash.slice(0, 7)})`;
 		await vscode.commands.executeCommand('vscode.diff', left, right, title);
 	}
 

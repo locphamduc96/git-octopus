@@ -65,6 +65,26 @@ export function diffSnapshots(
 	return { label, listChanges, headBefore: before.head, headAfter: after.head };
 }
 
+/**
+ * The same change, the other way round — what redoing an undone action has to do.
+ *
+ * Redo needs no planner of its own: undoing the inverse is redoing, so every proof `planUndo`
+ * makes (refs still where they were left, HEAD unmoved, a clean tree where it matters) holds for
+ * redo too.
+ */
+export function invertEntry(entry: UndoEntry): UndoEntry {
+	return {
+		label: entry.label,
+		listChanges: entry.listChanges.map((change) => ({
+			branch: change.branch,
+			before: change.after,
+			after: change.before,
+		})),
+		headBefore: entry.headAfter,
+		headAfter: entry.headBefore,
+	};
+}
+
 /** Why an undo cannot run. Each one is shown to the user, so each has to say something true. */
 export type UndoRefusal =
 	| { reason: 'nothing' }
@@ -73,8 +93,7 @@ export type UndoRefusal =
 	| { reason: 'dirty' };
 
 export type UndoPlan =
-	| { ok: true; listCommands: string[][]; label: string }
-	| ({ ok: false } & UndoRefusal);
+	{ ok: true; listCommands: string[][]; label: string } | ({ ok: false } & UndoRefusal);
 
 export interface UndoContext {
 	entry: UndoEntry | null;
@@ -116,7 +135,13 @@ export function planUndo(context: UndoContext): UndoPlan {
 	if (touchesWorkingTree && context.dirty) return { ok: false, reason: 'dirty' };
 
 	const listCommands: string[][] = [];
-	// HEAD first: a branch created by the action cannot be deleted while HEAD is standing on it.
+	// Branches the action deleted come back first: HEAD may be about to return to one of them — the
+	// case of a redo that re-creates a branch and checks it out.
+	for (const change of entry.listChanges) {
+		if (change.after === null && change.before !== null)
+			listCommands.push(['branch', change.branch, change.before]);
+	}
+	// Then HEAD: a branch created by the action cannot be deleted while HEAD is standing on it.
 	if (restoresHead) listCommands.push(['checkout', checkoutTarget(entry.headBefore)]);
 
 	for (const change of entry.listChanges) {
@@ -124,22 +149,14 @@ export function planUndo(context: UndoContext): UndoPlan {
 			listCommands.push(['branch', '-D', change.branch]);
 			continue;
 		}
-		if (change.after === null) {
-			listCommands.push(['branch', change.branch, change.before]);
-			continue;
-		}
+		if (change.after === null) continue;
 		if (change.branch === headBranch) {
 			listCommands.push(['reset', '--hard', change.before]);
 			continue;
 		}
 		// Compare-and-swap: git refuses the write itself if the ref moved since it was checked, so
 		// a race between the proof above and this command cannot clobber someone else's work.
-		listCommands.push([
-			'update-ref',
-			`refs/heads/${change.branch}`,
-			change.before,
-			change.after,
-		]);
+		listCommands.push(['update-ref', `refs/heads/${change.branch}`, change.before, change.after]);
 	}
 	return { ok: true, listCommands, label: entry.label };
 }

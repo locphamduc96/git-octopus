@@ -3,6 +3,9 @@ import { loadCommits, type RepoContext } from './useCases/loadCommits.js';
 import { loadCommitDetails } from './useCases/loadCommitDetails.js';
 import { loadComparison } from './useCases/loadComparison.js';
 import { loadFileDiff } from './useCases/loadFileDiff.js';
+import { loadFileHistory } from './useCases/loadFileHistory.js';
+import { loadBlame } from './useCases/loadBlame.js';
+import { loadCommitStats } from './useCases/loadCommitStats.js';
 
 /**
  * Map an inbound webview message to an optional reply, dispatching to use-cases.
@@ -22,6 +25,12 @@ export function routeMessage(
 			return loadComparison(ctx, message.fromHash, message.toHash);
 		case 'loadFileDiff':
 			return loadFileDiff(ctx, message);
+		case 'loadFileHistory':
+			return loadFileHistory(ctx, message);
+		case 'loadBlame':
+			return loadBlame(ctx, message);
+		case 'loadCommitStats':
+			return loadCommitStats(ctx, message);
 		default:
 			// Deliberately non-exhaustive: `undefined` means "not my job", and the controller's switch
 			// — which does answer for every member — is where a new message type is caught.

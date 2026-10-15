@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
+	AiExplainMessage,
 	AgentId,
 	AgentInventoryMessage,
 	CommitPlanExecutedMessage,
@@ -26,6 +27,9 @@ import { buildCommitPrompt, type PromptFile } from '../../core/agent/commitPromp
 import { parseCommitPlan } from '../../core/agent/planParser.js';
 import { LIST_AGENT_PROVIDERS, providerById } from '../../core/agent/agentProviders.js';
 import { PlanCache, type PlanResult } from '../../core/agent/planCache.js';
+import type { AgentProvider } from '../../core/agent/agentProviders.js';
+import { buildExplainPrompt } from '../../core/agent/explainPrompt.js';
+import { gatherExplainMaterial } from '../../core/agent/explainMaterial.js';
 import { AgentProcessRunner, CANCELLED } from '../process/agentProcessRunner.js';
 
 export const STATE_AI_AGENT = 'gitOctopus.aiAgent';
@@ -44,6 +48,8 @@ export const STATE_AI_CONSENT = 'gitOctopus.aiConsent';
  */
 export class CommitAgentService {
 	private readonly cache = new PlanCache();
+	/** Runner keys for explanations, well clear of the plan cache's generation ids. */
+	private nextExplainKey = 1_000_000;
 
 	/**
 	 * `agentWorkdir` is where the agent CLI runs — an empty folder of our own, never the repository.
@@ -198,6 +204,26 @@ export class CommitAgentService {
 		const { prompt, additions, deletions } = await this.buildPrompt(cwd, listChanges);
 		report({ stage: 'prompted', fileCount: listChanges.length, additions, deletions });
 
+		const answer = await this.runAgent(provider, prompt, generationId);
+		if (answer === 'cancelled' || 'error' in answer) return answer;
+
+		const parsed = parseCommitPlan(
+			answer.text,
+			listChanges.map((change) => change.path)
+		);
+		if (parsed.error) return { error: parsed.error };
+		return { plan: parsed.plan };
+	}
+
+	/**
+	 * Run the agent once on `prompt`, in its own folder, with the user's model and thinking pins.
+	 * A failure comes back as the message to show; a cancel as `'cancelled'`.
+	 */
+	private async runAgent(
+		provider: AgentProvider,
+		prompt: string,
+		key: number
+	): Promise<{ text: string } | { error: string; needsLogin?: boolean } | 'cancelled'> {
 		let stdout: string;
 		let stderr: string;
 		let code: number | null;
@@ -213,7 +239,7 @@ export class CommitAgentService {
 				spec.promptInArgs ? [...spec.listArgs, prompt] : spec.listArgs,
 				this.agentWorkdir,
 				spec.promptInArgs ? '' : prompt,
-				generationId
+				key
 			));
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
@@ -229,13 +255,72 @@ export class CommitAgentService {
 			const detail = (stderr.trim() || stdout.trim() || `exit code ${code}`).slice(0, 400);
 			return { error: `${provider.label} failed: ${redactSecrets(detail)}` };
 		}
+		return { text: provider.extractText(stdout) };
+	}
 
-		const parsed = parseCommitPlan(
-			provider.extractText(stdout),
-			listChanges.map((change) => change.path)
+	/**
+	 * Explain a commit, a branch or the uncommitted changes with the agent the AI commit uses, and
+	 * open its account beside the graph as an unsaved Markdown document. Nothing is written to the
+	 * repository; the agent sees what the commit prompt would — names always, content only for
+	 * source files outside the exclude patterns.
+	 */
+	public async explain(message: AiExplainMessage, cwd: string): Promise<void> {
+		const provider = providerById(this.globalState.get<string>(STATE_AI_AGENT));
+		if (!provider || !this.globalState.get<boolean>(STATE_AI_CONSENT, false)) {
+			void vscode.window.showErrorMessage(
+				'Git Octopus: choose an agent CLI in the AI tab of the settings first.'
+			);
+			return;
+		}
+		const key = this.nextExplainKey++;
+		await vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: `Git Octopus: ${provider.label} is explaining`,
+				cancellable: true,
+			},
+			async (progress, token) => {
+				token.onCancellationRequested(() => this.runner.cancel(key));
+				let material;
+				try {
+					material = await gatherExplainMaterial(this.executor, cwd, message.target, {
+						listExcludePatterns: this.aiConfig().get<string[]>('excludePatterns', []),
+						sizeOf: (file) => fileSize(path.join(cwd, file)),
+					});
+				} catch (error) {
+					const detail = error instanceof Error ? error.message : String(error);
+					void vscode.window.showErrorMessage(`Git Octopus: ${redactSecrets(detail)}`);
+					return;
+				}
+				if (token.isCancellationRequested) return;
+				progress.report({ message: material.title });
+				const prompt = buildExplainPrompt({
+					...material,
+					language: this.aiConfig().get<string>('language', ''),
+				});
+				const answer = await this.runAgent(provider, prompt, key);
+				if (answer === 'cancelled') return;
+				if ('error' in answer) {
+					void vscode.window.showErrorMessage(`Git Octopus: ${answer.error}`);
+					return;
+				}
+				const text = answer.text.trim();
+				if (text === '') {
+					void vscode.window.showErrorMessage(
+						`Git Octopus: ${provider.label} answered with nothing.`
+					);
+					return;
+				}
+				const document = await vscode.workspace.openTextDocument({
+					language: 'markdown',
+					content: `# ${material.title}\n\n_Explained by ${provider.label}._\n\n${text}\n`,
+				});
+				await vscode.window.showTextDocument(document, {
+					viewColumn: vscode.ViewColumn.Beside,
+					preview: false,
+				});
+			}
 		);
-		if (parsed.error) return { error: parsed.error };
-		return { plan: parsed.plan };
 	}
 
 	/**

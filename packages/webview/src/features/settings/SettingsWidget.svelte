@@ -1,4 +1,8 @@
 <script lang="ts">
+	import RemotesSection from './RemotesSection.svelte';
+	import WorktreesSection from './WorktreesSection.svelte';
+	import { worktrees } from '../../lib/stores/worktrees.svelte';
+	import { remotes } from '../../lib/stores/remotes.svelte';
 	import type {
 		AgentId,
 		CommitOrder,
@@ -64,13 +68,15 @@
 		onchange({ ...settings, [key]: value });
 	}
 
-	type Tab = 'general' | 'graph' | 'commits' | 'ai' | 'identity';
+	type Tab = 'general' | 'graph' | 'commits' | 'ai' | 'identity' | 'remotes' | 'worktrees';
 	const listTabs: { id: Tab; label: string; icon: string }[] = [
 		{ id: 'general', label: 'General', icon: 'settings-gear' },
 		{ id: 'graph', label: 'Graph', icon: 'git-branch' },
 		{ id: 'commits', label: 'Commits & Dates', icon: 'git-commit' },
 		{ id: 'ai', label: 'AI commit', icon: 'sparkle' },
 		{ id: 'identity', label: 'Identity', icon: 'account' },
+		{ id: 'remotes', label: 'Remotes', icon: 'cloud' },
+		{ id: 'worktrees', label: 'Worktrees', icon: 'folder-library' },
 	];
 	let tab = $state<Tab>('general');
 	const tabLabel = $derived(listTabs.find((item) => item.id === tab)?.label ?? '');
@@ -168,6 +174,8 @@
 	function openTab(next: Tab): void {
 		tab = next;
 		if (next === 'ai') aiCommit.loadInventory();
+		if (next === 'remotes') remotes.load();
+		if (next === 'worktrees') worktrees.load();
 	}
 
 	function saveAiModel(value: string): void {
@@ -635,7 +643,7 @@
 							</PresetPicker>
 						{/if}
 					</section>
-				{:else}
+				{:else if tab === 'identity'}
 					<IdentitySection
 						{identity}
 						{listIdentities}
@@ -662,6 +670,10 @@
 							/>
 						</div>
 					</section>
+				{:else if tab === 'remotes'}
+					<RemotesSection />
+				{:else}
+					<WorktreesSection />
 				{/if}
 			</div>
 		</div>

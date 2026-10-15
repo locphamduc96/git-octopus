@@ -311,3 +311,75 @@ describe('AI commit asked to stage the tree first', () => {
 		expect(listOrder).toEqual(['generate']);
 	});
 });
+
+describe('committing with push after', () => {
+	function makePushRecorder(listOrder: string[], committed: boolean) {
+		return makeController({
+			workspaceState: memento({ [STATE_ACTIVE_REPO]: ACTIVE_REPO }),
+			workingTree: {
+				run: (message) => {
+					listOrder.push(`workingTree:${message.action}`);
+					return Promise.resolve(committed);
+				},
+			},
+			repoActions: {
+				run: (message) => {
+					listOrder.push(`repoAction:${message.action}`);
+					return Promise.resolve(true);
+				},
+				runSequencer: () => Promise.resolve(false),
+			},
+		});
+	}
+
+	it('pushes once the commit has landed', async () => {
+		const listOrder: string[] = [];
+		const view = await attachView(makePushRecorder(listOrder, true));
+		await view.webview.receive({
+			type: 'workingTreeAction',
+			repoPath: ACTIVE_REPO,
+			action: 'commit',
+			message: 'feat: x',
+			pushAfter: true,
+		});
+		expect(listOrder).toEqual(['workingTree:commit', 'repoAction:push']);
+	});
+
+	it('pushes nothing when the commit failed', async () => {
+		const listOrder: string[] = [];
+		const view = await attachView(makePushRecorder(listOrder, false));
+		await view.webview.receive({
+			type: 'workingTreeAction',
+			repoPath: ACTIVE_REPO,
+			action: 'commit',
+			message: 'feat: x',
+			pushAfter: true,
+		});
+		expect(listOrder).toEqual(['workingTree:commit']);
+	});
+
+	it('tells the view whether the commit went through, so a refused one keeps its message', async () => {
+		for (const committed of [true, false]) {
+			const view = await attachView(makePushRecorder([], committed));
+			await view.webview.receive({
+				type: 'workingTreeAction',
+				repoPath: ACTIVE_REPO,
+				action: 'commit',
+				message: 'feat: x',
+			});
+			expect(view.webview.postedOfType('commitOutcome')).toEqual([
+				{ type: 'commitOutcome', ok: committed },
+			]);
+		}
+	});
+
+	it('says nothing about other working-tree actions', async () => {
+		const view = await attachView(makePushRecorder([], true));
+		await view.webview.receive({
+			type: 'workingTreeAction',
+			repoPath: ACTIVE_REPO,
+			action: 'stageAll',
+		});
+		expect(view.webview.postedOfType('commitOutcome')).toEqual([]);
+	});
+});

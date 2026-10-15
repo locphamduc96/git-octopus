@@ -1,16 +1,27 @@
-import type { GraphFilters } from '@git-octopus/shared';
+import type { GraphFilters, HiddenRefs } from '@git-octopus/shared';
 import type { ViewSettings } from './viewSettings';
+
+export const NO_HIDDEN_REFS: HiddenRefs = { listBranches: [], listRemotes: [], listTags: [] };
+
+/** How many refs are hidden, all namespaces together. */
+export function hiddenCount(hidden: HiddenRefs): number {
+	return hidden.listBranches.length + hidden.listRemotes.length + hidden.listTags.length;
+}
 
 /**
  * The filter payload sent with every loadCommits — settings the host walk depends on.
- * `filterBranch` is the view's session-only "show only this branch" choice, not a saved setting.
+ * `listSolo` is the view's session-only "show only these branches" choice, not a saved setting;
+ * `hidden` is kept per repository by the view.
  */
 export function buildHostFilters(
 	settings: ViewSettings,
-	filterBranch: string | null = null
+	listSolo: string[] = [],
+	hidden: HiddenRefs = NO_HIDDEN_REFS
 ): GraphFilters {
 	return {
-		branch: filterBranch,
+		branch: listSolo[0] ?? null,
+		listSoloRefs: listSolo,
+		hiddenRefs: hidden,
 		showRemoteBranches: settings.showRemoteBranches,
 		fetchAvatars: settings.fetchAvatars,
 		commitOrder: settings.commitOrder,
@@ -38,6 +49,9 @@ export function commitsReplyMatches(
 	if (!echoed) return true;
 	return (
 		(echoed.branch ?? null) === (wanted.branch ?? null) &&
+		(echoed.listSoloRefs ?? []).join('\0') === (wanted.listSoloRefs ?? []).join('\0') &&
+		JSON.stringify(echoed.hiddenRefs ?? NO_HIDDEN_REFS) ===
+			JSON.stringify(wanted.hiddenRefs ?? NO_HIDDEN_REFS) &&
 		echoed.showRemoteBranches === wanted.showRemoteBranches &&
 		(echoed.fetchAvatars ?? false) === wanted.fetchAvatars &&
 		(echoed.commitOrder ?? 'date') === wanted.commitOrder &&

@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CommitAgentService, STATE_AI_AGENT, STATE_AI_CONSENT } from './CommitAgentService.js';
-import { mapConfig, resetRecorded } from '../../test/vscodeStub.js';
+import { mapConfig, recorded, resetRecorded } from '../../test/vscodeStub.js';
+import { createTempRepo } from '../../test/tempRepo.js';
+import { GitProcessExecutor } from '../process/gitProcessExecutor.js';
 import { FakeGit } from '../../test/fakeGit.js';
 import type { AgentProcessRunner, AgentRunResult } from '../process/agentProcessRunner.js';
 
@@ -204,5 +206,65 @@ describe('CommitAgentService agent process', () => {
 		expect(listCwds).toEqual([workdir]);
 		expect((await stat(workdir)).isDirectory()).toBe(true);
 		await rm(path.dirname(workdir), { recursive: true, force: true });
+	});
+});
+
+describe('CommitAgentService.explain', () => {
+	beforeEach(() => {
+		resetRecorded();
+	});
+
+	it('hands the commit to the agent and opens its answer as a Markdown document', async () => {
+		const repo = await createTempRepo();
+		try {
+			const hash = await repo.commit('a.txt', 'a\n', 'feat: add a');
+			const listPrompts: string[] = [];
+			const runner = {
+				version: () => Promise.resolve('1.0.0'),
+				run: (_bin: string, _args: string[], _cwd: string, stdin: string) => {
+					listPrompts.push(stdin);
+					return Promise.resolve({
+						stdout: JSON.stringify({ result: '## Summary\nAdds a.' }),
+						stderr: '',
+						code: 0,
+					});
+				},
+				cancel: () => undefined,
+			} as unknown as AgentProcessRunner;
+			const workdir = await mkdtemp(path.join(tmpdir(), 'git-octopus-explain-'));
+			const service = new CommitAgentService(
+				new GitProcessExecutor(),
+				makeState() as unknown as ConstructorParameters<typeof CommitAgentService>[1],
+				runner,
+				workdir
+			);
+			await service.explain(
+				{ type: 'aiExplain', repoPath: repo.cwd, target: { kind: 'commit', hash } },
+				repo.cwd
+			);
+			await rm(workdir, { recursive: true, force: true });
+			expect(listPrompts[0]).toContain('feat: add a');
+			expect(listPrompts[0]).toContain('+a');
+			expect(recorded.listDocuments).toHaveLength(1);
+			expect(recorded.listDocuments[0].language).toBe('markdown');
+			expect(recorded.listDocuments[0].content).toContain('## Summary\nAdds a.');
+			expect(recorded.listErrors).toEqual([]);
+		} finally {
+			await repo.dispose();
+		}
+	});
+
+	it('asks for an agent first when none was chosen', async () => {
+		const service = new CommitAgentService(
+			new FakeGit({}),
+			{
+				get: (_key: string, fallback?: unknown) => fallback,
+				update: () => Promise.resolve(),
+			} as unknown as ConstructorParameters<typeof CommitAgentService>[1],
+			makeRunner()
+		);
+		await service.explain({ type: 'aiExplain', repoPath: CWD, target: { kind: 'working' } }, CWD);
+		expect(recorded.listErrors[0]).toContain('choose an agent CLI');
+		expect(recorded.listDocuments).toEqual([]);
 	});
 });

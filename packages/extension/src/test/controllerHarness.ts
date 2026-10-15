@@ -116,7 +116,9 @@ export type ActionsFake = Partial<
 	Pick<CommitActionService, 'run' | 'squash' | 'runMulti' | 'runBranchAction' | 'canFastForward'>
 >;
 export type WorkingTreeFake = Partial<Pick<WorkingTreeService, 'run'>>;
-export type RepoActionsFake = Partial<Pick<RepoActionService, 'run' | 'runSequencer'>>;
+export type RepoActionsFake = Partial<
+	Pick<RepoActionService, 'run' | 'runSequencer' | 'runRemoteAction'>
+>;
 export type CommitAgentFake = Partial<
 	Pick<
 		CommitAgentService,
@@ -148,6 +150,7 @@ const IDLE_WORKING_TREE: WorkingTreeFake = { run: () => Promise.resolve(false) }
 const IDLE_REPO_ACTIONS: RepoActionsFake = {
 	run: () => Promise.resolve(false),
 	runSequencer: () => Promise.resolve(false),
+	runRemoteAction: () => Promise.resolve(false),
 };
 
 const IDLE_AGENT: CommitAgentFake = {

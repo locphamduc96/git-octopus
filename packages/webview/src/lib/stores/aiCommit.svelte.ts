@@ -3,6 +3,7 @@ import {
 	type AgentId,
 	type AgentInventoryMessage,
 	type CommitPlanProgress,
+	type ExplainTarget,
 	type WebviewToHost,
 } from '@git-octopus/shared';
 import {
@@ -257,6 +258,10 @@ onRepoReset(() => {
 });
 
 export const aiCommit = {
+	/** Ask the chosen agent to explain a commit, a branch or the working changes; the host shows it. */
+	explain(target: ExplainTarget): void {
+		postToHost({ type: 'aiExplain', repoPath: session.repoPath, target });
+	},
 	get open(): boolean {
 		return open;
 	},

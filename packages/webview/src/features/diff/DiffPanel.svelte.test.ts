@@ -55,7 +55,7 @@ describe('DiffPanel', () => {
 		// itself read — effect_update_depth_exceeded, and the whole view froze on open. A plain
 		// mount is the regression: the loop, if reintroduced, throws right here.
 		const { container } = mount();
-		expect(screen.getByText(/a line 2/)).toBeTruthy();
+		expect(screen.getByText(/a line 2$/)).toBeTruthy();
 		expect(container.querySelector('.flash')).toBeTruthy();
 	});
 
@@ -103,5 +103,174 @@ describe('DiffPanel', () => {
 		long.listLines[0] = { ...long.listLines[0], text: `import { X } from "${'y'.repeat(200)}";` };
 		mount({ listHunks: [long] });
 		expect(screen.getByText(new RegExp(`${'y'.repeat(200)}";$`))).toBeTruthy();
+	});
+});
+
+describe('DiffPanel layouts', () => {
+	const replaced: DiffHunk = {
+		oldStart: 1,
+		newStart: 1,
+		heading: '',
+		listLines: [
+			{ kind: 'context', text: 'keep', oldLine: 1, newLine: 1 },
+			{ kind: 'del', text: 'old text', oldLine: 2, newLine: null },
+			{ kind: 'add', text: 'new text', oldLine: null, newLine: 2 },
+		],
+	};
+
+	it('draws a replaced line as one row with the old and the new side by side', () => {
+		const { container } = mount({ listHunks: [replaced], layout: 'split' });
+		const row = screen.getByText(/old text/).closest('.row');
+		expect(row?.classList.contains('pair')).toBe(true);
+		expect(row?.querySelector('.half.del')?.textContent).toContain('old text');
+		expect(row?.querySelector('.half.add')?.textContent).toContain('new text');
+		// The kept line shows on both sides.
+		expect(container.querySelectorAll('.half.context')).toHaveLength(2);
+	});
+
+	it('keeps one column per line in the unified layout', () => {
+		const { container } = mount({ listHunks: [replaced] });
+		expect(container.querySelector('.row.pair')).toBeNull();
+		expect(container.querySelectorAll('.row.del, .row.add')).toHaveLength(2);
+	});
+
+	it('latches the toggles, and wraps whatever the wrap setting says in split view', () => {
+		mount({ listHunks: [replaced], layout: 'split', ignoreWhitespace: true });
+		const button = (label: string) => screen.getByLabelText(label).closest('button');
+		expect(button('Side by side')?.getAttribute('aria-pressed')).toBe('true');
+		expect(button('Ignore whitespace')?.getAttribute('aria-pressed')).toBe('true');
+		expect(button('Wrap long lines')?.getAttribute('aria-pressed')).toBe('true');
+		expect(button('Wrap long lines')?.disabled).toBe(true);
+	});
+
+	it('reports each toggle to its own callback', async () => {
+		const onlayout = vi.fn();
+		const onwrap = vi.fn();
+		const onwhitespace = vi.fn();
+		mount({ listHunks: [replaced], onlayout, onwrap, onwhitespace });
+		const button = (label: string) => screen.getByLabelText(label).closest('button') as HTMLElement;
+		button('Side by side').click();
+		button('Wrap long lines').click();
+		button('Ignore whitespace').click();
+		expect(onlayout).toHaveBeenCalledWith('split');
+		expect(onwrap).toHaveBeenCalledOnce();
+		expect(onwhitespace).toHaveBeenCalledOnce();
+	});
+});
+
+describe('DiffPanel blame', () => {
+	const A = 'a'.repeat(40);
+	const B = 'b'.repeat(40);
+	const fileHunk: DiffHunk = {
+		oldStart: 1,
+		newStart: 1,
+		heading: '',
+		listLines: ['one', 'two', 'three'].map((text, index) => ({
+			kind: 'context' as const,
+			text,
+			oldLine: index + 1,
+			newLine: index + 1,
+		})),
+	};
+	const blame = {
+		listLineHashes: [A, A, B],
+		mapCommits: {
+			[A]: { author: 'Ada', authoredAt: 0, summary: 'first' },
+			[B]: { author: 'Grace', authoredAt: 0, summary: 'second' },
+		},
+	};
+
+	it('writes one annotation per run of lines from the same commit', () => {
+		const { container } = mount({ listHunks: [fileHunk], blame, canTrace: true });
+		const listLabels = [...container.querySelectorAll('button.blame')].map((b) => b.textContent);
+		expect(listLabels).toHaveLength(2);
+		expect(listLabels[0]).toContain('aaaaaaa Ada');
+		expect(listLabels[1]).toContain('bbbbbbb Grace');
+	});
+
+	it('reveals the commit an annotation names', () => {
+		const onrevealCommit = vi.fn();
+		const { container } = mount({ listHunks: [fileHunk], blame, canTrace: true, onrevealCommit });
+		(container.querySelectorAll('button.blame')[1] as HTMLElement).click();
+		expect(onrevealCommit).toHaveBeenCalledWith(B);
+	});
+
+	it('hides the diff-only controls and latches Blame', () => {
+		mount({ listHunks: [fileHunk], blame, canTrace: true });
+		expect(screen.queryByText('Whole file')).toBeNull();
+		expect(screen.queryByLabelText('Side by side')).toBeNull();
+		expect(screen.getByLabelText('Blame').closest('button')?.getAttribute('aria-pressed')).toBe(
+			'true'
+		);
+	});
+
+	it('disables blame and history for a file without a revision', () => {
+		mount({ canTrace: false });
+		expect(screen.getByLabelText('Blame').closest('button')?.disabled).toBe(true);
+		expect(screen.getByLabelText('File history').closest('button')?.disabled).toBe(true);
+	});
+});
+
+describe('DiffPanel picking lines', () => {
+	const change: DiffHunk = {
+		oldStart: 1,
+		newStart: 1,
+		heading: '',
+		listLines: [
+			{ kind: 'context', text: 'a', oldLine: 1, newLine: 1 },
+			{ kind: 'del', text: 'b', oldLine: 2, newLine: null },
+			{ kind: 'add', text: 'B', oldLine: null, newLine: 2 },
+			{ kind: 'add', text: 'C', oldLine: null, newLine: 3 },
+		],
+	};
+	const pickButtons = (container: HTMLElement) =>
+		[...container.querySelectorAll('button.gutter')] as HTMLButtonElement[];
+
+	it('offers nothing to pick outside a working-tree diff', () => {
+		const { container } = mount({ listHunks: [change], mode: 'compact' });
+		expect(pickButtons(container)).toHaveLength(0);
+		expect(screen.queryByText('Stage hunk')).toBeNull();
+	});
+
+	it('picks a line from its number, then sends exactly that line to be staged', async () => {
+		const onstageLines = vi.fn();
+		const { container } = mount({ listHunks: [change], staging: 'unstaged', onstageLines });
+		// Two number buttons per changed line; the third changed line is the added `C`.
+		pickButtons(container)[4].click();
+		await Promise.resolve();
+		(await screen.findByText('Stage 1 line')).click();
+		expect(onstageLines).toHaveBeenCalledWith('stage', [
+			{ kind: 'add', oldLine: null, newLine: 3, text: 'C' },
+		]);
+	});
+
+	it('picks a range with Shift+click', async () => {
+		const onstageLines = vi.fn();
+		const { container } = mount({ listHunks: [change], staging: 'staged', onstageLines });
+		const listButtons = pickButtons(container);
+		listButtons[0].click();
+		listButtons[4].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+		(await screen.findByText('Unstage 3 lines')).click();
+		expect(onstageLines.mock.calls[0][1]).toHaveLength(3);
+	});
+
+	it('stages or discards a whole hunk from its header row', () => {
+		const onstageLines = vi.fn();
+		mount({ listHunks: [change], mode: 'compact', staging: 'unstaged', onstageLines });
+		screen.getByText('Discard hunk').click();
+		expect(onstageLines).toHaveBeenCalledWith('discard', [
+			{ kind: 'del', oldLine: 2, newLine: null, text: 'b' },
+			{ kind: 'add', oldLine: null, newLine: 2, text: 'B' },
+			{ kind: 'add', oldLine: null, newLine: 3, text: 'C' },
+		]);
+	});
+
+	it('does not offer picking while whitespace is ignored', () => {
+		const { container } = mount({
+			listHunks: [change],
+			staging: 'unstaged',
+			ignoreWhitespace: true,
+		});
+		expect(pickButtons(container)).toHaveLength(0);
 	});
 });

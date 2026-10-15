@@ -163,10 +163,13 @@ export function chipRef(chip: RefChip): { ref: string; label: string } | null {
 }
 
 /**
- * Only a local branch can be dropped onto: Git writes the target ref, and a remote-tracking ref
- * is a copy of someone else's, not something this repository may move. `dragLabel` is the label
- * of the chip being dragged, or null while nothing is.
+ * A branch chip other than the one being dragged. A local branch takes every drop action; a chip
+ * that stands only for a remote branch takes the ones that write no remote-tracking ref here —
+ * rebasing onto it, pushing to it — since that ref is a copy of someone else's, not ours to move.
+ * `dragLabel` is the label of the chip being dragged, or null while nothing is.
  */
 export function isDropTarget(chip: RefChip, dragLabel: string | null): boolean {
-	return dragLabel !== null && chip.kind === 'branch' && chip.hasLocal && chip.name !== dragLabel;
+	if (dragLabel === null || chip.kind !== 'branch') return false;
+	const label = chipRef(chip)?.label;
+	return label !== undefined && label !== dragLabel;
 }

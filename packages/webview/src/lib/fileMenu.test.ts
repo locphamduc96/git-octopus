@@ -6,7 +6,14 @@ const ids = (options: Parameters<typeof buildFileMenu>[0]): string[] =>
 
 describe('buildFileMenu', () => {
 	it('offers the diff, the file and its paths', () => {
-		expect(ids({})).toEqual(['openChanges', 'openFile', 'copyPath', 'copyRelativePath']);
+		expect(ids({})).toEqual([
+			'openChanges',
+			'openFile',
+			'fileHistory',
+			'blame',
+			'copyPath',
+			'copyRelativePath',
+		]);
 	});
 
 	it('offers the revision only while a commit is on screen', () => {
@@ -14,10 +21,23 @@ describe('buildFileMenu', () => {
 		expect(ids({})).not.toContain('openFileAtRev');
 	});
 
+	it('offers no history or blame for a file git does not track, and no blame for a deleted one', () => {
+		expect(ids({ untracked: true })).not.toContain('fileHistory');
+		expect(ids({ untracked: true })).not.toContain('blame');
+		expect(ids({ atRevision: true, deleted: true })).toContain('fileHistory');
+		expect(ids({ atRevision: true, deleted: true })).not.toContain('blame');
+	});
+
+	it('offers to restore the file from the commit on screen, and not from the working tree', () => {
+		expect(ids({ atRevision: true })).toContain('restoreFromCommit');
+		expect(ids({})).not.toContain('restoreFromCommit');
+	});
+
 	it('drops both open-file entries for a file the commit deleted', () => {
 		const listIds = ids({ atRevision: true, deleted: true });
 		expect(listIds).not.toContain('openFile');
 		expect(listIds).not.toContain('openFileAtRev');
+		expect(listIds).not.toContain('restoreFromCommit');
 		// The diff still works: it is the only way left to see what the commit removed.
 		expect(listIds[0]).toBe('openChanges');
 	});

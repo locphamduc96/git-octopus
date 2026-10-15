@@ -59,7 +59,63 @@ const labels = (list: { label: string }[]): string[] => list.map((item) => item.
 
 /** The ref an entry acts on; only the entries built from a ref menu carry one. */
 const targetOf = (entry: MenuEntry | undefined): RefTarget | undefined =>
-	entry && 'target' in entry ? entry.target : undefined;
+	entry && 'target' in entry && entry.type !== 'explain' ? entry.target : undefined;
+
+describe('explain entries', () => {
+	it('explains the commit the menu was opened on', () => {
+		const menu = buildCommitMenuItems(commit('abc123'), 'main');
+		expect(menu.mapEntries.explainCommit).toEqual({
+			type: 'explain',
+			target: { kind: 'commit', hash: 'abc123' },
+		});
+	});
+
+	it('explains a branch by its full ref, local first, else its remote', () => {
+		const local = buildRefMenu(chip(), 'main').mapEntries['branch:feature:explainRef'];
+		expect(local).toEqual({
+			type: 'explain',
+			target: { kind: 'branch', ref: 'refs/heads/feature', label: 'feature' },
+		});
+		const remoteOnly = buildRefMenu(chip({ hasLocal: false, listRemotes: ['origin'] }), 'main')
+			.mapEntries['branch:feature:explainRef'];
+		expect(remoteOnly).toEqual({
+			type: 'explain',
+			target: { kind: 'branch', ref: 'refs/remotes/origin/feature', label: 'origin/feature' },
+		});
+	});
+});
+
+describe('worktree entries', () => {
+	it('offers to create a worktree for a branch checked out nowhere', () => {
+		const menu = buildRefMenu(chip(), 'main');
+		expect(menu.mapEntries['branch:feature:createWorktree']).toEqual({
+			type: 'worktree',
+			op: 'add',
+			branch: 'feature',
+		});
+	});
+
+	it('opens the worktree that holds a branch instead of checking it out', () => {
+		const menu = buildRefMenu(chip(), 'main', {
+			pinnedRef: null,
+			listSolo: [],
+			mapWorktrees: { feature: '/code/app-feature' },
+		});
+		expect(labels(menu.items)).toContain('Open Worktree for feature in New Window');
+		expect(labels(menu.items)).not.toContain('Checkout feature');
+		expect(labels(menu.items)).not.toContain('Create Worktree for feature…');
+		expect(menu.mapEntries['branch:feature:openWorktree']).toEqual({
+			type: 'worktree',
+			op: 'open',
+			path: '/code/app-feature',
+		});
+	});
+
+	it('offers neither on the checked-out branch', () => {
+		const menu = buildRefMenu(chip({ checkedOut: true }), 'feature');
+		expect(labels(menu.items).some((label) => label.includes('Worktree'))).toBe(false);
+	});
+});
 
 describe('buildCommitMenuItems', () => {
 	it('shows only stash actions and the copies for a stash', () => {
@@ -89,6 +145,8 @@ describe('buildCommitMenuItems', () => {
 			'revert',
 			'reword',
 			'reset',
+			'compareWorking',
+			'explainCommit',
 			'openOnRemote',
 			'copyRemoteUrl',
 			'copyHash',
@@ -202,10 +260,15 @@ describe('buildRefMenu', () => {
 		const menu = buildRefMenu(chip(), 'main');
 		expect(labels(menu.items)).toEqual([
 			'Checkout feature',
+			'Create Worktree for feature…',
 			'Show Only feature',
+			'Hide feature',
+			'Pin feature to Left',
+			'Explain feature with AI',
 			'Merge feature into main…',
 			'Rebase main onto feature…',
 			'Rename feature…',
+			'Set Upstream of feature…',
 			'Delete feature…',
 			'Copy Branch Name',
 		]);
@@ -268,7 +331,11 @@ describe('buildRefMenu', () => {
 		const menu = buildRefMenu(chip({ name: 'main', checkedOut: true }), 'main');
 		expect(labels(menu.items)).toEqual([
 			'Show Only main',
+			'Show Only Related Branches',
+			'Pin main to Left',
+			'Explain main with AI',
 			'Rename main…',
+			'Set Upstream of main…',
 			'Delete main…',
 			'Copy Branch Name',
 		]);
@@ -281,6 +348,7 @@ describe('buildRefMenu', () => {
 		const menu = buildRefMenu(chip({ listRemotes: ['origin', 'upstream'] }), 'main');
 		expect(labels(menu.items)).toEqual([
 			'Checkout feature',
+			'Create Worktree for feature…',
 			'Checkout origin/feature as local branch',
 			'Checkout upstream/feature as local branch',
 			'Fetch origin/feature into feature…',
@@ -288,9 +356,13 @@ describe('buildRefMenu', () => {
 			'Push feature to origin',
 			'Push feature to upstream',
 			'Show Only feature',
+			'Hide feature',
+			'Pin feature to Left',
+			'Explain feature with AI',
 			'Merge feature into main…',
 			'Rebase main onto feature…',
 			'Rename feature…',
+			'Set Upstream of feature…',
 			'Delete feature…',
 			'Delete origin/feature…',
 			'Delete upstream/feature…',
@@ -330,6 +402,7 @@ describe('buildRefMenu', () => {
 			'Push v1 to origin…',
 			'Delete v1…',
 			'Delete v1 from origin…',
+			'Hide v1',
 			'Copy Tag Name',
 		]);
 		const stash = buildRefMenu(chip({ kind: 'stash', name: 'stash@{0}', hasLocal: false }), 'main');
@@ -429,10 +502,17 @@ describe('buildMultiMenuItems', () => {
 });
 
 describe('buildDropMenuItems', () => {
-	const drop = { sourceLabel: 'origin/x', target: 'main' };
+	const drop = {
+		sourceLabel: 'origin/x',
+		sourceLocal: false,
+		target: 'main',
+		targetLocal: true,
+		listTargetRemotes: [],
+	};
 
-	it('offers merge and rebase, naming source and target', () => {
-		expect(ids(buildDropMenuItems(drop, null, 1))).toEqual(['mergeInto', 'rebaseOnto']);
+	it('offers merge, rebase and reset onto a local branch, naming source and target', () => {
+		expect(ids(buildDropMenuItems(drop, null, 1))).toEqual(['mergeInto', 'rebaseOnto', 'resetTo']);
+		expect(labels(buildDropMenuItems(drop, null, 1))).toContain('Reset main to origin/x…');
 	});
 
 	it('adds fast-forward only for a matching, positive answer', () => {
@@ -440,14 +520,56 @@ describe('buildDropMenuItems', () => {
 			'fastForward'
 		);
 		// A stale answer (another drop's nonce) or a negative one adds nothing.
-		expect(ids(buildDropMenuItems(drop, { nonce: 2, canFastForward: true }, 1))).toEqual([
+		expect(ids(buildDropMenuItems(drop, { nonce: 2, canFastForward: true }, 1))).not.toContain(
+			'fastForward'
+		);
+		expect(ids(buildDropMenuItems(drop, { nonce: 1, canFastForward: false }, 1))).not.toContain(
+			'fastForward'
+		);
+	});
+
+	it('offers a push to each remote of the target, from a local branch only', () => {
+		const fromLocal = {
+			...drop,
+			sourceLabel: 'feature',
+			sourceLocal: true,
+			listTargetRemotes: ['origin', 'up'],
+		};
+		expect(ids(buildDropMenuItems(fromLocal, null, 1))).toEqual([
 			'mergeInto',
 			'rebaseOnto',
+			'interactiveRebase',
+			'resetTo',
+			'pushTo:origin',
+			'pushTo:up',
 		]);
-		expect(ids(buildDropMenuItems(drop, { nonce: 1, canFastForward: false }, 1))).toEqual([
-			'mergeInto',
-			'rebaseOnto',
+		expect(
+			ids(buildDropMenuItems({ ...drop, listTargetRemotes: ['origin'] }, null, 1))
+		).not.toContain('pushTo:origin');
+	});
+
+	it('offers only rebase and push onto a branch that exists only on a remote', () => {
+		const onRemote = {
+			sourceLabel: 'feature',
+			sourceLocal: true,
+			target: 'release',
+			targetLocal: false,
+			listTargetRemotes: ['origin'],
+		};
+		expect(ids(buildDropMenuItems(onRemote, null, 1))).toEqual([
+			'rebaseOnto:origin',
+			'interactiveRebase:origin',
+			'pushTo:origin',
 		]);
+	});
+
+	it('offers an interactive rebase only for a local branch, which has commits to rewrite', () => {
+		// `drop` drags origin/x: a remote copy is not ours to rewrite.
+		expect(ids(buildDropMenuItems(drop, null, 1))).not.toContain('interactiveRebase');
+		const fromLocal = { ...drop, sourceLabel: 'feature', sourceLocal: true };
+		expect(labels(buildDropMenuItems(fromLocal, null, 1))).toContain(
+			'Interactive Rebase feature onto main…'
+		);
 	});
 
 	it('is empty without an open drop', () => {
@@ -457,11 +579,12 @@ describe('buildDropMenuItems', () => {
 
 describe('buildHeaderMenuItems', () => {
 	it('mirrors column visibility into checkmarks', () => {
-		const items = buildHeaderMenuItems({ author: true, commit: false, date: true });
+		const items = buildHeaderMenuItems({ author: true, commit: false, date: true, changes: false });
 		expect(items).toEqual([
 			{ id: 'author', label: 'Author', checked: true },
 			{ id: 'commit', label: 'Commit', checked: false },
 			{ id: 'date', label: 'Date', checked: true },
+			{ id: 'changes', label: 'Changes', checked: false },
 		]);
 	});
 });
@@ -538,9 +661,7 @@ describe('the range-rebase entry', () => {
 	const C = 'c'.repeat(40);
 	/** Newest → oldest, a contiguous first-parent run. */
 	const chainOf = (...listHashes: string[]): Commit[] =>
-		listHashes.map((hash, index) =>
-			commit(hash, [], [listHashes[index + 1] ?? 'z'.repeat(40)])
-		);
+		listHashes.map((hash, index) => commit(hash, [], [listHashes[index + 1] ?? 'z'.repeat(40)]));
 
 	const entry = (listCommits: Commit[], headHash: string | null) =>
 		buildMultiMenuItems(listCommits, headHash).items.find(
@@ -571,5 +692,53 @@ describe('the range-rebase entry', () => {
 	it('explains why, when the only thing wrong is not reaching the tip', () => {
 		const listItems = buildMultiMenuItems(chainOf(A, B, C), 'd'.repeat(40)).items;
 		expect(listItems.some((item) => item.label.includes('reach the branch tip'))).toBe(true);
+	});
+});
+
+describe('buildRefMenu view entries', () => {
+	it('hides a local branch together with its remotes', () => {
+		const menu = buildRefMenu(chip({ listRemotes: ['origin'] }), 'main');
+		expect(menu.mapEntries['branch:feature:hideRef']).toEqual({
+			type: 'hide',
+			refs: { listBranches: ['feature'], listRemotes: ['origin/feature'], listTags: [] },
+		});
+	});
+
+	it('offers to add a branch to an active Show Only set, and to take a member out', () => {
+		const outside = buildRefMenu(chip(), 'main', { pinnedRef: null, listSolo: ['main'] });
+		expect(labels(outside.items)).toContain('Also Show feature');
+		const inside = buildRefMenu(chip(), 'main', { pinnedRef: null, listSolo: ['main', 'feature'] });
+		expect(labels(inside.items)).toContain('Stop Showing feature');
+		const only = buildRefMenu(chip(), 'main', { pinnedRef: null, listSolo: ['feature'] });
+		expect(labels(only.items)).not.toContain('Stop Showing feature');
+	});
+
+	it('turns Pin into Unpin for the pinned branch', () => {
+		const menu = buildRefMenu(chip(), 'main', { pinnedRef: 'feature', listSolo: [] });
+		expect(labels(menu.items)).toContain('Unpin feature from Left');
+		expect(menu.mapEntries['branch:feature:pinLeft']).toEqual({ type: 'pin', ref: null });
+	});
+});
+
+describe('buildRefMenu upstream entries', () => {
+	it('offers Unset Upstream only on a branch that has one', () => {
+		const tracked = buildRefMenu(
+			chip({ tracking: { upstream: 'origin/feature', ahead: 0, behind: 0, gone: false } }),
+			'main'
+		);
+		expect(labels(tracked.items)).toContain('Unset Upstream of feature');
+		expect(labels(buildRefMenu(chip(), 'main').items)).not.toContain('Unset Upstream of feature');
+	});
+});
+
+describe('buildCommitMenuItems interactive rebase', () => {
+	it('offers the editor only on a commit below HEAD on its own line', () => {
+		const below = buildCommitMenuItems(commit('h'), 'main', [], {
+			pinnedRef: null,
+			listSolo: [],
+			rebaseFromHere: true,
+		});
+		expect(ids(below.items)).toContain('interactiveRebase');
+		expect(ids(buildCommitMenuItems(commit('h'), 'main').items)).not.toContain('interactiveRebase');
 	});
 });

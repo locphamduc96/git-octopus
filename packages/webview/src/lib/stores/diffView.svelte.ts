@@ -1,9 +1,10 @@
-import type { DiffHunk } from '@git-octopus/shared';
+import type { BlameCommit, DiffHunk, WorkingDiffSide } from '@git-octopus/shared';
 import { postToHost } from '../bridge';
-import { buildDiffKey, isCacheableDiffKey } from '../diffKey';
+import { buildDiffKey, isCacheableDiffKey, rightRevision } from '../diffKey';
 import { onHostType, onRepoReset } from '../hostRouter';
 import { langForPath, tokenizeHunks, type HighlightToken, type ColorThemeKind } from '../highlight';
 import { prefs } from './prefs.svelte';
+import type { DiffLayout } from '../diffRows';
 
 /**
  * The file the diff panel is showing, in place of the graph. Null whenever the graph is up —
@@ -18,6 +19,15 @@ export interface DiffTargetState {
 	fromHash?: string;
 	toHash?: string;
 	untracked?: boolean;
+	/** A working-tree file: only its unstaged or only its staged part. */
+	side?: WorkingDiffSide;
+	/** Show the whole file at the right-hand revision, each line credited to its commit. */
+	blame?: boolean;
+}
+
+export interface BlameData {
+	listLineHashes: string[];
+	mapCommits: Record<string, BlameCommit>;
 }
 
 let target = $state<DiffTargetState | null>(null);
@@ -28,6 +38,7 @@ let loading = $state(false);
 let closing = $state(false);
 /** Identifies the request in flight, so a reply for a file already navigated away from is dropped. */
 let key = $state('');
+let blame = $state<BlameData | null>(null);
 /** Diffs already fetched this session, keyed the same way. Prev/next then costs no git call. */
 const mapDiffCache = new Map<string, { listHunks: DiffHunk[]; notice?: string }>();
 
@@ -43,8 +54,14 @@ const MAX_HIGHLIGHT_LINES = 20_000;
 const FULL_CONTEXT = 1_000_000;
 
 function request(next: DiffTargetState): void {
+	blame = null;
+	if (next.blame) {
+		requestBlame(next);
+		return;
+	}
 	const context = prefs.settings.diffMode === 'full' ? FULL_CONTEXT : 3;
-	const nextKey = buildDiffKey(next, context);
+	const ignoreWhitespace = prefs.settings.diffIgnoreWhitespace;
+	const nextKey = buildDiffKey(next, context, ignoreWhitespace);
 	key = nextKey;
 	const cached = mapDiffCache.get(nextKey);
 	if (cached) {
@@ -65,11 +82,31 @@ function request(next: DiffTargetState): void {
 		fromHash: next.fromHash,
 		toHash: next.toHash,
 		untracked: next.untracked,
+		side: next.side,
 		context,
+		ignoreWhitespace,
 	});
 }
 
 /** The open diff was fetched with the old context count, so it has to be asked for again. */
+/**
+ * Blame is not cached: at a commit it could be, but the working-tree copy changes under it, and one
+ * file's blame is a single quick read either way.
+ */
+function requestBlame(next: DiffTargetState): void {
+	const rev = rightRevision(next);
+	key = `blame|${rev ?? ''}|${next.path}`;
+	listHunks = [];
+	if (rev === undefined) {
+		notice = 'An untracked file has no history to blame.';
+		loading = false;
+		return;
+	}
+	notice = null;
+	loading = true;
+	postToHost({ type: 'loadBlame', key, path: next.path, ...(rev ? { rev } : {}) });
+}
+
 function refresh(): void {
 	if (target) request(target);
 }
@@ -82,6 +119,33 @@ onHostType('fileDiff', (message) => {
 	// are looking at now.
 	if (message.key !== key) return;
 	listHunks = message.listHunks;
+	notice = message.notice ?? null;
+	loading = false;
+});
+
+/**
+ * The file arrives as lines; it is drawn as one hunk of unchanged lines, so the diff panel's own
+ * virtualising, highlighting and wrapping serve it unchanged.
+ */
+onHostType('blame', (message) => {
+	if (message.key !== key) return;
+	listHunks =
+		message.listLines.length === 0
+			? []
+			: [
+					{
+						oldStart: 1,
+						newStart: 1,
+						heading: '',
+						listLines: message.listLines.map((text, index) => ({
+							kind: 'context' as const,
+							text,
+							oldLine: index + 1,
+							newLine: index + 1,
+						})),
+					},
+				];
+	blame = { listLineHashes: message.listLineHashes, mapCommits: message.mapCommits };
 	notice = message.notice ?? null;
 	loading = false;
 });
@@ -116,6 +180,9 @@ export const diffView = {
 	get key(): string {
 		return key;
 	},
+	get blame(): BlameData | null {
+		return blame;
+	},
 	get themeKind(): ColorThemeKind {
 		return themeKind;
 	},
@@ -136,6 +203,27 @@ export const diffView = {
 	refresh,
 	setMode(mode: 'compact' | 'full'): void {
 		prefs.setSettings({ ...prefs.settings, diffMode: mode });
+		refresh();
+	},
+	/** Swap between the diff and the blame of the same file at the same revision. */
+	toggleBlame(): void {
+		if (!target) return;
+		target = { ...target, blame: !target.blame };
+		request(target);
+	},
+	/** The layout and wrapping only redraw what is already loaded. */
+	setLayout(layout: DiffLayout): void {
+		prefs.setSettings({ ...prefs.settings, diffLayout: layout });
+	},
+	toggleWrap(): void {
+		prefs.setSettings({ ...prefs.settings, diffWrap: !prefs.settings.diffWrap });
+	},
+	/** Whitespace changes what git returns, so the diff is asked for again. */
+	toggleIgnoreWhitespace(): void {
+		prefs.setSettings({
+			...prefs.settings,
+			diffIgnoreWhitespace: !prefs.settings.diffIgnoreWhitespace,
+		});
 		refresh();
 	},
 	/** The host could not produce this diff; the panel says so instead of the graph. */

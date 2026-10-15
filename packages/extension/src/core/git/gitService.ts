@@ -4,8 +4,11 @@ import type {
 	DiffHunk,
 	FileChange,
 	FileStatus,
+	HiddenRefs,
 	UpstreamTracking,
+	WorkingDiffSide,
 } from '@git-octopus/shared';
+import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 import { isBinaryDiff, parseUnifiedDiff } from './diffParser.js';
 import type { GitExecutor } from './GitExecutor.js';
 import { LOG_FORMAT, parseLog } from './logParser.js';
@@ -16,6 +19,8 @@ import { EMPTY_TREE, workingTreeDiffArgs } from './workingTreeDiff.js';
 
 export interface GraphFilterOptions {
 	branch: string | null;
+	listSoloRefs?: string[];
+	hiddenRefs?: HiddenRefs;
 	showRemoteBranches: boolean;
 	commitOrder?: 'date' | 'authorDate' | 'topo';
 	showTags?: boolean;
@@ -31,12 +36,44 @@ export interface GraphFilterOptions {
  * disappear from the graph without it.
  */
 function refArgs(filters: GraphFilterOptions, headResolves: boolean): string[] {
-	if (filters.branch) return [filters.branch];
-	const listRefs = ['--branches'];
+	const listSolo = soloRefs(filters);
+	if (listSolo.length > 0) return listSolo;
+	// `--exclude` applies to the one pattern after it, and is written relative to that pattern's
+	// namespace — `feature`, not `refs/heads/feature` — so each list goes right before its own.
+	const exclude = (listNames: string[] | undefined): string[] =>
+		(listNames ?? []).map((name) => `--exclude=${name}`);
+	const hidden = filters.hiddenRefs;
+	const listRefs = [...exclude(hidden?.listBranches), '--branches'];
 	if (headResolves) listRefs.push('HEAD');
-	if (filters.showRemoteBranches) listRefs.push('--remotes');
-	if (filters.showTags ?? true) listRefs.push('--tags');
+	if (filters.showRemoteBranches) listRefs.push(...exclude(hidden?.listRemotes), '--remotes');
+	if (filters.showTags ?? true) listRefs.push(...exclude(hidden?.listTags), '--tags');
 	return listRefs;
+}
+
+/** The refs a filtered walk is limited to — the solo set, or the single Show Only branch. */
+export function soloRefs(filters: GraphFilterOptions): string[] {
+	if (filters.listSoloRefs && filters.listSoloRefs.length > 0) return filters.listSoloRefs;
+	return filters.branch ? [filters.branch] : [];
+}
+
+/**
+ * Drop the chips of hidden refs from the commits still on show. A hidden branch that points at a
+ * commit another branch reaches would otherwise keep its chip there, and read as not hidden at all.
+ */
+export function withoutHiddenRefs(listCommits: Commit[], hidden: HiddenRefs | undefined): Commit[] {
+	if (!hidden) return listCommits;
+	const setBranches = new Set(hidden.listBranches);
+	const setRemotes = new Set(hidden.listRemotes);
+	const setTags = new Set(hidden.listTags);
+	if (setBranches.size + setRemotes.size + setTags.size === 0) return listCommits;
+	return listCommits.map((commit) => ({
+		...commit,
+		refs: commit.refs.filter((ref) => {
+			if (ref.kind === 'tag') return !setTags.has(ref.name);
+			if (ref.kind !== 'branch') return true;
+			return ref.remote ? !setRemotes.has(`${ref.remote}/${ref.name}`) : !setBranches.has(ref.name);
+		}),
+	}));
 }
 
 const mapOrderArg = {
@@ -403,15 +440,39 @@ export async function getCommitDetails(
 	};
 }
 
-/** Files that differ between two commits. */
+/** Files that differ between two commits, or between a commit and the working tree. */
 export async function getComparison(
 	executor: GitExecutor,
 	cwd: string,
 	fromHash: string,
 	toHash: string
 ): Promise<FileChange[]> {
+	if (toHash === UNCOMMITTED_HASH) return getWorkingTreeComparison(executor, cwd, fromHash);
 	const output = await executor.run(['diff', '--name-status', '-r', fromHash, toHash], cwd);
 	return parseNameStatus(output);
+}
+
+/**
+ * The tracked files whose content on disk differs from `fromHash`, with line counts.
+ *
+ * `diff-index` rather than `git diff <commit>`, so the read never takes `.git/index.lock`. Without
+ * the index refresh porcelain would do, `--name-status` also lists files whose mtime moved but whose
+ * content did not; `--numstat` compares content, so a file it leaves out is dropped. Untracked files
+ * are not part of it, as with `git diff <commit>`.
+ */
+async function getWorkingTreeComparison(
+	executor: GitExecutor,
+	cwd: string,
+	fromHash: string
+): Promise<FileChange[]> {
+	const [nameStatus, numstat] = await Promise.all([
+		executor.run(['diff-index', '--name-status', '-r', fromHash, '--'], cwd),
+		executor.run(['diff-index', '--numstat', '-r', fromHash, '--'], cwd),
+	]);
+	const mapCounts = parseNumstat(numstat);
+	return parseNameStatus(nameStatus)
+		.filter((file) => mapCounts.has(file.path))
+		.map((file) => ({ ...file, ...mapCounts.get(file.path) }));
 }
 
 /** Return the content of `path` at revision `rev`, or '' if it does not exist there. */
@@ -442,6 +503,26 @@ export interface FileDiffRequest {
 	untracked?: boolean;
 	/** Context lines around each change. The whole-file view asks for more than any file has. */
 	context: number;
+	/** `-w`: leave out changes that are only whitespace. */
+	ignoreWhitespace?: boolean;
+	/** A working-tree file's unstaged part (index → disk) or staged part (HEAD → index). */
+	side?: WorkingDiffSide;
+}
+
+/**
+ * The patch for one side of a working-tree file, as plumbing so no read takes `.git/index.lock`:
+ * the unstaged part is index → disk, the staged part HEAD → index. `base` stands in for HEAD before
+ * the first commit, when there is none.
+ */
+export function workingSideDiffArgs(
+	side: WorkingDiffSide,
+	listFlags: string[],
+	listPaths: string[],
+	base = 'HEAD'
+): string[] {
+	return side === 'staged'
+		? ['diff-index', '--cached', '-p', ...listFlags, base, '--', ...listPaths]
+		: ['diff-files', '-p', ...listFlags, '--', ...listPaths];
 }
 
 export interface FileDiffResult {
@@ -451,7 +532,9 @@ export interface FileDiffResult {
 }
 
 function diffArgs(request: FileDiffRequest, listParents: string[]): string[] {
+	// The context and the whitespace flag travel together: every form below takes them in one place.
 	const context = `-U${String(request.context)}`;
+	const listContext = request.ignoreWhitespace ? ['-w', context] : [context];
 	// A rename needs both paths in the pathspec and rename detection on, or git reports the new
 	// path as a whole-file add.
 	const listPaths = request.oldPath ? [request.oldPath, request.path] : [request.path];
@@ -460,10 +543,21 @@ function diffArgs(request: FileDiffRequest, listParents: string[]): string[] {
 		// An untracked file has no side to compare against, so git has to be told to diff two paths
 		// rather than two revisions. `--no-index` exits 1 whenever the files differ — that is the
 		// expected case here, not an error, so `getFileDiff` whitelists it.
-		return ['diff', '--no-index', context, '--', '/dev/null', request.path];
+		return ['diff', '--no-index', ...listContext, '--', '/dev/null', request.path];
 	}
 	if (request.fromHash && request.toHash) {
-		return ['diff', ...rename, context, request.fromHash, request.toHash, '--', ...listPaths];
+		if (request.toHash === UNCOMMITTED_HASH) {
+			return workingTreeDiffArgs(request.fromHash, [...rename, ...listContext], listPaths);
+		}
+		return [
+			'diff',
+			...rename,
+			...listContext,
+			request.fromHash,
+			request.toHash,
+			'--',
+			...listPaths,
+		];
 	}
 	if (request.hash) {
 		return [
@@ -472,13 +566,15 @@ function diffArgs(request: FileDiffRequest, listParents: string[]): string[] {
 			'-r',
 			...rename,
 			'--no-commit-id',
-			context,
+			...listContext,
 			...commitDiffRange(request.hash, listParents),
 			'--',
 			...listPaths,
 		];
 	}
-	return workingTreeDiffArgs('HEAD', [...rename, context], listPaths);
+	if (request.side)
+		return workingSideDiffArgs(request.side, [...rename, ...listContext], listPaths);
+	return workingTreeDiffArgs('HEAD', [...rename, ...listContext], listPaths);
 }
 
 /** Raw diff output above this is rejected before parsing — see the guard in `getFileDiff`. */
@@ -502,11 +598,15 @@ export async function getFileDiff(
 		// The working-tree diff runs against HEAD, which an empty repository does not have yet —
 		// but a staged file there still deserves its diff, taken against the empty tree instead.
 		// Only on an actual failure: an empty output just means the file is unchanged.
+		const listFlags = [...(request.ignoreWhitespace ? ['-w'] : []), `-U${String(request.context)}`];
+		// The unstaged side reads the index alone, so it cannot be what failed for want of a HEAD.
 		output =
-			!request.hash && !request.fromHash && !request.untracked
+			!request.hash && !request.fromHash && !request.untracked && request.side !== 'unstaged'
 				? await tryRun(
 						executor,
-						workingTreeDiffArgs(EMPTY_TREE, [`-U${String(request.context)}`], [request.path]),
+						request.side === 'staged'
+							? workingSideDiffArgs('staged', listFlags, [request.path], EMPTY_TREE)
+							: workingTreeDiffArgs(EMPTY_TREE, listFlags, [request.path]),
 						cwd
 					)
 				: null;

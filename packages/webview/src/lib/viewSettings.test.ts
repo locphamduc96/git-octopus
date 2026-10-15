@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+	moveColumn,
+	normalizeColumnOrder,
 	DEFAULT_VIEW_SETTINGS,
 	LIST_COMMIT_ORDERS,
 	LIST_DATE_TYPES,
@@ -17,7 +19,7 @@ import {
 function currentPreferences(): GlobalPreferences {
 	return {
 		settings: { ...DEFAULT_VIEW_SETTINGS },
-		columns: { author: false, commit: false, date: true },
+		columns: { author: false, commit: false, date: true, changes: false },
 		fileView: 'tree',
 		metaOpen: false,
 	};
@@ -33,7 +35,7 @@ describe('mergePreferences', () => {
 		});
 		expect(merged.settings.graphStyle).toBe('curved');
 		expect(merged.settings.commitLimit).toBe(500);
-		expect(merged.columns).toEqual({ author: true, commit: false, date: true });
+		expect(merged.columns).toEqual({ author: true, commit: false, date: true, changes: false });
 		expect(merged.fileView).toBe('list');
 		expect(merged.metaOpen).toBe(true);
 	});
@@ -152,5 +154,48 @@ describe('pullActionFor', () => {
 
 	it('names an action for every listed strategy', () => {
 		for (const strategy of LIST_PULL_STRATEGIES) expect(pullActionFor(strategy)).toBeTruthy();
+	});
+});
+
+describe('column order', () => {
+	it('keeps a valid order, drops junk and repeats, and adds what is missing', () => {
+		expect(normalizeColumnOrder(['date', 'author', 'commit', 'changes'])).toEqual([
+			'date',
+			'author',
+			'commit',
+			'changes',
+		]);
+		// An order saved before the Changes column existed gets it at the end.
+		expect(normalizeColumnOrder(['date', 'author', 'commit'])).toEqual([
+			'date',
+			'author',
+			'commit',
+			'changes',
+		]);
+		expect(normalizeColumnOrder(['date', 'date', 'bogus'])).toEqual([
+			'date',
+			'author',
+			'commit',
+			'changes',
+		]);
+		expect(normalizeColumnOrder(undefined)).toEqual(['author', 'commit', 'date', 'changes']);
+	});
+
+	it('moves a column to where another stands, in either direction', () => {
+		expect(moveColumn(['author', 'commit', 'date'], 'author', 'date')).toEqual([
+			'commit',
+			'date',
+			'author',
+		]);
+		expect(moveColumn(['author', 'commit', 'date'], 'date', 'author')).toEqual([
+			'date',
+			'author',
+			'commit',
+		]);
+		expect(moveColumn(['author', 'commit', 'date'], 'commit', 'commit')).toEqual([
+			'author',
+			'commit',
+			'date',
+		]);
 	});
 });

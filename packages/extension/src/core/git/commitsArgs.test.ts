@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fakeGit } from '../../test/fakeGit';
-import { getCommits } from './gitService';
+import { getCommits, withoutHiddenRefs } from './gitService';
 
 /**
  * The refs `git log` is pointed at, and in what order. `parseLog` happily parses whatever it is
@@ -94,5 +94,59 @@ describe('getCommits argv', () => {
 		const argv = await argvFor({ branch: null, showRemoteBranches: true });
 
 		expect(argv).toContain('--decorate=full');
+	});
+
+	it('puts each hidden ref right before the pattern of its own namespace', async () => {
+		const argv = await argvFor({
+			branch: null,
+			showRemoteBranches: true,
+			hiddenRefs: {
+				listBranches: ['feature/x'],
+				listRemotes: ['origin/feature/x'],
+				listTags: ['v1'],
+			},
+		});
+		const at = (token: string) => argv.indexOf(token);
+		expect(at('--exclude=feature/x')).toBe(at('--branches') - 1);
+		expect(at('--exclude=origin/feature/x')).toBe(at('--remotes') - 1);
+		expect(at('--exclude=v1')).toBe(at('--tags') - 1);
+	});
+
+	it('walks every solo ref and nothing else', async () => {
+		const argv = await argvFor({
+			branch: 'main',
+			listSoloRefs: ['main', 'origin/feature'],
+			showRemoteBranches: true,
+		});
+		expect(argv).toContain('main');
+		expect(argv).toContain('origin/feature');
+		expect(argv).not.toContain('--branches');
+		expect(argv).not.toContain('HEAD');
+	});
+});
+
+describe('withoutHiddenRefs', () => {
+	it('drops the chips of hidden branches, remote branches and tags, and keeps the rest', () => {
+		const commit = {
+			hash: 'a',
+			parents: [],
+			author: { name: 'A', email: 'a@example.com' },
+			committedAt: 0,
+			authoredAt: 0,
+			subject: 's',
+			refs: [
+				{ kind: 'head' as const },
+				{ kind: 'branch' as const, name: 'main' },
+				{ kind: 'branch' as const, name: 'feature' },
+				{ kind: 'branch' as const, name: 'feature', remote: 'origin' },
+				{ kind: 'tag' as const, name: 'v1' },
+			],
+		};
+		const [kept] = withoutHiddenRefs([commit], {
+			listBranches: ['feature'],
+			listRemotes: ['origin/feature'],
+			listTags: ['v1'],
+		});
+		expect(kept.refs).toEqual([{ kind: 'head' }, { kind: 'branch', name: 'main' }]);
 	});
 });

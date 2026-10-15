@@ -186,3 +186,55 @@ describe('UndoService', () => {
 		expect(git.ran('reset')).toBe(false);
 	});
 });
+
+describe('UndoService redo', () => {
+	/** A recorded move of main from A to B, ready to be undone. */
+	async function afterMerge(): Promise<{ git: ScriptedGit; undo: UndoService }> {
+		const git = new ScriptedGit();
+		const undo = new UndoService(git);
+		await undo.record('merge of dev into main', CWD, () => {
+			git.mapTips = { main: B };
+			git.head = { branch: 'main', hash: B };
+			return Promise.resolve(true);
+		});
+		return { git, undo };
+	}
+
+	it('offers the undone action back, and puts it back on redo', async () => {
+		const { git, undo } = await afterMerge();
+		expect(undo.redoLabelFor(CWD)).toBeNull();
+
+		await undo.run(CWD);
+		expect(git.callsTo('reset')).toEqual([['reset', '--hard', A]]);
+		expect(undo.redoLabelFor(CWD)).toBe('merge of dev into main');
+		expect(undo.labelFor(CWD)).toBeNull();
+
+		git.mapTips = { main: A };
+		git.head = { branch: 'main', hash: A };
+		await undo.redo(CWD);
+		expect(git.callsTo('reset').at(-1)).toEqual(['reset', '--hard', B]);
+		expect(undo.redoLabelFor(CWD)).toBeNull();
+		expect(undo.labelFor(CWD)).toBe('merge of dev into main');
+	});
+
+	it('forgets what could be redone once a new action is recorded', async () => {
+		const { git, undo } = await afterMerge();
+		await undo.run(CWD);
+		git.mapTips = { main: A };
+		await undo.record('commit', CWD, () => {
+			git.mapTips = { main: 'c'.repeat(40) };
+			git.head = { branch: 'main', hash: 'c'.repeat(40) };
+			return Promise.resolve(true);
+		});
+		expect(undo.redoLabelFor(CWD)).toBeNull();
+	});
+
+	it('refuses a redo when the branch moved since the undo, and says redo', async () => {
+		const { git, undo } = await afterMerge();
+		await undo.run(CWD);
+		git.mapTips = { main: 'd'.repeat(40) };
+		await undo.redo(CWD);
+		expect(git.ran('reset --hard ' + B)).toBe(false);
+		expect(recorded.listErrors.join('\n')).toMatch(/redo/);
+	});
+});

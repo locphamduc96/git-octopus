@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDiffKey, isCacheableDiffKey } from './diffKey';
+import { buildDiffKey, isCacheableDiffKey, rightRevision } from './diffKey';
 
 describe('buildDiffKey', () => {
 	it('encodes every part that changes what the diff shows', () => {
@@ -31,5 +31,41 @@ describe('isCacheableDiffKey', () => {
 		expect(isCacheableDiffKey(buildDiffKey({ path: 'a', untracked: true }, 3))).toBe(false);
 		// A compare missing one side is not pinned either.
 		expect(isCacheableDiffKey(buildDiffKey({ path: 'a', fromHash: 'x' }, 3))).toBe(false);
+	});
+
+	it('never caches a commit compared with the working tree', () => {
+		expect(
+			isCacheableDiffKey(
+				buildDiffKey({ path: 'a.ts', fromHash: 'abc', toHash: '*uncommitted*' }, 3)
+			)
+		).toBe(false);
+	});
+});
+
+describe('buildDiffKey whitespace', () => {
+	it('keys a whitespace-blind diff apart from the plain one', () => {
+		const plain = buildDiffKey({ path: 'a.ts', hash: 'abc' }, 3);
+		expect(buildDiffKey({ path: 'a.ts', hash: 'abc' }, 3, true)).not.toBe(plain);
+		expect(buildDiffKey({ path: 'a.ts', hash: 'abc' }, 3, false)).toBe(plain);
+	});
+});
+
+describe('rightRevision', () => {
+	it('is the commit, the newer side of a comparison, or null for the working tree', () => {
+		expect(rightRevision({ path: 'a', hash: 'abc' })).toBe('abc');
+		expect(rightRevision({ path: 'a', fromHash: 'abc', toHash: 'def' })).toBe('def');
+		expect(rightRevision({ path: 'a', fromHash: 'abc', toHash: '*uncommitted*' })).toBeNull();
+		expect(rightRevision({ path: 'a' })).toBeNull();
+	});
+
+	it('is undefined for an untracked file', () => {
+		expect(rightRevision({ path: 'a', untracked: true })).toBeUndefined();
+	});
+});
+
+describe('isCacheableDiffKey for blame', () => {
+	it('caches a blame at a commit, never the working-tree one', () => {
+		expect(isCacheableDiffKey('blame|abc123|src/a.ts')).toBe(true);
+		expect(isCacheableDiffKey('blame||src/a.ts')).toBe(false);
 	});
 });

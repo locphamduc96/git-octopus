@@ -26,12 +26,18 @@ const saved = stored.version === STATE_VERSION ? stored : {};
 // and are laid over them by `mergePreferences`.
 let settings = $state<ViewSettings>({ ...DEFAULT_VIEW_SETTINGS });
 // Author is off by default: avatars now sit on the commit nodes, so the column is redundant.
-let columns = $state<ColumnVisibility>({ author: false, commit: false, date: true });
+let columns = $state<ColumnVisibility>({
+	author: false,
+	commit: false,
+	date: true,
+	changes: false,
+});
 let widths = $state<ColumnWidths>({
 	ref: 180,
 	author: 140,
 	commit: 90,
 	date: 150,
+	changes: 110,
 	...saved.widths,
 });
 let fileView = $state<FileViewMode>('tree');

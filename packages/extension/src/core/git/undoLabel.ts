@@ -33,6 +33,8 @@ const mapCommitLabels: Record<CommitActionId, string> = {
 	copyRemoteUrl: 'copy remote URL',
 	deleteBranch: 'deletion of branch',
 	renameBranch: 'rename of branch',
+	setUpstream: 'upstream change of',
+	unsetUpstream: 'upstream removal of',
 	checkoutBranch: 'checkout of',
 	checkoutRemote: 'checkout of',
 	checkoutPrevious: 'checkout of previous branch',
@@ -72,6 +74,10 @@ export function branchActionLabel(message: BranchActionMessage): string {
 			return `rebase of ${source} onto ${message.target}`;
 		case 'fastForward':
 			return `fast-forward of ${message.target} to ${source}`;
+		case 'resetTo':
+			return `reset of ${message.target} to ${source}`;
+		case 'pushTo':
+			return `push of ${source} to ${message.targetRemote ?? ''}/${message.target}`;
 	}
 }
 

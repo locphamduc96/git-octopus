@@ -22,13 +22,27 @@ let adding = $state(false);
 /** Every workspace repository's effective identity, asked for each time settings open. */
 let listWorkspaceIdentities = $state<WorkspaceIdentityEntry[]>([]);
 /** The commit-time question: the user is about to commit with an email the remote disagrees with. */
-let commitGuard = $state<{ suggested: GitIdentity; message?: string } | null>(null);
+/** How a commit is to run, carried through the identity question so answering it loses nothing. */
+export interface CommitOptions {
+	noVerify?: boolean;
+	pushAfter?: boolean;
+}
+
+let commitGuard = $state<{
+	suggested: GitIdentity;
+	message?: string;
+	options?: CommitOptions;
+} | null>(null);
 /**
  * A commit waiting for the identity switch it asked for. The host handles `identityAction` and
  * `workingTreeAction` independently, so posting both at once could commit under the old email; the
  * commit goes out only once an `identity` reply shows the switch has landed.
  */
-let pendingCommitAwaitIdentity: { email: string; message?: string } | null = null;
+let pendingCommitAwaitIdentity: {
+	email: string;
+	message?: string;
+	options?: CommitOptions;
+} | null = null;
 /**
  * One attempt per repo-and-identity: a successful apply comes back as an identity message that no
  * longer asks for anything, but a *failed* one comes back unchanged — and without this the view
@@ -65,12 +79,13 @@ function apply(next: GitIdentity): void {
 	});
 }
 
-function postCommit(message?: string): void {
+function postCommit(message?: string, options: CommitOptions = {}): void {
 	postToHost({
 		type: 'workingTreeAction',
 		repoPath: session.repoPath,
 		action: 'commit',
 		message,
+		...options,
 	});
 }
 
@@ -106,7 +121,7 @@ onHostType('identity', (message) => {
 		const pending = pendingCommitAwaitIdentity;
 		pendingCommitAwaitIdentity = null;
 		if (message.email === pending.email) {
-			postCommit(pending.message);
+			postCommit(pending.message, pending.options);
 		} else {
 			session.showNotice(
 				'The identity switch did not take effect, so nothing was committed. Your message is still in the box.'
@@ -197,21 +212,21 @@ export const identity = {
 	 * True when the commit was intercepted and the question is now on screen — the caller must not
 	 * post it. Any other working-tree action passes straight through.
 	 */
-	askBeforeCommit(action: WorkingTreeAction, message?: string): boolean {
+	askBeforeCommit(action: WorkingTreeAction, message?: string, options?: CommitOptions): boolean {
 		const plan = planCommitGuard(action, warningFor);
 		if (plan.kind !== 'ask') return false;
-		commitGuard = { suggested: plan.suggested, message };
+		commitGuard = { suggested: plan.suggested, message, options };
 		return true;
 	},
 	answerCommitGuard(choice: string): void {
 		if (!commitGuard) return;
-		const { suggested, message } = commitGuard;
+		const { suggested, message, options } = commitGuard;
 		commitGuard = null;
 		if (choice === 'anyway') {
-			postCommit(message);
+			postCommit(message, options);
 			return;
 		}
-		pendingCommitAwaitIdentity = { email: suggested.email, message };
+		pendingCommitAwaitIdentity = { email: suggested.email, message, options };
 		apply(suggested);
 	},
 	dismissCommitGuard(): void {

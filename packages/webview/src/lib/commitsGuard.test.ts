@@ -18,6 +18,8 @@ describe('buildHostFilters', () => {
 		});
 		expect(filters).toEqual({
 			branch: null,
+			listSoloRefs: [],
+			hiddenRefs: { listBranches: [], listRemotes: [], listTags: [] },
 			showRemoteBranches: false,
 			fetchAvatars: true,
 			commitOrder: 'topo',
@@ -28,7 +30,14 @@ describe('buildHostFilters', () => {
 	});
 
 	it('carries the session branch filter when one is set', () => {
-		expect(buildHostFilters(DEFAULT_VIEW_SETTINGS, 'feature/x').branch).toBe('feature/x');
+		expect(buildHostFilters(DEFAULT_VIEW_SETTINGS, ['feature/x']).branch).toBe('feature/x');
+	});
+
+	it('carries every solo ref and the hidden refs', () => {
+		const hidden = { listBranches: ['noisy'], listRemotes: [], listTags: ['v1'] };
+		const filters = buildHostFilters(DEFAULT_VIEW_SETTINGS, ['main', 'origin/main'], hidden);
+		expect(filters.listSoloRefs).toEqual(['main', 'origin/main']);
+		expect(filters.hiddenRefs).toEqual(hidden);
 	});
 });
 
@@ -48,6 +57,8 @@ describe('commitsReplyMatches', () => {
 		const listStale: Partial<GraphFilters>[] = [
 			// An unfiltered walk landing after the view filtered down — the race the pill creates.
 			{ branch: 'feature/x' },
+			{ listSoloRefs: ['main', 'feature/x'] },
+			{ hiddenRefs: { listBranches: ['noisy'], listRemotes: [], listTags: [] } },
 			{ showRemoteBranches: !wanted.showRemoteBranches },
 			{ fetchAvatars: !wanted.fetchAvatars },
 			{ commitOrder: 'topo' },

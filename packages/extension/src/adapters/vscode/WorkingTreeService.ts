@@ -1,7 +1,11 @@
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import type { WorkingTreeActionMessage } from '@git-octopus/shared';
+import type { StageLinesMessage, WorkingTreeActionMessage } from '@git-octopus/shared';
+import { buildPartialPatch } from '../../core/git/partialPatch.js';
+import { workingSideDiffArgs } from '../../core/git/gitService.js';
+import { EMPTY_TREE } from '../../core/git/workingTreeDiff.js';
 import { assertNever } from '@git-octopus/shared';
 import { withIgnoreEntry } from '../../core/git/gitignoreEntry.js';
 import type { UserPrompt } from '../../app/ports/userPrompt.js';
@@ -72,9 +76,69 @@ export class WorkingTreeService {
 				await this.addToGitignore(message.path, cwd);
 				return true;
 			}
+			case 'restoreFromCommit': {
+				if (!message.path || !message.hash) return false;
+				const short = message.hash.slice(0, 8);
+				const confirmed = await prompt.confirm({
+					title: 'Git Octopus',
+					message: `Restore ${message.path} as it was at ${short}? Uncommitted changes to this file are replaced; the restored file is staged.`,
+					confirmLabel: 'Restore',
+				});
+				if (!confirmed) return false;
+				return this.runGit(
+					['restore', `--source=${message.hash}`, '--staged', '--worktree', '--', message.path],
+					cwd,
+					`Restored ${message.path} from ${short}.`
+				);
+			}
 			case 'undoCommit':
 				// Soft reset: the commit's changes come back staged, ready to be redone.
 				return this.runGit(['reset', '--soft', 'HEAD~1'], cwd);
+			case 'takeOurs':
+			case 'takeTheirs': {
+				if (!message.path) return false;
+				const side = message.action === 'takeOurs' ? '--ours' : '--theirs';
+				// Taking a side resolves the file, so it is staged in the same step — that is what
+				// "resolved" means to git, and what lets the merge or rebase continue.
+				if (!(await this.runGit(['checkout', side, '--', message.path], cwd))) return false;
+				return this.runGit(['add', '--', message.path], cwd, `Resolved ${message.path} (${side}).`);
+			}
+			case 'restoreConflict':
+				if (!message.path) return false;
+				return this.runGit(
+					['checkout', '-m', '--', message.path],
+					cwd,
+					`Restored the conflict markers in ${message.path}.`
+				);
+			case 'openMergeEditor': {
+				if (!message.path) return false;
+				// The merge editor belongs to VS Code's own Git extension; reusing it beats a three-pane
+				// tool of our own.
+				try {
+					await vscode.commands.executeCommand(
+						'git.openMergeEditor',
+						vscode.Uri.file(path.join(cwd, message.path))
+					);
+				} catch {
+					vscode.window.showErrorMessage(
+						"Git Octopus: the merge editor needs VS Code's built-in Git extension to be enabled."
+					);
+				}
+				return false;
+			}
+			case 'stashFile': {
+				if (!message.path) return false;
+				const name = await prompt.inputText({
+					title: `Stash ${message.path}`,
+					prompt: 'Optional message for the stash',
+				});
+				if (name === undefined) return false;
+				// `--include-untracked` so a file git does not track yet can be put away too.
+				const args = ['stash', 'push', '--include-untracked'];
+				if (name.trim() !== '') args.push('-m', name.trim());
+				args.push('--', message.path);
+				return this.runGit(args, cwd, `Stashed ${message.path}.`);
+			}
 			case 'stash': {
 				const name = await prompt.inputText({
 					title: 'Stash changes',
@@ -91,15 +155,20 @@ export class WorkingTreeService {
 					vscode.window.showWarningMessage('Git Octopus: commit message is empty.');
 					return false;
 				}
-				return this.runGit(['commit', '-m', messageText], cwd, 'Committed.');
+				return this.runGit(
+					['commit', ...(message.noVerify ? ['--no-verify'] : []), '-m', messageText],
+					cwd,
+					'Committed.'
+				);
 			}
 			case 'amend': {
 				// An empty message keeps the previous one rather than blocking the amend.
 				const amendText = (message.message ?? '').trim();
+				const listHooks = message.noVerify ? ['--no-verify'] : [];
 				const args =
 					amendText === ''
-						? ['commit', '--amend', '--no-edit']
-						: ['commit', '--amend', '-m', amendText];
+						? ['commit', '--amend', ...listHooks, '--no-edit']
+						: ['commit', '--amend', ...listHooks, '-m', amendText];
 				return this.runGit(args, cwd, 'Amended the last commit.');
 			}
 			default:
@@ -112,6 +181,82 @@ export class WorkingTreeService {
 	 * Appends the file to the repository's `.gitignore`. Returns true so the graph refreshes: the
 	 * file drops out of the untracked list the moment the pattern lands.
 	 */
+	/**
+	 * Stage, unstage or discard the picked lines of one file.
+	 *
+	 * The file's diff is read again here, not taken from the view: the patch must describe the index
+	 * and the disk as they are now, and `buildPartialPatch` refuses when a picked line no longer reads
+	 * the same. Unstaging reads the staged side, the other two the unstaged side — anything else is a
+	 * view asking for something its own diff could not have shown.
+	 */
+	public async stageLines(
+		message: StageLinesMessage,
+		cwd: string,
+		prompt: UserPrompt
+	): Promise<boolean> {
+		const expectedSide = message.action === 'unstage' ? 'staged' : 'unstaged';
+		if (message.side !== expectedSide || message.listLines.length === 0) return false;
+
+		let rawDiff: string;
+		try {
+			rawDiff = await this.executor.run(workingSideDiffArgs(message.side, [], [message.path]), cwd);
+		} catch (err) {
+			// Before the first commit there is no HEAD for the staged side to be measured from.
+			if (message.side !== 'staged') {
+				void showGitError(err instanceof Error ? err.message : String(err), cwd);
+				return false;
+			}
+			rawDiff = await this.executor.run(
+				workingSideDiffArgs('staged', [], [message.path], EMPTY_TREE),
+				cwd
+			);
+		}
+		const result = buildPartialPatch(
+			rawDiff,
+			message.listLines,
+			message.action === 'stage' ? 'forward' : 'reverse'
+		);
+		if ('error' in result) {
+			vscode.window.showWarningMessage(`Git Octopus: ${result.error}`);
+			return false;
+		}
+
+		const count = message.listLines.length;
+		const lines = `${count} line${count === 1 ? '' : 's'}`;
+		if (message.action === 'discard') {
+			const confirmed = await prompt.confirm({
+				title: 'Git Octopus',
+				message: `Discard ${lines} in ${message.path}? This cannot be undone.`,
+				confirmLabel: 'Discard',
+				danger: true,
+			});
+			if (!confirmed) return false;
+		}
+
+		// A file rather than stdin: the executor has no stdin, and one short-lived file costs less
+		// than threading one through every layer that wraps it.
+		const patchFile = path.join(
+			os.tmpdir(),
+			`git-octopus-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.patch`
+		);
+		try {
+			await fs.writeFile(patchFile, result.patch, 'utf8');
+			return await this.runGit(
+				[
+					'apply',
+					'--recount',
+					'--whitespace=nowarn',
+					...(message.action === 'discard' ? [] : ['--cached']),
+					...(message.action === 'stage' ? [] : ['--reverse']),
+					patchFile,
+				],
+				cwd
+			);
+		} finally {
+			await fs.rm(patchFile, { force: true });
+		}
+	}
+
 	private async addToGitignore(repoRelativePath: string, cwd: string): Promise<boolean> {
 		const file = path.join(cwd, '.gitignore');
 		try {

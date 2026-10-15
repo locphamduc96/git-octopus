@@ -41,7 +41,7 @@ const STATUS_LABELS: Record<string, string> = {
 	U: 'conflicted',
 };
 
-function fileLine(file: PromptFile): string {
+export function fileLine(file: PromptFile): string {
 	const status = STATUS_LABELS[file.status] ?? 'modified';
 	const counts =
 		file.additions !== undefined || file.deletions !== undefined
@@ -70,7 +70,7 @@ function truncateDiff(diff: string): string {
  * Small diffs carry the most meaning per character; one massive refactor dump would otherwise
  * push every other file's context out.
  */
-function selectDiffs(listFiles: PromptFile[]): Map<string, string> {
+export function selectDiffs(listFiles: PromptFile[]): Map<string, string> {
 	const listWithDiff = listFiles
 		.filter((file) => file.tier === 'source' && file.diff)
 		.map((file) => ({ path: file.path, diff: truncateDiff(file.diff as string) }))

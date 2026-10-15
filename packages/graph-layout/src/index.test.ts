@@ -370,3 +370,56 @@ describe('layoutCommits', () => {
 		expect(second).not.toBe(listRows[0].nodeBranch);
 	});
 });
+
+describe('layoutCommits with a pinned branch', () => {
+	// `f` is a feature branch whose tip is newer than main's: unpinned, it takes column 0 and main
+	// is pushed to column 1. Pinning main must hold it on the left edge instead.
+	const listCommits = [
+		makeBranchTip('f2', ['f1'], 'feature'),
+		makeCommit('f1', ['m2']),
+		makeBranchTip('m3', ['m2'], 'main'),
+		makeCommit('m2', ['m1']),
+		makeCommit('m1', []),
+	];
+
+	it('leaves the layout exactly as it was with no pin, or an empty one', () => {
+		expect(layoutCommits(listCommits, { setPinned: new Set() })).toEqual(
+			layoutCommits(listCommits)
+		);
+		expect(mapColumnsByHash(layoutCommits(listCommits)).m3).toBe(1);
+	});
+
+	it('holds the pinned chain in column 0 even when another tip comes first', () => {
+		const listRows = layoutCommits(listCommits, { setPinned: new Set(['m3', 'm2', 'm1']) });
+		const mapColumn = mapColumnsByHash(listRows);
+		expect([mapColumn.m3, mapColumn.m2, mapColumn.m1]).toEqual([0, 0, 0]);
+		expect([mapColumn.f2, mapColumn.f1]).toEqual([1, 1]);
+		// The feature lane joins the pinned line where it forks from it.
+		expect(listRows[3].listInputLanes[1]?.hash).toBe('m2');
+	});
+
+	it('never gives column 0 to anything off the pinned chain', () => {
+		const listRows = layoutCommits(
+			[
+				makeCommit('a', []),
+				makeCommit('b', []),
+				makeBranchTip('p2', ['p1'], 'pinned'),
+				makeCommit('c', []),
+				makeCommit('p1', []),
+			],
+			{ setPinned: new Set(['p2', 'p1']) }
+		);
+		for (const row of listRows) {
+			const onChain = row.commit.hash === 'p2' || row.commit.hash === 'p1';
+			expect(row.nodeColumn === 0).toBe(onChain);
+		}
+	});
+
+	it('opens a merge parent of the pinned line off to the right', () => {
+		const listRows = layoutCommits(
+			[makeCommit('m', ['a', 'b']), makeCommit('b', ['a']), makeCommit('a', [])],
+			{ setPinned: new Set(['m', 'a']) }
+		);
+		expect(mapColumnsByHash(listRows)).toEqual({ m: 0, b: 1, a: 0 });
+	});
+});

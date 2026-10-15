@@ -44,6 +44,7 @@
 			columns.author ? `${widths.author}px` : '',
 			columns.commit ? `${widths.commit}px` : '',
 			columns.date ? `${widths.date}px` : '',
+			columns.changes ? `${widths.changes}px` : '',
 		]
 			.filter((part) => part !== '')
 			.join(' ')
@@ -61,6 +62,7 @@
 		{#if columns.author}<span class="hcell">Author</span>{/if}
 		{#if columns.commit}<span class="hcell">Commit</span>{/if}
 		{#if columns.date}<span class="hcell">Date</span>{/if}
+		{#if columns.changes}<span class="hcell">Changes</span>{/if}
 	</div>
 
 	<div class="body" bind:clientHeight={viewportH}>
@@ -111,6 +113,9 @@
 					>{/if}
 				{#if columns.date}<span class="cell date"
 						><span class="gg-skeleton-bar bar" style="width:80%"></span></span
+					>{/if}
+				{#if columns.changes}<span class="cell"
+						><span class="gg-skeleton-bar bar" style="width:50%"></span></span
 					>{/if}
 			</div>
 		{/each}

@@ -1,7 +1,21 @@
 <script lang="ts">
-	import type { DiffHunk } from '@git-octopus/shared';
+	import type { DiffHunk, SelectedDiffLine, WorkingDiffSide } from '@git-octopus/shared';
+	import { blameLabel, buildBlameBlocks } from '../../lib/blameAnnotations';
+	import type { BlameData } from '../../lib/stores/diffView.svelte';
+	import { untrack } from 'svelte';
 	import { computeRulerMarks } from '../../lib/diffRuler';
-	import { displayColumns } from '../../lib/displayColumns';
+	import {
+		buildDiffRows,
+		isChangeRow,
+		prefixLines,
+		rowAtLine,
+		rowColumns,
+		rowLineCounts,
+		rulerKind,
+		pickKey,
+		type DiffLayout,
+		type LineCell,
+	} from '../../lib/diffRows';
 	import type { HighlightToken } from '../../lib/highlight';
 	import IconButton from '../../lib/ui/IconButton.svelte';
 	import { tooltip } from '../../lib/ui/tooltip';
@@ -15,7 +29,20 @@
 		notice,
 		loading,
 		mode,
+		layout = 'unified',
+		wrap = false,
+		ignoreWhitespace = false,
+		blame = null,
+		canTrace = false,
+		staging = null,
 		onmode,
+		onlayout = () => {},
+		onwrap = () => {},
+		onwhitespace = () => {},
+		onblame = () => {},
+		onhistory = () => {},
+		onrevealCommit = () => {},
+		onstageLines = () => {},
 		onclose,
 	}: {
 		path: string;
@@ -27,7 +54,25 @@
 		notice: string | null;
 		loading: boolean;
 		mode: DiffMode;
+		layout?: DiffLayout;
+		/** Wrap long lines; split view wraps whatever this says. */
+		wrap?: boolean;
+		ignoreWhitespace?: boolean;
+		/** Set while the panel shows the file's blame instead of its diff. */
+		blame?: BlameData | null;
+		/** The file has a revision to read history and blame from — false for an untracked file. */
+		canTrace?: boolean;
+		/** Which part of a working-tree file this is, when its lines can be staged or unstaged. */
+		staging?: WorkingDiffSide | null;
 		onmode: (mode: DiffMode) => void;
+		onlayout?: (layout: DiffLayout) => void;
+		onwrap?: () => void;
+		onwhitespace?: () => void;
+		onblame?: () => void;
+		onhistory?: () => void;
+		/** A blame annotation was clicked: bring that commit forward. */
+		onrevealCommit?: (hash: string) => void;
+		onstageLines?: (action: 'stage' | 'unstage' | 'discard', listLines: SelectedDiffLine[]) => void;
 		onclose: () => void;
 	} = $props();
 
@@ -36,33 +81,95 @@
 	/** Matches `tab-size` on the rows, so the width computed here is the width drawn. */
 	const TAB_SIZE = 8;
 	const GUTTER_W = 44;
+	const BLAME_W = 240;
+	/** Sub-pixel rounding kept clear, so the count never runs a column past where the browser breaks. */
+	const WRAP_SLACK_PX = 2;
 
 	/**
 	 * Hunks flattened into one list of rows, each hunk preceded by its own separator row. Drawing
 	 * from a flat list is what lets the panel virtualise: a file shown whole is tens of thousands
 	 * of rows, and only the screenful in view is ever in the DOM.
 	 */
-	type Row =
-		| { kind: 'gap'; heading: string; label: string }
-		| { kind: 'line'; line: DiffHunk['listLines'][number]; lineIndex: number };
+	/** Blame is the whole file in one column, whatever the diff layout is set to. */
+	const effectiveLayout = $derived<DiffLayout>(blame ? 'unified' : layout);
+	const listRows = $derived(
+		buildDiffRows(listHunks, effectiveLayout, mode === 'compact' && blame === null)
+	);
 
-	const listRows = $derived.by(() => {
-		const list: Row[] = [];
-		// Counts only real lines, matching how the tokenizer flattens the hunks.
-		let lineIndex = 0;
-		for (const hunk of listHunks) {
-			// The whole-file view is already continuous, so a separator there would be noise.
-			if (mode === 'compact') {
-				list.push({
-					kind: 'gap',
-					heading: hunk.heading,
-					label: `@@ -${hunk.oldStart} +${hunk.newStart} @@`,
-				});
-			}
-			for (const line of hunk.listLines) list.push({ kind: 'line', line, lineIndex: lineIndex++ });
-		}
-		return list;
+	/** Two halves side by side cannot share one sideways scroll, so split view always wraps. */
+	const wrapActive = $derived(wrap || effectiveLayout === 'split');
+
+	const blameBlocks = $derived(blame ? buildBlameBlocks(blame.listLineHashes) : null);
+
+	/**
+	 * Lines can be picked only where a picked line maps onto one line of the diff git would apply:
+	 * one column, no blame, and whitespace counted — a patch built from a `-w` diff does not apply.
+	 */
+	const pickable = $derived(
+		staging !== null && effectiveLayout === 'unified' && blame === null && !ignoreWhitespace
+	);
+	let setPicked = $state(new Set<string>());
+	let lastPickedRow: number | null = null;
+	// A new diff — another file, or the same one after staging — starts with nothing picked.
+	$effect(() => {
+		void listHunks;
+		void staging;
+		setPicked = new Set();
+		lastPickedRow = null;
 	});
+
+	/** Click picks or drops one changed line; Shift+click picks every changed line up to it. */
+	function pickRow(rowIndex: number, range: boolean): void {
+		const row = listRows[rowIndex];
+		if (row?.kind !== 'line') return;
+		const key = pickKey(row.cell.line);
+		if (key === null) return;
+		const next = new Set(setPicked);
+		if (range && lastPickedRow !== null) {
+			const from = Math.min(lastPickedRow, rowIndex);
+			const to = Math.max(lastPickedRow, rowIndex);
+			for (let index = from; index <= to; index++) {
+				const between = listRows[index];
+				const betweenKey = between?.kind === 'line' ? pickKey(between.cell.line) : null;
+				if (betweenKey !== null) next.add(betweenKey);
+			}
+		} else if (next.has(key)) next.delete(key);
+		else next.add(key);
+		setPicked = next;
+		lastPickedRow = rowIndex;
+	}
+
+	function selectedLine(line: DiffHunk['listLines'][number]): SelectedDiffLine {
+		return {
+			kind: line.kind === 'add' ? 'add' : 'del',
+			oldLine: line.oldLine,
+			newLine: line.newLine,
+			text: line.text,
+		};
+	}
+
+	const listPickedLines = $derived(
+		listHunks
+			.flatMap((hunk) => hunk.listLines)
+			.filter((line) => {
+				const key = pickKey(line);
+				return key !== null && setPicked.has(key);
+			})
+			.map(selectedLine)
+	);
+
+	function stageHunk(hunkIndex: number, action: 'stage' | 'unstage' | 'discard'): void {
+		const listLines = (listHunks[hunkIndex]?.listLines ?? [])
+			.filter((line) => line.kind !== 'context')
+			.map(selectedLine);
+		if (listLines.length > 0) onstageLines(action, listLines);
+	}
+
+	function stagePicked(action: 'stage' | 'unstage' | 'discard'): void {
+		if (listPickedLines.length > 0) onstageLines(action, listPickedLines);
+	}
+	/** Blame's annotation column takes the place of the old-line gutter. */
+	const leadW = $derived(blame ? BLAME_W + GUTTER_W : GUTTER_W * 2);
 
 	const listStats = $derived.by(() => {
 		let added = 0;
@@ -80,10 +187,38 @@
 	let scrollTop = $state(0);
 	let viewportH = $state(600);
 
-	const totalH = $derived(listRows.length * ROW_H);
-	const start = $derived(Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN));
+	/** The width of one `0` in the code font, measured: wrapping is counted in these. */
+	let measureW = $state(0);
+	const charW = $derived(measureW / 100);
+
+	const listRowColumns = $derived(listRows.map((row) => rowColumns(row, TAB_SIZE)));
+	/**
+	 * Characters that fit on one wrapped line, or null when lines do not wrap. Counted rather than
+	 * measured per row — the rows are virtualised, so most of them are not in the DOM to measure. A
+	 * count that comes out high leaves a blank line; one that comes out low would clip, so the
+	 * rounding goes the safe way.
+	 */
+	const columnsPerLine = $derived.by(() => {
+		if (!wrapActive || charW === 0 || viewportW === 0) return null;
+		// A split half also loses the 1px border between the halves.
+		const textW = effectiveLayout === 'split' ? viewportW / 2 - GUTTER_W - 1 : viewportW - leadW;
+		return Math.max(8, Math.floor((textW - WRAP_SLACK_PX) / charW));
+	});
+	const listLineCounts = $derived(rowLineCounts(listRowColumns, columnsPerLine));
+	/** Line each row starts on; the last entry is the total. Positions are these times `ROW_H`. */
+	const listTops = $derived(prefixLines(listLineCounts));
+	const topOf = (index: number): number => (listTops[index] ?? 0) * ROW_H;
+	const heightOf = (index: number): number => (listLineCounts[index] ?? 1) * ROW_H;
+
+	const totalH = $derived((listTops[listTops.length - 1] ?? 0) * ROW_H);
+	const start = $derived(
+		Math.max(0, rowAtLine(listTops, Math.floor(scrollTop / ROW_H)) - OVERSCAN)
+	);
 	const end = $derived(
-		Math.min(listRows.length, Math.ceil((scrollTop + viewportH) / ROW_H) + OVERSCAN)
+		Math.min(
+			listRows.length,
+			rowAtLine(listTops, Math.ceil((scrollTop + viewportH) / ROW_H)) + OVERSCAN + 1
+		)
 	);
 	const visible = $derived(listRows.slice(start, end).map((row, k) => ({ row, index: start + k })));
 
@@ -96,7 +231,7 @@
 		const list: number[] = [];
 		let inChange = false;
 		listRows.forEach((row, index) => {
-			const changed = row.kind === 'line' && row.line.kind !== 'context';
+			const changed = isChangeRow(row);
 			if (changed && !inChange) list.push(index);
 			inChange = changed;
 		});
@@ -107,19 +242,12 @@
 	 * The widest line of the whole file, not of the rows on screen: sized from what is rendered, the
 	 * horizontal bar would change length every time scrolling down virtualised a longer line in.
 	 */
-	const maxColumns = $derived.by(() => {
-		let max = 0;
-		for (const row of listRows) {
-			if (row.kind === 'line') max = Math.max(max, displayColumns(row.line.text, TAB_SIZE));
-		}
-		return max;
-	});
-	// `ch` resolves against the code font set on `.spacer-v`; +1 is the +/- marker, the px the slack.
-	const contentWidth = $derived(`calc(${GUTTER_W * 2}px + ${maxColumns + 1}ch + 16px)`);
+	const maxColumns = $derived(Math.max(0, ...listRowColumns.flat()));
+	// `ch` resolves against the code font set on `.spacer-v`; the marker is already counted in
+	// `rowColumns`, the px are the slack.
+	const contentWidth = $derived(wrapActive ? '100%' : `calc(${leadW}px + ${maxColumns}ch + 16px)`);
 
-	const listMarks = $derived(
-		computeRulerMarks(listRows.map((row) => (row.kind === 'line' ? row.line.kind : 'gap')))
-	);
+	const listMarks = $derived(computeRulerMarks(listRows.map(rulerKind), listLineCounts));
 
 	let rulerH = $state(0);
 
@@ -184,7 +312,7 @@
 	let hDragging = $state(false);
 	let hGrabOffset = 0;
 
-	const overflowsX = $derived(contentW > viewportW + 1);
+	const overflowsX = $derived(!wrapActive && contentW > viewportW + 1);
 	const hThumb = $derived.by(() => {
 		if (contentW === 0) return { left: 0, width: 100 };
 		return {
@@ -230,15 +358,13 @@
 	/** Rows of context kept above a change when it is scrolled to, so it does not sit on the edge. */
 	const ANCHOR_ROWS = 3;
 	const anchorTop = $derived(scrollTop + ANCHOR_ROWS * ROW_H);
-	const prevTarget = $derived(
-		listChangeRows.filter((index) => index * ROW_H < anchorTop - 1).pop()
-	);
-	const nextTarget = $derived(listChangeRows.find((index) => index * ROW_H > anchorTop + 1));
+	const prevTarget = $derived(listChangeRows.filter((index) => topOf(index) < anchorTop - 1).pop());
+	const nextTarget = $derived(listChangeRows.find((index) => topOf(index) > anchorTop + 1));
 
 	/** Where scrolling to a change actually lands, clamped the same way the viewport clamps it. */
 	function changeScrollTop(index: number): number {
 		const max = Math.max(0, totalH - viewportH);
-		return Math.min(max, Math.max(0, index * ROW_H - ANCHOR_ROWS * ROW_H));
+		return Math.min(max, Math.max(0, topOf(index) - ANCHOR_ROWS * ROW_H));
 	}
 
 	// Enabled only when clicking would move the view: near the edges a further change can still
@@ -267,8 +393,7 @@
 	function changeRunEnd(startIndex: number): number {
 		let end = startIndex;
 		while (end + 1 < listRows.length) {
-			const row = listRows[end + 1];
-			if (row.kind !== 'line' || row.line.kind === 'context') break;
+			if (!isChangeRow(listRows[end + 1])) break;
 			end++;
 		}
 		return end;
@@ -300,10 +425,13 @@
 	$effect(() => {
 		void path;
 		void mode;
+		void layout;
 		// Deliberately not `changeScrollTop`: clamping would read the viewport height, and this would
 		// then re-run on every resize, yanking the reader back to the first change.
 		const first = listChangeRows[0];
-		const top = first === undefined ? 0 : Math.max(0, first * ROW_H - ANCHOR_ROWS * ROW_H);
+		// Untracked for the same reason: with wrapping on, row positions follow the panel's width.
+		const top =
+			first === undefined ? 0 : Math.max(0, untrack(() => topOf(first)) - ANCHOR_ROWS * ROW_H);
 		// The state is set too: while a diff loads the viewport is unmounted, so a remount would
 		// otherwise virtualise from the previous file's offset and draw a blank screenful.
 		scrollTop = top;
@@ -333,6 +461,19 @@
 	}}
 />
 
+{#snippet cellText(cell: LineCell)}
+	{@const listTokens = listLineTokens?.[cell.lineIndex]}
+	<!-- Token spans carry nothing but a colour, so the row keeps exactly the height of the plain
+	     branch it replaces. -->
+	<span class="text"
+		><span class="marker"
+			>{cell.line.kind === 'add' ? '+' : cell.line.kind === 'del' ? '-' : ' '}</span
+		>{#if listTokens}{#each listTokens as token}<span style:color={token.color}
+					>{token.content}</span
+				>{/each}{:else}{cell.line.text}{/if}</span
+	>
+{/snippet}
+
 <div class="diff">
 	<header>
 		<span class="path" use:tooltip={path}>
@@ -348,6 +489,19 @@
 
 		<span class="spacer"></span>
 
+		{#if pickable && listPickedLines.length > 0}
+			{@const count = `${listPickedLines.length} line${listPickedLines.length === 1 ? '' : 's'}`}
+			<span class="pick-actions">
+				{#if staging === 'unstaged'}
+					<button class="primary" onclick={() => stagePicked('stage')}>Stage {count}</button>
+					<button onclick={() => stagePicked('discard')}>Discard</button>
+				{:else}
+					<button class="primary" onclick={() => stagePicked('unstage')}>Unstage {count}</button>
+				{/if}
+				<button onclick={() => (setPicked = new Set())}>Clear</button>
+			</span>
+		{/if}
+
 		<IconButton
 			name="chevron-up"
 			label="Previous change"
@@ -360,10 +514,51 @@
 			disabled={!hasNextChange}
 			onclick={() => goToChange(1)}
 		/>
-		<span class="modes">
-			<button class:active={mode === 'compact'} onclick={() => onmode('compact')}>Changes</button>
-			<button class:active={mode === 'full'} onclick={() => onmode('full')}>Whole file</button>
-		</span>
+		{#if blame === null}
+			<span class="modes">
+				<button class:active={mode === 'compact'} onclick={() => onmode('compact')}>Changes</button>
+				<button class:active={mode === 'full'} onclick={() => onmode('full')}>Whole file</button>
+			</span>
+			<IconButton
+				name="split-horizontal"
+				label="Side by side"
+				title="Show the old and new file side by side"
+				pressed={layout === 'split'}
+				onclick={() => onlayout(layout === 'split' ? 'unified' : 'split')}
+			/>
+			<IconButton
+				name="word-wrap"
+				label="Wrap long lines"
+				title={layout === 'split' ? 'Side by side always wraps long lines' : 'Wrap long lines'}
+				pressed={wrapActive}
+				disabled={layout === 'split'}
+				onclick={onwrap}
+			/>
+			<IconButton
+				name="whitespace"
+				label="Ignore whitespace"
+				title="Ignore changes that are only whitespace"
+				pressed={ignoreWhitespace}
+				onclick={onwhitespace}
+			/>
+		{:else}
+			<IconButton name="word-wrap" label="Wrap long lines" pressed={wrapActive} onclick={onwrap} />
+		{/if}
+		<IconButton
+			name="account"
+			label="Blame"
+			title="Show who last changed each line"
+			pressed={blame !== null}
+			disabled={!canTrace}
+			onclick={onblame}
+		/>
+		<IconButton
+			name="history"
+			label="File history"
+			title="Show the commits that changed this file"
+			disabled={!canTrace}
+			onclick={onhistory}
+		/>
 		<IconButton
 			name="close"
 			label="Close the diff"
@@ -398,34 +593,93 @@
 						style="height:{totalH}px; width:{contentWidth}"
 						bind:offsetWidth={contentW}
 					>
+						<span class="measure" aria-hidden="true" bind:offsetWidth={measureW}
+							>{'0'.repeat(100)}</span
+						>
 						{#each visible as v (v.index)}
 							{#if v.row.kind === 'gap'}
-								<div class="row gap" style="top:{v.index * ROW_H}px; height:{ROW_H}px">
+								<div class="row gap" style="top:{topOf(v.index)}px; height:{heightOf(v.index)}px">
 									<span class="gutter"></span>
 									<span class="gutter"></span>
 									<span class="text">{v.row.label}{v.row.heading ? ` ${v.row.heading}` : ''}</span>
+									{#if pickable}
+										{@const hunkIndex = v.row.hunkIndex}
+										<span class="hunk-actions">
+											{#if staging === 'unstaged'}
+												<button onclick={() => stageHunk(hunkIndex, 'stage')}>Stage hunk</button>
+												<button onclick={() => stageHunk(hunkIndex, 'discard')}>Discard hunk</button
+												>
+											{:else}
+												<button onclick={() => stageHunk(hunkIndex, 'unstage')}>Unstage hunk</button
+												>
+											{/if}
+										</span>
+									{/if}
+								</div>
+							{:else if v.row.kind === 'line'}
+								<div
+									class="row {v.row.cell.line.kind}"
+									class:wrap={wrapActive}
+									class:blame-alt={blameBlocks?.listParity[v.row.cell.lineIndex] === 1}
+									class:pickable={pickable && v.row.cell.line.kind !== 'context'}
+									class:picked={pickable && setPicked.has(pickKey(v.row.cell.line) ?? '')}
+									style="top:{topOf(v.index)}px; height:{heightOf(v.index)}px"
+								>
+									{#if pickable && v.row.cell.line.kind !== 'context'}
+										{@const rowIndex = v.index}
+										{@const picked = setPicked.has(pickKey(v.row.cell.line) ?? '')}
+										<!-- The line numbers are the handle: the code beside them stays selectable as text. -->
+										<button
+											class="gutter"
+											aria-pressed={picked}
+											aria-label="Pick line"
+											use:tooltip={'Pick this line — Shift+click picks a range'}
+											onclick={(event) => pickRow(rowIndex, event.shiftKey)}
+											>{v.row.cell.line.oldLine ?? ''}</button
+										>
+										<button
+											class="gutter"
+											aria-pressed={picked}
+											aria-label="Pick line"
+											onclick={(event) => pickRow(rowIndex, event.shiftKey)}
+											>{v.row.cell.line.newLine ?? ''}</button
+										>
+									{:else if blame && blameBlocks}
+										{@const hash = blame.listLineHashes[v.row.cell.lineIndex]}
+										{#if blameBlocks.listStarts[v.row.cell.lineIndex]}
+											{@const label = blameLabel(hash, blame.mapCommits[hash])}
+											<button
+												class="blame"
+												use:tooltip={label.detail}
+												onclick={() => onrevealCommit(hash)}>{label.text}</button
+											>
+										{:else}
+											<span class="blame"></span>
+										{/if}
+										<span class="gutter">{v.row.cell.line.newLine ?? ''}</span>
+									{:else}
+										<span class="gutter">{v.row.cell.line.oldLine ?? ''}</span>
+										<span class="gutter">{v.row.cell.line.newLine ?? ''}</span>
+									{/if}
+									{@render cellText(v.row.cell)}
 								</div>
 							{:else}
-								{@const listTokens = listLineTokens?.[v.row.lineIndex]}
 								<div
-									class="row {v.row.line.kind}"
-									style="top:{v.index * ROW_H}px; height:{ROW_H}px"
+									class="row pair wrap"
+									style="top:{topOf(v.index)}px; height:{heightOf(v.index)}px"
 								>
-									<span class="gutter">{v.row.line.oldLine ?? ''}</span>
-									<span class="gutter">{v.row.line.newLine ?? ''}</span>
-									<!-- Token spans carry nothing but a colour, so the row keeps exactly the height
-								     of the plain branch it replaces. -->
-									<span class="text"
-										><span class="marker"
-											>{v.row.line.kind === 'add'
-												? '+'
-												: v.row.line.kind === 'del'
-													? '-'
-													: ' '}</span
-										>{#if listTokens}{#each listTokens as token}<span style:color={token.color}
-													>{token.content}</span
-												>{/each}{:else}{v.row.line.text}{/if}</span
-									>
+									{#each [v.row.left, v.row.right] as cell, side (side)}
+										<div class="half {cell === null ? 'empty' : cell.line.kind}">
+											<span class="gutter"
+												>{cell === null
+													? ''
+													: side === 0
+														? (cell.line.oldLine ?? '')
+														: (cell.line.newLine ?? '')}</span
+											>
+											{#if cell !== null}{@render cellText(cell)}{/if}
+										</div>
+									{/each}
 								</div>
 							{/if}
 						{/each}
@@ -433,8 +687,8 @@
 							{#key flash.seq}
 								<div
 									class="flash"
-									style="top:{flash.start * ROW_H}px; height:{(flash.end - flash.start + 1) *
-										ROW_H}px"
+									style="top:{topOf(flash.start)}px; height:{topOf(flash.end + 1) -
+										topOf(flash.start)}px"
 								></div>
 							{/key}
 						{/if}
@@ -738,11 +992,147 @@
 		background: linear-gradient(var(--row-tint), var(--row-tint)), var(--gg-bg);
 		user-select: none;
 	}
+	.blame + .gutter {
+		left: 240px;
+	}
 	.gutter + .gutter {
 		left: 44px;
 	}
 	.text {
 		flex: 1 0 auto;
+	}
+	/*
+	 * Blame's annotation column, in place of the old-line gutter: written on the first line of each
+	 * run of lines from one commit; runs alternate a faint shade so neighbours read apart.
+	 */
+	.blame {
+		position: sticky;
+		left: 0;
+		z-index: 1;
+		flex: none;
+		width: 240px;
+		padding: 0 var(--gg-space-2);
+		box-sizing: border-box;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		text-align: left;
+		font: inherit;
+		line-height: 18px;
+		color: var(--gg-fg-muted);
+		background: linear-gradient(var(--row-tint), var(--row-tint)), var(--gg-bg);
+		border: none;
+		border-right: 1px solid var(--gg-border);
+	}
+	button.blame {
+		cursor: pointer;
+	}
+	button.blame:hover {
+		color: var(--gg-fg);
+		text-decoration: underline;
+	}
+	.row.blame-alt {
+		--row-tint: color-mix(in srgb, var(--gg-fg) 5%, transparent);
+	}
+	/* Picking lines: the line numbers are the handle, the picked line gets the focus colour's edge. */
+	button.gutter {
+		border: none;
+		font: inherit;
+		cursor: pointer;
+	}
+	.row.pickable .gutter:hover {
+		color: var(--gg-fg);
+	}
+	.row.picked {
+		box-shadow: inset 3px 0 0 var(--vscode-focusBorder, #007fd4);
+	}
+	.row.picked .gutter {
+		color: var(--gg-fg);
+		font-weight: 600;
+	}
+	.hunk-actions,
+	.pick-actions {
+		display: inline-flex;
+		gap: var(--gg-space-1);
+		flex: none;
+	}
+	.hunk-actions {
+		position: sticky;
+		right: var(--gg-space-2);
+		margin-left: var(--gg-space-3);
+	}
+	.hunk-actions button,
+	.pick-actions button {
+		padding: 0 var(--gg-space-2);
+		font: inherit;
+		font-family: var(--vscode-font-family);
+		font-size: 0.9em;
+		line-height: 16px;
+		color: var(--vscode-button-secondaryForeground);
+		background: var(--vscode-button-secondaryBackground);
+		border: none;
+		border-radius: 2px;
+		cursor: pointer;
+	}
+	.pick-actions button.primary {
+		color: var(--vscode-button-foreground);
+		background: var(--vscode-button-background);
+	}
+	/* Laid out in the code font but never seen: one hundred zeros, so a `ch` can be read in px. */
+	.measure {
+		position: absolute;
+		visibility: hidden;
+		white-space: pre;
+		pointer-events: none;
+	}
+	/*
+	 * A wrapped row is as tall as its line count says; the text breaks anywhere so the count — taken
+	 * in characters — is what the browser does, and anything past it is clipped, never drawn over the
+	 * row below.
+	 */
+	.row.wrap {
+		align-items: flex-start;
+		overflow: hidden;
+	}
+	.row.wrap .gutter,
+	.row.wrap .text {
+		line-height: 18px;
+	}
+	.row.wrap .text {
+		flex: 1 1 0;
+		min-width: 0;
+		white-space: pre-wrap;
+		word-break: break-all;
+		overflow-wrap: anywhere;
+	}
+	/* Split view: each half carries its own tint, so a deletion and its replacement read apart. */
+	.row.pair {
+		background: none;
+	}
+	.half {
+		--row-tint: transparent;
+		display: flex;
+		align-items: flex-start;
+		flex: 1 1 0;
+		min-width: 0;
+		height: 100%;
+		overflow: hidden;
+		background: var(--row-tint);
+	}
+	.half + .half {
+		border-left: 1px solid var(--gg-border);
+	}
+	.half .gutter {
+		position: static;
+	}
+	.half.add {
+		--row-tint: var(--vscode-diffEditor-insertedTextBackground, rgba(63, 185, 80, 0.15));
+	}
+	.half.del {
+		--row-tint: var(--vscode-diffEditor-removedTextBackground, rgba(248, 81, 73, 0.15));
+	}
+	.half.empty {
+		--row-tint: var(--vscode-diffEditor-diagonalFill, rgba(128, 128, 128, 0.12));
 	}
 	.marker {
 		display: inline-block;

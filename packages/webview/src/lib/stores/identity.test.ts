@@ -74,6 +74,15 @@ describe('identity', () => {
 		]);
 	});
 
+	it('keeps the commit options through the question', async () => {
+		const { identity, listSent, dispatchHostMessage } = await loadIdentity();
+		dispatchHostMessage(identityReply('personal@gmail.com'));
+		identity.askBeforeCommit('commit', 'wip', { noVerify: true, pushAfter: true });
+		identity.answerCommitGuard('anyway');
+
+		expect(listSent[0]).toMatchObject({ action: 'commit', noVerify: true, pushAfter: true });
+	});
+
 	it('switches first and holds the commit until the switch is confirmed', async () => {
 		const { identity, listSent, dispatchHostMessage } = await loadIdentity();
 		dispatchHostMessage(identityReply('personal@gmail.com'));

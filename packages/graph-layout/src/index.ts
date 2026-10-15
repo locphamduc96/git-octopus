@@ -3,6 +3,15 @@ import type { Commit, GraphLane, GraphRow } from '@git-octopus/shared';
 /** Colour indices cycle within this range; the view resolves them to real colours. */
 export const GRAPH_COLOUR_COUNT = 10;
 
+export interface LayoutOptions {
+	/**
+	 * The first-parent chain of the branch pinned to the left. These commits always take column 0,
+	 * and while there is a pin nothing else ever does — so the pinned line runs down the left edge
+	 * as a fixed reference, and every other branch is read against it.
+	 */
+	setPinned?: ReadonlySet<string>;
+}
+
 /**
  * Pure graph layout engine.
  *
@@ -13,17 +22,20 @@ export const GRAPH_COLOUR_COUNT = 10;
  *
  * @param listCommits commits in display order (newest first), first parent at `parents[0]`.
  */
-export function layoutCommits(listCommits: Commit[]): GraphRow[] {
+export function layoutCommits(listCommits: Commit[], options: LayoutOptions = {}): GraphRow[] {
+	const setPinned = options.setPinned && options.setPinned.size > 0 ? options.setPinned : null;
+	// Column 0 is held for the pinned chain, so every free-column search starts past it.
+	const firstFree = setPinned ? 1 : 0;
 	const listRows: GraphRow[] = [];
-	let lanes: (string | null)[] = []; // hash each column currently expects (a line from above)
-	let laneColours: number[] = [];
-	let laneBranches: number[] = [];
+	let lanes: (string | null)[] = setPinned ? [null] : []; // hash each column currently expects (a line from above)
+	let laneColours: number[] = setPinned ? [0] : [];
+	let laneBranches: number[] = setPinned ? [0] : [];
 	// Offshoot: the lane was opened for a merge's extra parent, so it hangs off a merge node and is
 	// known to die at its fork point. Lanes born at a tip (including the trunk) never become one.
-	let laneOffshoots: boolean[] = [];
+	let laneOffshoots: boolean[] = setPinned ? [false] : [];
 	// Row where the lane's current expectation was set — the row of its most recent node, so the
 	// smaller it is, the longer the straight line currently falling down this lane.
-	let laneAwaits: number[] = [];
+	let laneAwaits: number[] = setPinned ? [0] : [];
 	let nextColour = 0;
 	// Branch-line identities never repeat (colours do), so hover-highlighting can match on them.
 	let nextBranch = 0;
@@ -35,6 +47,12 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 	};
 
 	const allocBranch = (): number => nextBranch++;
+
+	/** The first free column at or past `firstFree`, or -1 when the row has to grow. */
+	const freeColumn = (listLanes: (string | null)[]): number => {
+		for (let i = firstFree; i < listLanes.length; i++) if (listLanes[i] === null) return i;
+		return -1;
+	};
 
 	let rowIndex = -1;
 	for (const commit of listCommits) {
@@ -50,6 +68,7 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 		// fork point that is always the trunk: its last node is a merge of a commit on the side
 		// branch, so it sits above the side branch's last node. Ties keep the old leftmost rule.
 		let nodeColumn = -1;
+		const pinned = setPinned?.has(hash) ?? false;
 		for (let i = 0; i < lanes.length; i++) {
 			if (lanes[i] !== hash) continue;
 			if (nodeColumn === -1) {
@@ -61,14 +80,24 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 				laneOffshoots[nodeColumn] === laneOffshoots[i] && laneAwaits[i] < laneAwaits[nodeColumn];
 			if (demoted || longerLine) nodeColumn = i;
 		}
+		// A pinned commit sits in column 0 whatever else is waiting for it: lanes elsewhere that expect
+		// it converge into the left edge. It starts the column afresh only when column 0 was not
+		// already running down to it — the chain's tip, or the first commit of it after a gap.
+		if (pinned) nodeColumn = lanes[0] === hash ? 0 : -1;
 		const isTip = nodeColumn === -1;
-		if (isTip) {
+		if (isTip && pinned) {
+			laneColours[0] = allocColour();
+			laneBranches[0] = allocBranch();
+			laneOffshoots[0] = false;
+			laneAwaits[0] = rowIndex;
+			nodeColumn = 0;
+		} else if (isTip) {
 			// A tip has no edge coming into it from above and gets a fresh colour and branch identity,
 			// so it may safely take any free column: a gap a finished branch released, else a new one
 			// at the right edge (reclaimed when its lane closes). Reserving an untouched column per
 			// tip instead would widen the graph by one column for every stale branch in the repo.
-			nodeColumn = lanes.indexOf(null);
-			if (nodeColumn === -1) nodeColumn = lanes.length;
+			nodeColumn = freeColumn(lanes);
+			if (nodeColumn === -1) nodeColumn = Math.max(lanes.length, firstFree);
 			while (lanes.length <= nodeColumn) {
 				lanes.push(null);
 				laneColours.push(0);
@@ -126,7 +155,7 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 				// A merge's extra parents also start their own lane, and they may move into any column
 				// an earlier branch has released — the lane hangs off this node's edge, so it reads as
 				// a branch of this commit rather than as a continuation of what ran there before.
-				column = nextLanes.indexOf(null);
+				column = freeColumn(nextLanes);
 				if (column === -1) {
 					column = nextLanes.length;
 					nextLanes.push(null);
@@ -164,7 +193,7 @@ export function layoutCommits(listCommits: Commit[]): GraphRow[] {
 
 		// Reclaim lanes at the right edge, so the graph does not grow with every branch. Gaps inside
 		// the array stay, available to the next tip or merge parent looking for a column.
-		while (nextLanes.length > 0 && nextLanes[nextLanes.length - 1] === null) {
+		while (nextLanes.length > firstFree && nextLanes[nextLanes.length - 1] === null) {
 			nextLanes.pop();
 			nextColours.pop();
 			nextBranches.pop();

@@ -1,4 +1,11 @@
-import type { BranchActionId, Commit, CommitActionId, UpstreamTracking } from '@git-octopus/shared';
+import type {
+	BranchActionId,
+	Commit,
+	CommitActionId,
+	ExplainTarget,
+	HiddenRefs,
+	UpstreamTracking,
+} from '@git-octopus/shared';
 import { hasGap, remoteRefLabel } from '@git-octopus/shared';
 import type { RefChip } from './graphChips';
 import { isSquashableChain } from './squashRange';
@@ -13,6 +20,7 @@ export function buildHeaderMenuItems(
 		{ id: 'author', label: 'Author', checked: columns.author },
 		{ id: 'commit', label: 'Commit', checked: columns.commit },
 		{ id: 'date', label: 'Date', checked: columns.date },
+		{ id: 'changes', label: 'Changes', checked: columns.changes },
 	];
 }
 
@@ -21,20 +29,69 @@ export function buildHeaderMenuItems(
  * the host has answered *this* drop's question — `fastForward` is matched against the nonce the
  * question was asked with, so a stale answer from an abandoned drag offers nothing.
  */
+/** One chip dropped onto another, as far as the menu it opens needs to know. */
+export interface DropDescription {
+	sourceLabel: string;
+	/** The dragged chip is a local branch — the only thing that has commits of its own to push. */
+	sourceLocal: boolean;
+	/** The branch name dropped onto. */
+	target: string;
+	/** The target has a local branch, so it can be merged into, fast-forwarded and reset. */
+	targetLocal: boolean;
+	/** The remotes the target branch is on. */
+	listTargetRemotes: string[];
+}
+
+/**
+ * The menu a drop opens. Ids are a `BranchActionId` — or `interactiveRebase`, which opens the
+ * rebase editor instead — followed by `:<remote>` when the action is aimed at the target's branch
+ * on that remote.
+ */
 export function buildDropMenuItems(
-	drop: { sourceLabel: string; target: string } | null,
+	drop: DropDescription | null,
 	fastForward: { nonce: number; canFastForward: boolean } | null,
 	ffNonce: number
-): MenuItem<BranchActionId>[] {
+): MenuItem<string>[] {
 	if (!drop) return [];
-	const items: MenuItem<BranchActionId>[] = [
-		{ id: 'mergeInto', label: `Merge ${drop.sourceLabel} into ${drop.target}…` },
-		{ id: 'rebaseOnto', label: `Rebase ${drop.sourceLabel} onto ${drop.target}…` },
-	];
-	if (fastForward?.nonce === ffNonce && fastForward.canFastForward) {
+	const items: MenuItem<string>[] = [];
+	if (drop.targetLocal) {
+		items.push(
+			{ id: 'mergeInto', label: `Merge ${drop.sourceLabel} into ${drop.target}…` },
+			{ id: 'rebaseOnto', label: `Rebase ${drop.sourceLabel} onto ${drop.target}…` }
+		);
+		if (drop.sourceLocal) {
+			items.push({
+				id: 'interactiveRebase',
+				label: `Interactive Rebase ${drop.sourceLabel} onto ${drop.target}…`,
+			});
+		}
+		if (fastForward?.nonce === ffNonce && fastForward.canFastForward) {
+			items.push({
+				id: 'fastForward',
+				label: `Fast-forward ${drop.target} to ${drop.sourceLabel}`,
+			});
+		}
+		items.push({ id: 'resetTo', label: `Reset ${drop.target} to ${drop.sourceLabel}…` });
+	} else if (drop.listTargetRemotes.length > 0) {
+		const remote = drop.listTargetRemotes[0];
 		items.push({
-			id: 'fastForward',
-			label: `Fast-forward ${drop.target} to ${drop.sourceLabel}`,
+			id: `rebaseOnto:${remote}`,
+			label: `Rebase ${drop.sourceLabel} onto ${remote}/${drop.target}…`,
+		});
+		if (drop.sourceLocal) {
+			items.push({
+				id: `interactiveRebase:${remote}`,
+				label: `Interactive Rebase ${drop.sourceLabel} onto ${remote}/${drop.target}…`,
+			});
+		}
+	}
+	if (drop.sourceLocal) {
+		drop.listTargetRemotes.forEach((remote, index) => {
+			items.push({
+				id: `pushTo:${remote}`,
+				label: `Push ${drop.sourceLabel} to ${remote}/${drop.target}…`,
+				separatorBefore: index === 0 && items.length > 0,
+			});
 		});
 	}
 	return items;
@@ -138,7 +195,23 @@ export type MenuEntry =
 	// resolved here, at build time, so the entry itself says what `git log` will be handed.
 	| { type: 'filter'; ref: string }
 	// Acts on the whole multi-selection rather than on the commit the menu was opened over.
-	| { type: 'multi'; action: MultiAction };
+	| { type: 'multi'; action: MultiAction }
+	// Handled inside the webview: the panel compares this commit with the files on disk.
+	| { type: 'compareWorking' }
+	// Handled inside the webview: hold this branch's line on the left edge, or let it go (null).
+	| { type: 'pin'; ref: string | null }
+	// Handled inside the webview: widen or narrow the set of refs the graph is limited to.
+	| { type: 'solo'; op: 'add' | 'remove'; ref: string }
+	// Handled inside the webview: leave these refs out of the graph.
+	| { type: 'hide'; refs: HiddenRefs }
+	// Handled inside the webview: limit the graph to the checked-out branch and what it relates to.
+	| { type: 'related' }
+	// Handled inside the webview: open the interactive rebase editor with this commit as the base.
+	| { type: 'interactiveRebase' }
+	// Hand the commit or branch to the AI agent for an explanation.
+	| { type: 'explain'; target: ExplainTarget }
+	// Open a branch's worktree in a new window, or create one for it.
+	| WorktreeRun;
 
 /** A built menu: what is drawn, and what each of its selectable ids runs. */
 export interface MenuBuild {
@@ -151,7 +224,30 @@ export interface MenuBuild {
 type RefRun =
 	| { type: 'commit'; action: CommitActionId }
 	| { type: 'branch'; action: BranchActionId; onto: string }
-	| { type: 'filter'; ref: string };
+	| { type: 'filter'; ref: string }
+	| { type: 'pin'; ref: string | null }
+	| { type: 'solo'; op: 'add' | 'remove'; ref: string }
+	| { type: 'hide'; refs: HiddenRefs }
+	| { type: 'related' }
+	| { type: 'explain'; target: ExplainTarget }
+	| WorktreeRun;
+
+/** Open the worktree a branch is checked out in, or make one for it. */
+type WorktreeRun =
+	{ type: 'worktree'; op: 'open'; path: string } | { type: 'worktree'; op: 'add'; branch: string };
+
+/** What the view is doing with refs right now — what decides "Pin" against "Unpin", and so on. */
+export interface RefViewState {
+	pinnedRef: string | null;
+	/** The refs the graph is limited to; empty when it shows everything. */
+	listSolo: string[];
+	/** The commit sits below HEAD on its first-parent line, so the commits above it can be rewritten. */
+	rebaseFromHere?: boolean;
+	/** Branch → folder, for the branches checked out in a worktree other than this window's. */
+	mapWorktrees?: Record<string, string>;
+}
+
+const NO_VIEW_STATE: RefViewState = { pinnedRef: null, listSolo: [] };
 
 /**
  * A chip's identity inside one commit's menus.
@@ -199,7 +295,11 @@ export function aheadSuffix(tracking: UpstreamTracking | null): string {
  * the chip carries more than one — because the whole point of a ref-scoped menu is that nothing
  * downstream has to ask which ref was meant.
  */
-export function buildRefMenu(chip: RefChip, currentBranch: string | null): MenuBuild {
+export function buildRefMenu(
+	chip: RefChip,
+	currentBranch: string | null,
+	view: RefViewState = NO_VIEW_STATE
+): MenuBuild {
 	const listItems: MenuItem[] = [];
 	const mapEntries: Record<string, MenuEntry> = {};
 	const prefix = refKey(chip);
@@ -217,9 +317,11 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): MenuB
 			separatorBefore: extra?.separatorBefore,
 			disabled: extra?.disabled,
 		});
-		// A filter resolved its ref at build time and acts on no ref of its own.
+		// The view's own entries resolved their refs at build time and act on no chip of their own.
 		mapEntries[id] =
-			run.type === 'filter' ? run : { ...run, target: { chip, remote: extra?.remote } };
+			run.type === 'commit' || run.type === 'branch'
+				? { ...run, target: { chip, remote: extra?.remote } }
+				: run;
 	};
 
 	if (chip.kind === 'stash') {
@@ -251,6 +353,12 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): MenuB
 			action: 'deleteRemoteTag',
 		});
 		addRefEntry(
+			'hideRef',
+			`Hide ${chip.name}`,
+			{ type: 'hide', refs: { listBranches: [], listRemotes: [], listTags: [chip.name] } },
+			{ separatorBefore: true }
+		);
+		addRefEntry(
 			'copyRefName',
 			'Copy Tag Name',
 			{ type: 'commit', action: 'copyRefName' },
@@ -265,11 +373,26 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): MenuB
 
 	const labelFor = (remote: string): string => remoteRefLabel({ remote, branch: chip.name });
 
-	if (chip.hasLocal && !chip.checkedOut)
+	// A branch checked out in another worktree cannot be checked out here — git refuses — so the
+	// menu offers that worktree instead.
+	const worktreePath = chip.hasLocal ? view.mapWorktrees?.[chip.name] : undefined;
+	if (worktreePath)
+		addRefEntry('openWorktree', `Open Worktree for ${chip.name} in New Window`, {
+			type: 'worktree',
+			op: 'open',
+			path: worktreePath,
+		});
+	else if (chip.hasLocal && !chip.checkedOut) {
 		addRefEntry('checkoutBranch', `Checkout ${chip.name}${behindSuffix(chip.tracking)}`, {
 			type: 'commit',
 			action: 'checkoutBranch',
 		});
+		addRefEntry('createWorktree', `Create Worktree for ${chip.name}…`, {
+			type: 'worktree',
+			op: 'add',
+			branch: chip.name,
+		});
+	}
 	// One entry per remote, never a single entry standing for the first of several: the label has
 	// to name the ref the action will actually touch.
 	for (const remote of chip.listRemotes) {
@@ -313,6 +436,45 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): MenuB
 		{ type: 'filter', ref: filterRef },
 		{ separatorBefore: true }
 	);
+	const inSolo = view.listSolo.includes(filterRef);
+	if (view.listSolo.length > 0 && !inSolo)
+		addRefEntry('soloAdd', `Also Show ${filterRef}`, { type: 'solo', op: 'add', ref: filterRef });
+	if (inSolo && view.listSolo.length > 1)
+		addRefEntry('soloRemove', `Stop Showing ${filterRef}`, {
+			type: 'solo',
+			op: 'remove',
+			ref: filterRef,
+		});
+	// The checked-out branch is always walked — HEAD is — so it offers the related set instead.
+	if (chip.checkedOut) addRefEntry('related', 'Show Only Related Branches', { type: 'related' });
+	else
+		// A chip standing for a local branch and its remotes hides all of them: hiding only the local
+		// one would leave its commits on show through the remote ref.
+		addRefEntry('hideRef', `Hide ${filterRef}`, {
+			type: 'hide',
+			refs: {
+				listBranches: chip.hasLocal ? [chip.name] : [],
+				listRemotes: chip.listRemotes.map((remote) => `${remote}/${chip.name}`),
+				listTags: [],
+			},
+		});
+	const pinned = view.pinnedRef === filterRef;
+	addRefEntry('pinLeft', pinned ? `Unpin ${filterRef} from Left` : `Pin ${filterRef} to Left`, {
+		type: 'pin',
+		ref: pinned ? null : filterRef,
+	});
+	// Fully qualified, so a tag of the same name cannot stand in for the branch.
+	addRefEntry('explainRef', `Explain ${filterRef} with AI`, {
+		type: 'explain',
+		target: {
+			kind: 'branch',
+			ref:
+				chip.hasLocal || chip.listRemotes.length === 0
+					? `refs/heads/${chip.name}`
+					: `refs/remotes/${chip.listRemotes[0]}/${chip.name}`,
+			label: filterRef,
+		},
+	});
 
 	// Merging a branch into itself is a no-op git would refuse; without a current branch there is
 	// nothing to merge *into*, so the pair drops out entirely.
@@ -331,19 +493,34 @@ export function buildRefMenu(chip: RefChip, currentBranch: string | null): MenuB
 	}
 
 	// Renaming the checked-out branch is fine — `branch -m` moves HEAD's ref along with it.
-	if (chip.hasLocal)
+	if (chip.hasLocal) {
 		addRefEntry(
 			'renameBranch',
 			`Rename ${chip.name}…`,
 			{ type: 'commit', action: 'renameBranch' },
 			{ separatorBefore: true }
 		);
+		addRefEntry('setUpstream', `Set Upstream of ${chip.name}…`, {
+			type: 'commit',
+			action: 'setUpstream',
+		});
+		if (chip.tracking)
+			addRefEntry('unsetUpstream', `Unset Upstream of ${chip.name}`, {
+				type: 'commit',
+				action: 'unsetUpstream',
+			});
+	}
 	// The checked-out branch keeps its delete entry, disabled: git refuses to delete it anyway, and
 	// saying so where the user looked beats a gap they have to explain to themselves.
 	if (chip.hasLocal)
-		addRefEntry('deleteBranch', `Delete ${chip.name}…`, { type: 'commit', action: 'deleteBranch' }, {
-			disabled: chip.checkedOut,
-		});
+		addRefEntry(
+			'deleteBranch',
+			`Delete ${chip.name}…`,
+			{ type: 'commit', action: 'deleteBranch' },
+			{
+				disabled: chip.checkedOut,
+			}
+		);
 	chip.listRemotes.forEach((remote, index) =>
 		addRefEntry(
 			'deleteRemoteBranch',
@@ -398,7 +575,8 @@ function refSubmenuLabel(chip: RefChip): string {
 export function buildCommitMenuItems(
 	commit: Commit,
 	currentBranch: string | null,
-	listChips: RefChip[] = []
+	listChips: RefChip[] = [],
+	view: RefViewState = NO_VIEW_STATE
 ): MenuBuild {
 	const listItems: MenuItem[] = [];
 	const mapEntries: Record<string, MenuEntry> = {};
@@ -432,6 +610,10 @@ export function buildCommitMenuItems(
 	addCommitEntry('addTag', 'Add Tag…');
 	addCommitEntry('merge', `Merge into ${here}…`, true);
 	addCommitEntry('rebase', `Rebase ${here} on this Commit…`);
+	if (view.rebaseFromHere) {
+		listItems.push({ id: 'interactiveRebase', label: 'Interactive Rebase from Here…' });
+		mapEntries.interactiveRebase = { type: 'interactiveRebase' };
+	}
 	addCommitEntry('cherryPick', 'Cherry Pick…');
 	addCommitEntry('revert', 'Revert…');
 	addCommitEntry('reword', 'Reword Message…');
@@ -452,7 +634,7 @@ export function buildCommitMenuItems(
 
 	let firstRef = true;
 	listChips.forEach((chip) => {
-		const menu = buildRefMenu(chip, currentBranch);
+		const menu = buildRefMenu(chip, currentBranch, view);
 		if (menu.items.length === 0) return;
 		listItems.push({
 			id: refKey(chip),
@@ -464,6 +646,15 @@ export function buildCommitMenuItems(
 		Object.assign(mapEntries, menu.mapEntries);
 		firstRef = false;
 	});
+
+	listItems.push({
+		id: 'compareWorking',
+		label: 'Compare with Working Tree',
+		separatorBefore: true,
+	});
+	mapEntries.compareWorking = { type: 'compareWorking' };
+	listItems.push({ id: 'explainCommit', label: 'Explain Commit with AI' });
+	mapEntries.explainCommit = { type: 'explain', target: { kind: 'commit', hash: commit.hash } };
 
 	addCommitEntry('openOnRemote', 'Open on Remote', true);
 	addCommitEntry('copyRemoteUrl', 'Copy Remote URL');

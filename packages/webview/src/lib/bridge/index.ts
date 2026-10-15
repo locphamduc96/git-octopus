@@ -1,3 +1,4 @@
+import type { HiddenRefs } from '@git-octopus/shared';
 import type { HostToWebview, WebviewToHost } from '@git-octopus/shared';
 
 interface VsCodeApi {
@@ -50,6 +51,10 @@ export interface PersistedState {
 	panelRatio: number;
 	/** The AI commit plan being edited, so a destroyed webview hands it back — see `stores/aiCommit`. */
 	aiCommit?: PersistedAiCommit;
+	/** Repository path → the branch pinned to the graph's left edge there. */
+	mapPinned?: Record<string, string>;
+	/** Repository path → the refs hidden from the graph there. */
+	mapHidden?: Record<string, HiddenRefs>;
 }
 
 export interface PersistedAiCommit {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	invertEntry,
 	describeRefusal,
 	diffSnapshots,
 	headMoved,
@@ -12,7 +13,11 @@ const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
 const C = 'c'.repeat(40);
 
-const snap = (mapTips: Record<string, string>, branch: string | null, hash: string): RepoSnapshot => ({
+const snap = (
+	mapTips: Record<string, string>,
+	branch: string | null,
+	hash: string
+): RepoSnapshot => ({
 	mapTips,
 	head: { branch, hash },
 });
@@ -44,7 +49,11 @@ describe('diffSnapshots', () => {
 	});
 
 	it('records a branch that advanced', () => {
-		const entry = diffSnapshots('Merge', snap({ main: A }, 'main', A), snap({ main: B }, 'main', B));
+		const entry = diffSnapshots(
+			'Merge',
+			snap({ main: A }, 'main', A),
+			snap({ main: B }, 'main', B)
+		);
 		expect(entry?.listChanges).toEqual([{ branch: 'main', before: A, after: B }]);
 	});
 
@@ -116,7 +125,11 @@ describe('planUndo', () => {
 
 	it('resets the current branch back to where it was', () => {
 		const plan = planUndo({ entry: moved, now: snap({ main: B }, 'main', B), dirty: false });
-		expect(plan).toEqual({ ok: true, label: 'Merge dev into main', listCommands: [['reset', '--hard', A]] });
+		expect(plan).toEqual({
+			ok: true,
+			label: 'Merge dev into main',
+			listCommands: [['reset', '--hard', A]],
+		});
 	});
 
 	it('refuses once the branch has moved on', () => {
@@ -203,9 +216,11 @@ describe('planUndo', () => {
 			headBefore: { branch: 'main', hash: A },
 			headAfter: { branch: 'main', hash: A },
 		};
-		expect(
-			planUndo({ entry, now: snap({ main: A, dev: C }, 'main', A), dirty: false })
-		).toEqual({ ok: false, reason: 'refMoved', branch: 'dev' });
+		expect(planUndo({ entry, now: snap({ main: A, dev: C }, 'main', A), dirty: false })).toEqual({
+			ok: false,
+			reason: 'refMoved',
+			branch: 'dev',
+		});
 	});
 
 	// The branch nobody is standing on moves by compare-and-swap, so git refuses the write itself
@@ -244,5 +259,27 @@ describe('describeRefusal', () => {
 		expect(describeRefusal({ reason: 'headMoved' })).toContain('HEAD');
 		expect(describeRefusal({ reason: 'refMoved', branch: 'dev' })).toContain('dev');
 		expect(describeRefusal({ reason: 'dirty' })).toContain('uncommitted');
+	});
+});
+
+describe('invertEntry', () => {
+	it('swaps every ref and HEAD, so undoing it redoes the original', () => {
+		const entry = diffSnapshots(
+			'create feature',
+			snap({ main: A }, 'main', A),
+			snap({ main: A, feature: B }, 'feature', B)
+		);
+		if (!entry) throw new Error('expected an entry');
+		const inverted = invertEntry(entry);
+		const plan = planUndo({ entry: inverted, now: snap({ main: A }, 'main', A), dirty: false });
+		expect(plan).toEqual({
+			ok: true,
+			label: 'create feature',
+			listCommands: [
+				// The branch has to exist before HEAD can go back onto it.
+				['branch', 'feature', B],
+				['checkout', 'feature'],
+			],
+		});
 	});
 });

@@ -2,6 +2,7 @@ import type { CommitOrder, RepoActionId } from '@git-octopus/shared';
 import { DEFAULT_AUTO_FETCH_MINUTES } from '@git-octopus/shared';
 import type { FileViewMode } from './fileTree';
 import type { GraphStyle } from './graphPath';
+import type { DiffLayout } from './diffRows';
 
 /**
  * Owned by `lib/graphPath`, where the behaviour lives; re-exported here so settings consumers
@@ -17,6 +18,8 @@ export type RowDensity = 'compact' | 'comfortable' | 'spacious';
 export type DiffTarget = 'editor' | 'panel';
 /** How much of the file the diff panel draws. */
 export type DiffMode = 'compact' | 'full';
+/** Owned by `lib/diffRows`, where the two layouts are built. */
+export type { DiffLayout } from './diffRows';
 /** Which of a commit's two dates the Date column shows. */
 export type DateType = 'commit' | 'author';
 
@@ -88,6 +91,16 @@ export interface ViewSettings {
 	rowDensity: RowDensity;
 	diffTarget: DiffTarget;
 	diffMode: DiffMode;
+	/** One column of changes, or old and new side by side. */
+	diffLayout: DiffLayout;
+	/** Wrap long lines instead of scrolling sideways; split view always wraps. */
+	diffWrap: boolean;
+	/** Diff with `-w`: changes that are only whitespace drop out. */
+	diffIgnoreWhitespace: boolean;
+	/** Push straight after a commit made from the commit dialog. */
+	pushAfterCommit: boolean;
+	/** Left-to-right order of the columns right of Description. */
+	columnOrder: OptionalColumn[];
 	fetchAvatars: boolean;
 	highlightBranchOnHover: boolean;
 	muteMergeCommits: boolean;
@@ -127,6 +140,38 @@ export interface ColumnVisibility {
 	author: boolean;
 	commit: boolean;
 	date: boolean;
+	/** Lines added and removed per commit, read lazily for the rows on screen. */
+	changes: boolean;
+}
+
+/** The columns pinned right of Description, which can be hidden and reordered. */
+export type OptionalColumn = keyof ColumnVisibility;
+export const LIST_DEFAULT_COLUMN_ORDER: OptionalColumn[] = ['author', 'commit', 'date', 'changes'];
+
+/**
+ * A stored column order made whole: unknown and repeated keys dropped, missing ones added at the
+ * end in their default order — so an old or damaged blob can reorder columns but never lose one.
+ */
+export function normalizeColumnOrder(raw: unknown): OptionalColumn[] {
+	const listKnown = LIST_DEFAULT_COLUMN_ORDER as string[];
+	const listKept = (Array.isArray(raw) ? raw : []).filter(
+		(key, index, list): key is OptionalColumn =>
+			typeof key === 'string' && listKnown.includes(key) && list.indexOf(key) === index
+	);
+	return [...listKept, ...LIST_DEFAULT_COLUMN_ORDER.filter((key) => !listKept.includes(key))];
+}
+
+/** `from` moved to where `to` stands, the others keeping their order. */
+export function moveColumn(
+	listOrder: OptionalColumn[],
+	from: OptionalColumn,
+	to: OptionalColumn
+): OptionalColumn[] {
+	if (from === to) return listOrder;
+	const listRest = listOrder.filter((key) => key !== from);
+	const at = listOrder.indexOf(to);
+	const insertAt = listOrder.indexOf(from) < at ? listRest.indexOf(to) + 1 : listRest.indexOf(to);
+	return [...listRest.slice(0, insertAt), from, ...listRest.slice(insertAt)];
 }
 
 /** User-resizable column widths, in pixels. */
@@ -135,6 +180,7 @@ export interface ColumnWidths {
 	author: number;
 	commit: number;
 	date: number;
+	changes: number;
 }
 
 export type ColumnKey = keyof ColumnWidths;
@@ -152,6 +198,11 @@ export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
 	rowDensity: 'comfortable',
 	diffTarget: 'panel',
 	diffMode: 'compact',
+	diffLayout: 'unified',
+	diffWrap: false,
+	diffIgnoreWhitespace: false,
+	pushAfterCommit: false,
+	columnOrder: LIST_DEFAULT_COLUMN_ORDER,
 	fetchAvatars: false,
 	highlightBranchOnHover: false,
 	muteMergeCommits: false,

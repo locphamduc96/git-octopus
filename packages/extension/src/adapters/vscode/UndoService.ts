@@ -4,6 +4,7 @@ import { showGitError } from './staleLockNotice.js';
 import {
 	describeRefusal,
 	diffSnapshots,
+	invertEntry,
 	planUndo,
 	type RepoSnapshot,
 	type UndoEntry,
@@ -18,12 +19,18 @@ import {
  */
 export class UndoService {
 	private readonly mapEntries = new Map<string, UndoEntry>();
+	/** The action last undone, inverted — what Redo puts back. Cleared by any newer action. */
+	private readonly mapRedo = new Map<string, UndoEntry>();
 
 	public constructor(private readonly executor: GitExecutor) {}
 
 	/** What pressing Undo would undo, or null when there is nothing to undo in this repository. */
 	public labelFor(cwd: string | null): string | null {
 		return cwd ? (this.mapEntries.get(cwd)?.label ?? null) : null;
+	}
+
+	public redoLabelFor(cwd: string | null): string | null {
+		return cwd ? (this.mapRedo.get(cwd)?.label ?? null) : null;
 	}
 
 	/**
@@ -39,23 +46,54 @@ export class UndoService {
 		const changed = await work();
 		if (!changed) return false;
 		const entry = diffSnapshots(label, before, await this.snapshot(cwd));
-		if (entry) this.mapEntries.set(cwd, entry);
+		if (entry) {
+			this.mapEntries.set(cwd, entry);
+			// A new action is a new history: what was undone before it can no longer be put back.
+			this.mapRedo.delete(cwd);
+		}
 		return true;
 	}
 
-	/** Put the repository back. Returns true when something changed and the graph should reload. */
+	/** Undo the last action that moved a ref; on success it becomes what Redo would put back. */
 	public async run(cwd: string): Promise<boolean> {
+		const entry = this.mapEntries.get(cwd) ?? null;
+		const done = await this.apply(cwd, entry, this.mapEntries, 'undo');
+		if (done === 'applied' && entry) this.mapRedo.set(cwd, invertEntry(entry));
+		return done !== 'refused';
+	}
+
+	/** Put back the action last undone; on success it is undoable again. */
+	public async redo(cwd: string): Promise<boolean> {
+		const entry = this.mapRedo.get(cwd) ?? null;
+		const done = await this.apply(cwd, entry, this.mapRedo, 'redo');
+		if (done === 'applied' && entry) this.mapEntries.set(cwd, invertEntry(entry));
+		return done !== 'refused';
+	}
+
+	/** Put the repository back. Returns true when something changed and the graph should reload. */
+	/**
+	 * Run one entry's plan — undo of `mapEntries`' entry, or of `mapRedo`'s inverted one, which is
+	 * a redo. `applied` means the repository is back where the entry says; `changed` that something
+	 * ran or was cleared and the views should refresh; `refused` that nothing happened at all.
+	 */
+	private async apply(
+		cwd: string,
+		entry: UndoEntry | null,
+		mapFrom: Map<string, UndoEntry>,
+		verb: 'undo' | 'redo'
+	): Promise<'applied' | 'changed' | 'refused'> {
 		const plan = planUndo({
-			entry: this.mapEntries.get(cwd) ?? null,
+			entry,
 			now: await this.snapshot(cwd),
 			dirty: await this.isDirty(cwd),
 		});
 		if (!plan.ok) {
-			vscode.window.showErrorMessage(`Git Octopus: ${describeRefusal(plan)}`);
+			const sentence = describeRefusal(plan).replace(/\bundo/g, verb);
+			vscode.window.showErrorMessage(`Git Octopus: ${sentence}`);
 			// A refusal that will never stop being true is worth clearing, so the button stops
 			// offering something that cannot happen. A dirty tree is not one of those.
-			if (plan.reason !== 'dirty') this.mapEntries.delete(cwd);
-			return plan.reason === 'dirty' ? false : true;
+			if (plan.reason !== 'dirty') mapFrom.delete(cwd);
+			return plan.reason === 'dirty' ? 'refused' : 'changed';
 		}
 
 		for (const args of plan.listCommands) {
@@ -65,16 +103,18 @@ export class UndoService {
 				const raw = err instanceof Error ? err.message : String(err);
 				// Undo runs a chain of index writes, so it is one of the likeliest places to meet a
 				// stale lock — hence the offer to clear one, on top of saying what failed.
-				void showGitError(raw, cwd, { lead: `could not undo ${plan.label}` });
+				void showGitError(raw, cwd, { lead: `could not ${verb} ${plan.label}` });
 				// Whatever ran before the failure has already happened, so the recorded entry no
-				// longer describes the repository. Drop it rather than offer a second wrong undo.
-				this.mapEntries.delete(cwd);
-				return true;
+				// longer describes the repository. Drop it rather than offer a second wrong one.
+				mapFrom.delete(cwd);
+				return 'changed';
 			}
 		}
-		this.mapEntries.delete(cwd);
-		vscode.window.showInformationMessage(`Git Octopus: undid ${plan.label}.`);
-		return true;
+		mapFrom.delete(cwd);
+		vscode.window.showInformationMessage(
+			`Git Octopus: ${verb === 'undo' ? 'undid' : 'redid'} ${plan.label}.`
+		);
+		return 'applied';
 	}
 
 	private async snapshot(cwd: string): Promise<RepoSnapshot> {

@@ -1,5 +1,11 @@
 <script lang="ts">
-	import type { FileChange, WorkingTreeAction, WorkingTreeStatus } from '@git-octopus/shared';
+	import { untrack } from 'svelte';
+	import type {
+		FileChange,
+		WorkingDiffSide,
+		WorkingTreeAction,
+		WorkingTreeStatus,
+	} from '@git-octopus/shared';
 	import FileRow, { type FileRowAction } from '../../lib/ui/FileRow.svelte';
 	import FileTree from '../../lib/ui/FileTree.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
@@ -7,6 +13,10 @@
 	import ConfirmDialog from '../../lib/ui/ConfirmDialog.svelte';
 	import CommitDialog from './CommitDialog.svelte';
 	import { aiCommit } from '../../lib/stores/aiCommit.svelte';
+	import { commitTemplate } from '../../lib/stores/commitTemplate.svelte';
+	import { commitDraft } from '../../lib/stores/commitDraft.svelte';
+	import { prefs } from '../../lib/stores/prefs.svelte';
+	import type { CommitOptions } from '../../lib/stores/identity.svelte';
 	import { buildFileTree, type FileViewMode } from '../../lib/fileTree';
 	import type { FileMenuAction } from '../../lib/fileMenu';
 	import { tooltip } from '../../lib/ui/tooltip';
@@ -28,8 +38,14 @@
 		activePath: string | null;
 		/** Right-click on a file; the section's own actions ride along into the menu. */
 		onmenu: (event: MouseEvent, file: FileChange, listActions: FileMenuAction[]) => void;
-		onaction: (action: WorkingTreeAction, path?: string, message?: string) => void;
-		onopenFile: (path: string) => void;
+		onaction: (
+			action: WorkingTreeAction,
+			path?: string,
+			message?: string,
+			options?: CommitOptions
+		) => void;
+		/** Open a file's diff: its unstaged part from the upper sections, its staged part from below. */
+		onopenFile: (path: string, side: WorkingDiffSide) => void;
 		onpush: () => void;
 		onpushForce: () => void;
 	} = $props();
@@ -60,8 +76,20 @@
 	const listStageMenu: FileMenuAction[] = [
 		{ id: 'stage', label: 'Stage' },
 		{ id: 'discard', label: 'Discard Changes' },
+		{ id: 'stashFile', label: 'Stash This File…' },
 	];
-	const listUnstageMenu: FileMenuAction[] = [{ id: 'unstage', label: 'Unstage' }];
+	// Conflicted: resolving comes first; staging is how a file resolved by hand is marked done.
+	const listConflictMenu: FileMenuAction[] = [
+		{ id: 'openMergeEditor', label: 'Open in Merge Editor' },
+		{ id: 'takeOurs', label: 'Take Current (--ours; the base while rebasing)' },
+		{ id: 'takeTheirs', label: 'Take Incoming (--theirs; your commit while rebasing)' },
+		{ id: 'restoreConflict', label: 'Restore Conflict Markers' },
+		{ id: 'stage', label: 'Mark Resolved (Stage)' },
+	];
+	const listUnstageMenu: FileMenuAction[] = [
+		{ id: 'unstage', label: 'Unstage' },
+		{ id: 'stashFile', label: 'Stash This File…' },
+	];
 	// Untracked: the pattern alone is enough, and nothing touches the index.
 	const listUntrackedMenu: FileMenuAction[] = [
 		...listStageMenu,
@@ -73,10 +101,29 @@
 		{ id: 'ignoreAndUntrack', label: 'Stop Tracking & Add to .gitignore' },
 	];
 
-	function commit(message: string, amend: boolean): void {
+	function commit(message: string, amend: boolean, options: CommitOptions): void {
 		dialog = null;
-		onaction(amend ? 'amend' : 'commit', undefined, message);
+		onaction(amend ? 'amend' : 'commit', undefined, message, {
+			noVerify: options.noVerify,
+			// Pushing after an amend is a force push — that one is never done on the side.
+			pushAfter: !amend && options.pushAfter,
+		});
 	}
+
+	function openCommitDialog(): void {
+		commitTemplate.request();
+		dialog = 'commit';
+	}
+
+	// A commit the host refused (a hook, an empty message) brings the dialog back with what was
+	// typed. Only refusals after this tab appeared count: one from before is not this tab's to answer.
+	let seenReopen = untrack(() => commitDraft.reopenNonce);
+	$effect(() => {
+		const nonce = commitDraft.reopenNonce;
+		if (nonce === seenReopen) return;
+		seenReopen = nonce;
+		openCommitDialog();
+	});
 </script>
 
 <div class="tab">
@@ -123,6 +170,15 @@
 		/>
 		<span class="ai">
 			<IconButton
+				name="sparkle"
+				label="Explain changes with AI"
+				title={changes.length + untracked.length + staged.length + conflicts.length === 0
+					? 'Explain changes — nothing has changed yet'
+					: 'Explain changes — let the AI commit agent describe what the uncommitted changes do'}
+				disabled={changes.length + untracked.length + staged.length + conflicts.length === 0}
+				onclick={() => aiCommit.explain({ kind: 'working' })}
+			/>
+			<IconButton
 				name="wand"
 				label="AI commit"
 				title={changes.length + untracked.length + staged.length + conflicts.length === 0
@@ -137,7 +193,7 @@
 		</span>
 		<button
 			class="primary"
-			onclick={() => (dialog = 'commit')}
+			onclick={openCommitDialog}
 			disabled={staged.length === 0}
 			use:tooltip={staged.length === 0
 				? 'Commit — stage at least one file first'
@@ -160,16 +216,16 @@
 			</div>
 		{:else}
 			{#if conflicts.length > 0}
-				{@render section('Conflicts', conflicts, listStageActions, listStageMenu)}
+				{@render section('Conflicts', conflicts, listStageActions, listConflictMenu, 'unstaged')}
 			{/if}
 			{#if changes.length > 0}
-				{@render section('Changes', changes, listStageActions, listTrackedMenu)}
+				{@render section('Changes', changes, listStageActions, listTrackedMenu, 'unstaged')}
 			{/if}
 			{#if untracked.length > 0}
-				{@render section('Untracked', untracked, listStageActions, listUntrackedMenu)}
+				{@render section('Untracked', untracked, listStageActions, listUntrackedMenu, 'unstaged')}
 			{/if}
 			{#if staged.length > 0}
-				{@render section('Staged Changes', staged, listUnstageActions, listUnstageMenu)}
+				{@render section('Staged Changes', staged, listUnstageActions, listUnstageMenu, 'staged')}
 			{/if}
 		{/if}
 	</div>
@@ -179,7 +235,8 @@
 	title: string,
 	listFiles: FileChange[],
 	actions: FileRowAction<WorkingTreeAction>[],
-	listMenuActions: FileMenuAction[]
+	listMenuActions: FileMenuAction[],
+	side: WorkingDiffSide
 )}
 	<section>
 		<h3>{title} <span class="count">{listFiles.length}</span></h3>
@@ -191,7 +248,7 @@
 				{activePath}
 				{actions}
 				{onaction}
-				onopen={onopenFile}
+				onopen={(path) => onopenFile(path, side)}
 				onmenu={(event, file) => onmenu(event, file, listMenuActions)}
 			/>
 		{:else}
@@ -202,7 +259,7 @@
 						active={file.path === activePath}
 						{actions}
 						{onaction}
-						onopen={onopenFile}
+						onopen={(path) => onopenFile(path, side)}
 						onmenu={(event) => onmenu(event, file, listMenuActions)}
 					/>
 				{/each}
@@ -212,7 +269,19 @@
 {/snippet}
 
 {#if dialog === 'commit'}
-	<CommitDialog stagedCount={staged.length} oncommit={commit} oncancel={() => (dialog = null)} />
+	<CommitDialog
+		stagedCount={staged.length}
+		template={commitTemplate.text}
+		pushAfter={prefs.settings.pushAfterCommit}
+		onpushAfter={(value) => prefs.setSettings({ ...prefs.settings, pushAfterCommit: value })}
+		draft={commitDraft.current}
+		ondraft={commitDraft.keep}
+		oncommit={commit}
+		oncancel={() => {
+			commitDraft.clear();
+			dialog = null;
+		}}
+	/>
 {:else if dialog === 'push'}
 	<ConfirmDialog
 		title="Push to remote"

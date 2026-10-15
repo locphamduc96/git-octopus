@@ -18,6 +18,13 @@ beforeAll(async () => {
 	await import('./aiCommit.svelte');
 	await import('./branchCleanup.svelte');
 	await import('./diffView.svelte');
+	await import('./fileHistory.svelte');
+	await import('./commitStats.svelte');
+	await import('./commitDraft.svelte');
+	await import('./commitTemplate.svelte');
+	await import('./remotes.svelte');
+	await import('./worktrees.svelte');
+	await import('./rebaseEditor.svelte');
 	await import('./identity.svelte');
 	await import('./prefs.svelte');
 });

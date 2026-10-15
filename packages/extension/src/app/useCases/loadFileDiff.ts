@@ -32,6 +32,8 @@ export async function loadFileDiff(
 		toHash: message.toHash,
 		untracked: message.untracked,
 		context: message.context,
+		ignoreWhitespace: message.ignoreWhitespace,
+		side: message.side,
 	});
 	const total = countDiffLines(result.listHunks);
 	if (total > MAX_LINES) {

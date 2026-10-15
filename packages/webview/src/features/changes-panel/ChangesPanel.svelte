@@ -13,6 +13,12 @@
 	import ChangesTab from './ChangesTab.svelte';
 	import CommitTab from './CommitTab.svelte';
 	import CompareTab from './CompareTab.svelte';
+	import HistoryTab from './HistoryTab.svelte';
+	import {
+		UNCOMMITTED_HASH,
+		type FileHistoryEntry,
+		type WorkingDiffSide,
+	} from '@git-octopus/shared';
 	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
 	import IconButton from '../../lib/ui/IconButton.svelte';
@@ -20,6 +26,7 @@
 	import type { PanelMode } from '../../lib/panelFiles';
 	import { buildFileMenu, type FileMenuAction, type LocalFileMenuId } from '../../lib/fileMenu';
 	import { tooltip } from '../../lib/ui/tooltip';
+	import type { CommitOptions } from '../../lib/stores/identity.svelte';
 
 	export interface ComparisonState {
 		fromHash: string | null;
@@ -44,6 +51,12 @@
 		onopenDiff,
 		onopenCompareDiff,
 		onopenFile,
+		onrestoreFile,
+		history,
+		onfileHistory,
+		onblame,
+		onhistoryOpen,
+		onhistoryReveal,
 		oncopyPath,
 		onpush,
 		onpushForce,
@@ -72,12 +85,35 @@
 		comparison: ComparisonState;
 		/** The file whose diff is open in the panel, highlighted in whichever tab lists it. */
 		activePath: string | null;
-		onworkingAction: (action: WorkingTreeAction, path?: string, message?: string) => void;
-		onopenWorkingFile: (path: string) => void;
+		onworkingAction: (
+			action: WorkingTreeAction,
+			path?: string,
+			message?: string,
+			options?: CommitOptions
+		) => void;
+		/** Without a side, the part to show is worked out from where the file is listed. */
+		onopenWorkingFile: (path: string, side?: WorkingDiffSide) => void;
 		onopenDiff: (path: string) => void;
 		onopenCompareDiff: (path: string) => void;
 		/** Open the file itself: the copy on disk, or its content at `hash`. */
 		onopenFile: (path: string, hash?: string) => void;
+		/** Put the file back as it was at `hash`, staged. */
+		onrestoreFile: (path: string, hash: string) => void;
+		/** The file history on show in `history` mode, or null. */
+		history: {
+			path: string;
+			listEntries: FileHistoryEntry[];
+			loading: boolean;
+			truncated: boolean;
+			error: string | null;
+			activeHash: string | null;
+		} | null;
+		/** Read a file's history from `rev` (a commit) or from HEAD. */
+		onfileHistory: (path: string, rev: string | null) => void;
+		/** Show a file's blame at `rev`, or in the working tree. */
+		onblame: (path: string, rev: string | null) => void;
+		onhistoryOpen: (entry: FileHistoryEntry) => void;
+		onhistoryReveal: (hash: string) => void;
 		oncopyPath: (path: string, absolute: boolean) => void;
 		onpush: () => void;
 		onpushForce: () => void;
@@ -116,6 +152,13 @@
 	 * The cases below are the whole of the menu's own id space, so whatever falls past them is a
 	 * working-tree action a section handed over — `default` needs no check of its own to say so.
 	 */
+	/** The revision the panel's files are shown at: what history and blame read from. */
+	function panelRevision(): string | null {
+		if (mode === 'commit') return details?.hash ?? null;
+		if (mode === 'compare' && comparison.toHash !== UNCOMMITTED_HASH) return comparison.toHash;
+		return null;
+	}
+
 	function runMenu(id: LocalFileMenuId | WorkingTreeAction): void {
 		const file = menu?.file;
 		menu = null;
@@ -127,6 +170,13 @@
 				return onopenFile(file.path);
 			case 'openFileAtRev':
 				return onopenFile(file.path, details?.hash);
+			case 'restoreFromCommit':
+				if (details) onrestoreFile(file.path, details.hash);
+				return;
+			case 'fileHistory':
+				return onfileHistory(file.path, panelRevision());
+			case 'blame':
+				return onblame(file.path, panelRevision());
 			case 'copyPath':
 				return oncopyPath(file.path, true);
 			case 'copyRelativePath':
@@ -172,12 +222,19 @@
 				Commit
 				{#if details}<span class="mono">{details.hash.slice(0, 8)}</span>{/if}
 			</span>
+		{:else if mode === 'history'}
+			<span class="summary">
+				History
+				{#if history}<span class="mono">{history.path.split('/').pop()}</span>{/if}
+			</span>
 		{:else}
 			<span class="summary">
 				Comparing
 				{#if comparison.fromHash && comparison.toHash}
 					<span class="mono">
-						{comparison.fromHash.slice(0, 8)} ↔ {comparison.toHash.slice(0, 8)}
+						{comparison.fromHash.slice(0, 8)} ↔ {comparison.toHash === UNCOMMITTED_HASH
+							? 'working tree'
+							: comparison.toHash.slice(0, 8)}
 					</span>
 				{/if}
 			</span>
@@ -196,12 +253,14 @@
 					onclick={() => onmetaOpen(!metaOpen)}
 				/>
 			{/if}
-			<button class:active={fileView === 'list'} onclick={() => onfileView('list')}>
-				<Icon name="list-flat" label="File list" />
-			</button>
-			<button class:active={fileView === 'tree'} onclick={() => onfileView('tree')}>
-				<Icon name="list-tree" label="File tree" />
-			</button>
+			{#if mode !== 'history'}
+				<button class:active={fileView === 'list'} onclick={() => onfileView('list')}>
+					<Icon name="list-flat" label="File list" />
+				</button>
+				<button class:active={fileView === 'tree'} onclick={() => onfileView('tree')}>
+					<Icon name="list-tree" label="File tree" />
+				</button>
+			{/if}
 			<!-- The working tree is where the panel returns to, so it has nothing to close. -->
 			{#if mode !== 'changes'}
 				<IconButton
@@ -260,6 +319,20 @@
 				onmenu={(event, file) => openMenu(event, file)}
 			/>
 		</div>
+		<div class="slot" class:hidden={active !== 'history'} inert={active !== 'history'}>
+			{#if history}
+				<HistoryTab
+					path={history.path}
+					listEntries={history.listEntries}
+					loading={history.loading}
+					truncated={history.truncated}
+					error={history.error}
+					activeHash={history.activeHash}
+					onopen={onhistoryOpen}
+					onreveal={onhistoryReveal}
+				/>
+			{/if}
+		</div>
 		{#if loading}
 			<!-- Safe to fade on the way out here, unlike the graph's: the slots are stacked on top of
 			     each other, so the one leaving costs the one arriving no room. -->
@@ -282,6 +355,7 @@
 			listActions: menu.listActions,
 			atRevision: mode === 'commit' && details !== null,
 			deleted: menu.file.status === 'D',
+			untracked: menu.file.status === '?',
 		})}
 		onselect={runMenu}
 		onclose={() => (menu = null)}

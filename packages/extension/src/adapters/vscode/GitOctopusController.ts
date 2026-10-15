@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
 	GitIdentity,
@@ -17,6 +19,12 @@ import {
 	setLocalIdentity,
 } from '../../core/git/gitService.js';
 import { getBranchInventory } from '../../core/git/staleBranches.js';
+import { readCommitTemplate } from '../fs/commitTemplate.js';
+import { getRemotes } from '../../core/git/remotes.js';
+import { getWorktrees } from '../../core/git/worktrees.js';
+import { WorktreeService } from './WorktreeService.js';
+import { InteractiveRebaseService } from './InteractiveRebaseService.js';
+import { HistoryRewriter } from './HistoryRewriter.js';
 import { BranchCleanupService } from './BranchCleanupService.js';
 import { UndoService } from './UndoService.js';
 import {
@@ -109,6 +117,8 @@ export class GitOctopusController {
 
 	/** Remembers what the last repository-changing action did, so it can be put back. */
 	private readonly undo: UndoService;
+	private readonly interactiveRebase: InteractiveRebaseService;
+	private readonly worktrees: WorktreeService;
 
 	public constructor(
 		private readonly extensionUri: vscode.Uri,
@@ -124,6 +134,8 @@ export class GitOctopusController {
 	) {
 		this.branchCleanup = new BranchCleanupService(executor);
 		this.undo = new UndoService(executor);
+		this.interactiveRebase = new InteractiveRebaseService(executor, new HistoryRewriter(executor));
+		this.worktrees = new WorktreeService(executor);
 		this.activeRepo = workspaceState.get<string | null>(STATE_ACTIVE_REPO, null);
 		this.filters = workspaceState.get<GraphFilters>(STATE_FILTERS, {
 			branch: null,
@@ -253,7 +265,11 @@ export class GitOctopusController {
 	 * up here, so a button that offered a stale promise would have to get past this on the way.
 	 */
 	private sendUndoState(): void {
-		this.broadcast({ type: 'undoState', label: this.undo.labelFor(this.activeRepo) });
+		this.broadcast({
+			type: 'undoState',
+			label: this.undo.labelFor(this.activeRepo),
+			redoLabel: this.undo.redoLabelFor(this.activeRepo),
+		});
 	}
 
 	/**
@@ -594,6 +610,19 @@ export class GitOctopusController {
 				)
 					await this.refresh();
 				return;
+			case 'cherryPickCommits': {
+				if (!cwd || this.repoMismatch(message)) return;
+				const count = message.listHashes.length;
+				if (
+					await this.undo.record(
+						`cherry-pick of ${count} commit${count === 1 ? '' : 's'}`,
+						cwd,
+						() => this.actions.cherryPickList(message, cwd)
+					)
+				)
+					await this.refresh();
+				return;
+			}
 			case 'sequencerAction':
 				if (!cwd || this.repoMismatch(message)) return;
 				if (await this.repoActions.runSequencer(message, cwd, prompt)) await this.refresh();
@@ -611,6 +640,10 @@ export class GitOctopusController {
 				if (!cwd || this.repoMismatch(message)) return;
 				if (await this.undo.run(cwd)) await this.refresh();
 				return;
+			case 'redoAction':
+				if (!cwd || this.repoMismatch(message)) return;
+				if (await this.undo.redo(cwd)) await this.refresh();
+				return;
 			case 'checkFastForward':
 				await webview.postMessage({
 					type: 'fastForwardCheck',
@@ -620,9 +653,89 @@ export class GitOctopusController {
 						: false,
 				} satisfies HostToWebview);
 				return;
-			case 'workingTreeAction':
+			case 'workingTreeAction': {
 				if (!cwd || this.repoMismatch(message)) return;
-				if (await this.workingTree.run(message, cwd, prompt)) await this.refresh();
+				const done = await this.workingTree.run(message, cwd, prompt);
+				if (message.action === 'commit' || message.action === 'amend') {
+					this.reply(webview, { type: 'commitOutcome', ok: done } satisfies HostToWebview);
+				}
+				if (!done) return;
+				await this.refresh();
+				// Only after the commit landed: a failed hook or an empty message pushes nothing.
+				if (message.action === 'commit' && message.pushAfter) {
+					const pushed = await this.repoActions.run(
+						{ type: 'repoAction', repoPath: message.repoPath, action: 'push' },
+						cwd,
+						prompt
+					);
+					if (pushed) await this.refresh();
+				}
+				return;
+			}
+			case 'loadRebaseTodo': {
+				if (!cwd) return;
+				this.reply(webview, await this.interactiveRebase.load(message.base, cwd, message.branch));
+				return;
+			}
+			case 'interactiveRebase': {
+				if (!cwd || this.repoMismatch(message)) return;
+				const count = message.listSteps.length;
+				const label = `interactive rebase of ${count} commit${count === 1 ? '' : 's'}`;
+				if (await this.undo.record(label, cwd, () => this.interactiveRebase.run(message, cwd)))
+					await this.refresh();
+				return;
+			}
+			case 'loadRemotes': {
+				this.reply(webview, {
+					type: 'remotes',
+					listRemotes: cwd ? await getRemotes(this.executor, cwd).catch(() => []) : [],
+				} satisfies HostToWebview);
+				return;
+			}
+			case 'remoteAction': {
+				if (!cwd || this.repoMismatch(message)) return;
+				if (await this.repoActions.runRemoteAction(message, cwd, prompt)) await this.refresh();
+				// Answered either way, so the tab never shows a remote list the action did not leave.
+				this.reply(webview, {
+					type: 'remotes',
+					listRemotes: await getRemotes(this.executor, cwd).catch(() => []),
+				} satisfies HostToWebview);
+				return;
+			}
+			case 'loadWorktrees': {
+				this.reply(webview, {
+					type: 'worktrees',
+					listWorktrees: cwd ? await getWorktrees(this.executor, cwd).catch(() => []) : [],
+				} satisfies HostToWebview);
+				return;
+			}
+			case 'worktreeAction': {
+				if (!cwd || this.repoMismatch(message)) return;
+				if (await this.worktrees.run(message, cwd, prompt)) await this.refresh();
+				// Answered either way, so the list never shows a worktree the action did not leave.
+				this.reply(webview, {
+					type: 'worktrees',
+					listWorktrees: await getWorktrees(this.executor, cwd).catch(() => []),
+				} satisfies HostToWebview);
+				return;
+			}
+			case 'loadCommitTemplate': {
+				this.reply(webview, {
+					type: 'commitTemplate',
+					text: cwd
+						? await readCommitTemplate(
+								this.executor,
+								cwd,
+								(file) => fs.readFile(file, 'utf8'),
+								os.homedir()
+							)
+						: null,
+				} satisfies HostToWebview);
+				return;
+			}
+			case 'stageLines':
+				if (!cwd || this.repoMismatch(message)) return;
+				if (await this.workingTree.stageLines(message, cwd, prompt)) await this.refresh();
 				return;
 			case 'repoAction':
 				if (!cwd || this.repoMismatch(message)) return;
@@ -665,6 +778,10 @@ export class GitOctopusController {
 				this.broadcast(result);
 				return;
 			}
+			case 'aiExplain':
+				if (!cwd || this.repoMismatch(message)) return;
+				await this.commitAgent.explain(message, cwd);
+				return;
 			case 'cancelCommitPlan':
 				// Deliberately unguarded, unlike every other `repoPath`-stamped message. Cancelling
 				// mutates nothing and acts on the repo named in the message, so it cannot hit the wrong
@@ -694,7 +811,10 @@ export class GitOctopusController {
 			// overwrite the other panels' selection with this one's.
 			case 'loadCommitDetails':
 			case 'loadComparison':
-			case 'loadFileDiff': {
+			case 'loadFileDiff':
+			case 'loadFileHistory':
+			case 'loadBlame':
+			case 'loadCommitStats': {
 				const repoForRequest = this.activeRepo;
 				const reply = await routeMessage(message, this.repoContext(), this.filters);
 				// Answers computed for a repository the user has since switched away from are dropped.

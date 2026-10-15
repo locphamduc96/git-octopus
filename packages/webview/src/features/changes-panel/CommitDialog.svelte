@@ -1,20 +1,53 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import Modal from '../../lib/ui/Modal.svelte';
+	import type { CommitDraft } from '../../lib/stores/commitDraft.svelte';
+	import type { CommitOptions } from '../../lib/stores/identity.svelte';
 	import { COMMIT_TYPES, formatSubject, parseSubject, typeColour } from '../../lib/commitSubject';
 
 	let {
 		stagedCount,
+		template = null,
+		pushAfter = false,
+		onpushAfter = () => {},
+		draft = null,
+		ondraft = () => {},
 		oncommit,
 		oncancel,
 	}: {
 		stagedCount: number;
-		oncommit: (message: string, amend: boolean) => void;
+		/** The repository's commit template; undefined while it is being read. */
+		template?: string | null;
+		/** Push once the commit lands — remembered across commits, so it is the caller's to keep. */
+		pushAfter?: boolean;
+		onpushAfter?: (value: boolean) => void;
+		/** What was typed before a commit the host refused — it fills the dialog instead of the template. */
+		draft?: CommitDraft | null;
+		/** Hands over what is being committed, so a refused commit can come back with it. */
+		ondraft?: (draft: CommitDraft) => void;
+		oncommit: (message: string, amend: boolean, options: CommitOptions) => void;
 		oncancel: () => void;
 	} = $props();
 
-	let summary = $state('');
-	let description = $state('');
-	let amend = $state(false);
+	// Read once: the dialog starts from the draft, and typing must not be undone by a later one.
+	const initial = untrack(() => draft);
+	let summary = $state(initial?.summary ?? '');
+	let description = $state(initial?.description ?? '');
+	let amend = $state(initial?.amend ?? false);
+	/** Skipping hooks is for this commit only — never a standing choice. */
+	let noVerify = $state(initial?.noVerify ?? false);
+	// A draft is the user's own words; the template only ever fills an empty dialog.
+	let templateApplied = initial !== null;
+
+	// The template arrives after the dialog opens; it only fills boxes nobody has typed in yet.
+	$effect(() => {
+		if (templateApplied || !template) return;
+		templateApplied = true;
+		if (summary !== '' || description !== '') return;
+		const [first = '', ...listRest] = template.split('\n');
+		summary = first;
+		description = listRest.join('\n').replace(/^\n+/, '');
+	});
 
 	// An amend with no message keeps the previous one, so the summary may stay empty.
 	const canCommit = $derived(amend || summary.trim() !== '');
@@ -34,7 +67,8 @@
 		const body = description.trim();
 		const subject = summary.trim();
 		const message = body === '' || subject === '' ? subject : `${subject}\n\n${body}`;
-		oncommit(message, amend);
+		ondraft({ summary, description, amend, noVerify });
+		oncommit(message, amend, { noVerify, pushAfter: !amend && pushAfter });
 	}
 </script>
 
@@ -69,6 +103,19 @@
 		<label>
 			Description <span class="optional">(optional)</span>
 			<textarea bind:value={description} rows="6" placeholder="Why the change was made"></textarea>
+		</label>
+		<label class="amend">
+			<input
+				type="checkbox"
+				checked={pushAfter && !amend}
+				disabled={amend}
+				onchange={(event) => onpushAfter(event.currentTarget.checked)}
+			/>
+			Push after committing{amend ? ' — not with an amend, which would need a force push' : ''}
+		</label>
+		<label class="amend">
+			<input type="checkbox" bind:checked={noVerify} />
+			Skip Git hooks for this commit (<code>--no-verify</code>)
 		</label>
 		<label class="amend">
 			<input type="checkbox" bind:checked={amend} />

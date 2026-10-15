@@ -179,3 +179,24 @@ export interface WorkingTreeStatus {
 	staged: FileChange[];
 	unstaged: FileChange[];
 }
+
+/**
+ * Why an interactive rebase's steps cannot be run as asked, or null when they can. Shared so the
+ * editor refuses the same things the host would.
+ */
+export function validateSteps<T extends { action: string; message?: string }>(
+	listSteps: T[]
+): string | null {
+	const listKept = listSteps.filter((step) => step.action !== 'drop');
+	if (listKept.length === 0)
+		return 'Every commit is dropped — use Reset to move the branch instead.';
+	const first = listKept[0];
+	if (first.action === 'squash' || first.action === 'fixup') {
+		return 'The first commit kept cannot be squashed or fixed up — there is nothing above it to fold into.';
+	}
+	if (listSteps.some((step) => step.action === 'reword' && (step.message ?? '').trim() === '')) {
+		return 'A reworded commit needs a message.';
+	}
+	return null;
+}
+

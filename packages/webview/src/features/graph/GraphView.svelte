@@ -3,7 +3,10 @@
 		BranchActionId,
 		Commit,
 		CommitActionId,
+		CommitStat,
+		ExplainTarget,
 		GraphRow,
+		HiddenRefs,
 		Ref,
 		RemoteBranchRef,
 		UpstreamTracking,
@@ -21,9 +24,11 @@
 	import { ghostBranchFor, mapLaneBranches } from '../../lib/ghostBranch';
 	import { formatCommitDate } from '../../lib/commitDate';
 	import { authorTooltip } from '../../lib/authorTooltip';
+	import { changesGauge, changesTooltip } from '../../lib/changesGauge';
 	import {
 		buildCommitMenuItems,
 		buildDropMenuItems,
+		type DropDescription,
 		buildHeaderMenuItems,
 		buildMultiMenuItems,
 		buildRefMenu,
@@ -37,7 +42,13 @@
 	import { tooltip } from '../../lib/ui/tooltip';
 	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
+	import IconButton from '../../lib/ui/IconButton.svelte';
 	import RefIcon from '../../lib/ui/RefIcon.svelte';
+	import {
+		LIST_DEFAULT_COLUMN_ORDER,
+		normalizeColumnOrder,
+		type OptionalColumn,
+	} from '../../lib/viewSettings';
 	import type {
 		ColumnKey,
 		ColumnVisibility,
@@ -70,9 +81,28 @@
 		fastForward,
 		scrollTarget,
 		hasMore,
+		setFindMatches = new Set<string>(),
+		findCurrent = null,
+		pinnedRef = null,
+		listSolo = [],
+		columnOrder = LIST_DEFAULT_COLUMN_ORDER,
+		onreorderColumn = () => {},
+		onpin = () => {},
+		onsolo = () => {},
+		onhide = () => {},
+		onrelated = () => {},
+		oninteractiveRebase = () => {},
+		onexplain = () => {},
+		mapWorktrees = {},
+		onworktree = () => {},
+		oninteractiveRebaseOnto = () => {},
+		mapCommitStats = {},
+		onneedStats = () => {},
+		onjumpPinned = () => {},
 		onselect,
 		onselectRange,
 		oncompare,
+		oncompareWorking,
 		oncheckoutBranch,
 		onaction,
 		onmulti,
@@ -119,10 +149,47 @@
 		scrollTarget: { hash: string; nonce: number } | null;
 		/** Whether history continues past the loaded rows — scrolling near the bottom loads more. */
 		hasMore: boolean;
+		/** Commits the find query matches, drawn highlighted in place. */
+		setFindMatches?: Set<string>;
+		/** The match the find box last stepped to, drawn stronger than the rest. */
+		findCurrent?: string | null;
+		/** The branch held on the left edge, as its menus name it — `main` or `origin/main`. */
+		pinnedRef?: string | null;
+		/** Left-to-right order of the columns right of Description. */
+		columnOrder?: OptionalColumn[];
+		/** A column header dropped onto another: move `from` to where `to` stands. */
+		onreorderColumn?: (from: OptionalColumn, to: OptionalColumn) => void;
+		/** The refs the graph is limited to; empty when it shows everything. */
+		listSolo?: string[];
+		/** Pin a branch to the left edge, or unpin with null. */
+		onpin?: (ref: string | null) => void;
+		/** Add a ref to the set the graph is limited to, or take one out. */
+		onsolo?: (op: 'add' | 'remove', ref: string) => void;
+		/** Leave refs out of the graph. */
+		onhide?: (refs: HiddenRefs) => void;
+		/** Limit the graph to the checked-out branch and the branches it relates to. */
+		onrelated?: () => void;
+		/** Open the interactive rebase editor over the commits after `base`. */
+		oninteractiveRebase?: (base: string) => void;
+		onexplain?: (target: ExplainTarget) => void;
+		/** Branch → folder, for the branches checked out in another worktree. */
+		mapWorktrees?: Record<string, string>;
+		/** Open a worktree's folder in a new window, or create a worktree for a branch. */
+		onworktree?: (op: 'open' | 'add', value: string) => void;
+		/** Sizes for the Changes column, by hash; a commit missing here shows an empty cell. */
+		mapCommitStats?: Record<string, CommitStat>;
+		/** The Changes column wants sizes for these rows on screen. */
+		onneedStats?: (listHashes: string[]) => void;
+		/** Rebase a local branch onto another ref through the rebase editor. */
+		oninteractiveRebaseOnto?: (base: string, baseLabel: string, branch: string) => void;
+		/** Scroll to the pinned branch's tip. */
+		onjumpPinned?: () => void;
 		onselect: (hash: string) => void;
 		/** Shift-click: extend the selection from the anchor to this commit. */
 		onselectRange: (hash: string) => void;
 		oncompare: (hash: string) => void;
+		/** Compare this commit with the files on disk. */
+		oncompareWorking: (hash: string) => void;
 		/** Check out a branch chip: a local name when there is one, otherwise a remote-tracking one. */
 		oncheckoutBranch: (local: string | null, remote: RemoteBranchRef | null) => void;
 		onaction: (action: CommitActionId, commit: Commit, target?: RefTarget) => void;
@@ -130,11 +197,13 @@
 		onmulti: (action: MultiAction, listHashes: string[]) => void;
 		onloadMore: () => void;
 		/** One branch chip dropped onto another: merge, rebase or fast-forward. */
+		/** `targetRemote` names the remote when the action is aimed at the target's branch there. */
 		onbranchAction: (
 			action: BranchActionId,
 			source: string,
 			sourceLabel: string,
-			target: string
+			target: string,
+			targetRemote?: string
 		) => void;
 		/** "Show only this branch" picked from a ref menu — reload the graph walking `ref` alone. */
 		onfilterBranch: (ref: string) => void;
@@ -142,6 +211,25 @@
 		ontoggleColumn: (column: keyof ColumnVisibility) => void;
 		onresizeColumn: (column: ColumnKey, width: number) => void;
 	} = $props();
+
+	/** What the ref menus need to know about the view to name their entries. */
+	const refView = $derived({ pinnedRef, listSolo, mapWorktrees });
+
+	const mapCommitByHash = $derived(new Map(rows.map((row) => [row.commit.hash, row.commit])));
+	/**
+	 * Whether `hash` lies below HEAD on HEAD's own first-parent line — the commits between them are
+	 * what an interactive rebase from it would rewrite. Bounded by the row count, so a cycle in bad
+	 * data cannot spin.
+	 */
+	function onHeadLine(hash: string): boolean {
+		if (!headHash || hash === headHash) return false;
+		let at = mapCommitByHash.get(headHash)?.parents[0];
+		for (let steps = 0; at !== undefined && steps < rows.length; steps++) {
+			if (at === hash) return true;
+			at = mapCommitByHash.get(at)?.parents[0];
+		}
+		return false;
+	}
 
 	/**
 	 * Row heights per density. Every step stays taller than the text needs, so the lane curves keep
@@ -176,6 +264,8 @@
 		head: 'target',
 	};
 	const OVERSCAN = 8;
+	/** How long the rows on screen have to hold still before the Changes column asks for sizes. */
+	const STATS_DELAY_MS = 120;
 	const MIN_COL_W = 60;
 
 	/** Breathing room so the overlay scrollbar never sits on top of the Date column. */
@@ -190,19 +280,20 @@
 	let hoveredBranch = $state<number | null>(null);
 
 	/** The ref being dragged: what git is handed, plus the shorter form the menus print. */
-	let dragSource = $state<{ ref: string; label: string } | null>(null);
+	let dragSource = $state<{ ref: string; label: string; local: boolean } | null>(null);
 	/** The row under the pointer — only tracked while the ghost label needs it. */
 	let hoveredRow = $state<string | null>(null);
 
 	/** The local branch under the pointer, i.e. where dropping would land. */
 	let dropTarget = $state<string | null>(null);
-	let dropMenu = $state<{
-		x: number;
-		y: number;
-		source: string;
-		sourceLabel: string;
-		target: string;
-	} | null>(null);
+	let dropMenu = $state<
+		| ({
+				x: number;
+				y: number;
+				source: string;
+		  } & DropDescription)
+		| null
+	>(null);
 	/** Identifies the fast-forward question asked for the current drop, so stale answers are ignored. */
 	let ffNonce = $state(0);
 
@@ -224,6 +315,7 @@
 		{ key: 'author', label: 'Author' },
 		{ key: 'commit', label: 'Commit' },
 		{ key: 'date', label: 'Date' },
+		{ key: 'changes', label: 'Changes' },
 	];
 
 	const cols = $derived(graphWidth(rows));
@@ -234,17 +326,35 @@
 		rows.slice(range.start, range.end).map((row, k) => ({ row, index: range.start + k }))
 	);
 
+	// Sizes are read only for what is on screen, once the scrolling settles.
+	$effect(() => {
+		if (!columns.changes) return;
+		const listHashes = visible
+			.filter((v) => !v.row.commit.isUncommitted)
+			.map((v) => v.row.commit.hash);
+		const timer = setTimeout(() => onneedStats(listHashes), STATS_DELAY_MS);
+		return () => clearTimeout(timer);
+	});
+
+	/** The optional columns in the order the user arranged them — header, grid and cells alike. */
+	const listOrderedColumns = $derived(
+		normalizeColumnOrder(columnOrder).map(
+			(key) =>
+				LIST_OPTIONAL_COLUMNS.find((column) => column.key === key) ?? LIST_OPTIONAL_COLUMNS[0]
+		)
+	);
+	/** The column whose header label is being dragged to a new place. */
+	let draggedColumn = $state<OptionalColumn | null>(null);
+
 	const gridTemplate = $derived(
 		[
 			`${widths.ref}px`,
 			`${graphPx}px`,
 			'1fr',
-			columns.author ? `${widths.author}px` : '',
-			columns.commit ? `${widths.commit}px` : '',
-			columns.date ? `${widths.date}px` : '',
-		]
-			.filter((part) => part !== '')
-			.join(' ')
+			...listOrderedColumns
+				.filter((column) => columns[column.key])
+				.map((column) => `${widths[column.key]}px`),
+		].join(' ')
 	);
 
 	const headerMenuItems = $derived(buildHeaderMenuItems(columns));
@@ -398,7 +508,7 @@
 	function openRefMenu(event: MouseEvent, commit: Commit, chip: RefChip): void {
 		// Built before the event is stopped: a chip with nothing of its own to offer — detached HEAD
 		// — must let the right-click reach the row, or it opens an empty menu instead of the commit's.
-		if (buildRefMenu(chip, currentBranch).items.length === 0) return;
+		if (buildRefMenu(chip, currentBranch, refView).items.length === 0) return;
 		event.preventDefault();
 		event.stopPropagation();
 		// The panel stays up while its menu is open: `.ref-expand` sits below `ContextMenu` in the
@@ -420,7 +530,7 @@
 			event.preventDefault();
 			return;
 		}
-		dragSource = source;
+		dragSource = { ...source, local: chip.hasLocal };
 		if (event.dataTransfer) {
 			event.dataTransfer.effectAllowed = 'copy';
 			event.dataTransfer.setData('text/plain', source.label);
@@ -443,11 +553,14 @@
 			y: event.clientY,
 			source: dragSource.ref,
 			sourceLabel: dragSource.label,
+			sourceLocal: dragSource.local,
 			target: chip.name,
+			targetLocal: chip.hasLocal,
+			listTargetRemotes: chip.listRemotes,
 		};
 		ffNonce += 1;
 		// The answer decides whether the menu offers a fast-forward; it lands while the menu is open.
-		oncheckFastForward(dragSource.ref, chip.name, ffNonce);
+		if (chip.hasLocal) oncheckFastForward(dragSource.ref, chip.name, ffNonce);
 		dragSource = null;
 		dropTarget = null;
 	}
@@ -460,20 +573,37 @@
 	// `ffNonce` is read live: only the answer to *this* drop's question may add the entry.
 	const dropMenuItems = $derived(buildDropMenuItems(dropMenu, fastForward, ffNonce));
 
-	function onDropMenuSelect(id: BranchActionId): void {
+	function onDropMenuSelect(id: string): void {
 		const drop = dropMenu;
 		dropMenu = null;
-		if (drop) onbranchAction(id, drop.source, drop.sourceLabel, drop.target);
+		if (!drop) return;
+		const [action, remote] = id.split(':') as [
+			BranchActionId | 'interactiveRebase',
+			string | undefined,
+		];
+		if (action === 'interactiveRebase') {
+			// Only offered for a local source, whose ref is its branch name.
+			oninteractiveRebaseOnto(
+				remote ? `refs/remotes/${remote}/${drop.target}` : `refs/heads/${drop.target}`,
+				remote ? `${remote}/${drop.target}` : drop.target,
+				drop.source
+			);
+			return;
+		}
+		onbranchAction(action, drop.source, drop.sourceLabel, drop.target, remote);
 	}
 
 	const openMenuBuild = $derived.by((): MenuBuild => {
 		if (!menu) return { items: [], mapEntries: {} };
-		if (menu.chip) return buildRefMenu(menu.chip, currentBranch);
+		if (menu.chip) return buildRefMenu(menu.chip, currentBranch, refView);
 		// A right-click inside the multi-selection acts on the range, not the single commit.
 		if (listSelectedCommits.length > 1 && setSelected.has(menu.commit.hash)) {
 			return buildMultiMenuItems(listSelectedCommits, headHash);
 		}
-		return buildCommitMenuItems(menu.commit, currentBranch, chipsFor(menu.commit.refs));
+		return buildCommitMenuItems(menu.commit, currentBranch, chipsFor(menu.commit.refs), {
+			...refView,
+			rebaseFromHere: onHeadLine(menu.commit.hash),
+		});
 	});
 
 	const menuItems = $derived(openMenuBuild.items);
@@ -503,6 +633,30 @@
 		switch (entry.type) {
 			case 'filter':
 				onfilterBranch(entry.ref);
+				return;
+			case 'compareWorking':
+				oncompareWorking(commit.hash);
+				return;
+			case 'pin':
+				onpin(entry.ref);
+				return;
+			case 'solo':
+				onsolo(entry.op, entry.ref);
+				return;
+			case 'hide':
+				onhide(entry.refs);
+				return;
+			case 'related':
+				onrelated();
+				return;
+			case 'interactiveRebase':
+				oninteractiveRebase(commit.hash);
+				return;
+			case 'explain':
+				onexplain(entry.target);
+				return;
+			case 'worktree':
+				onworktree(entry.op, entry.op === 'open' ? entry.path : entry.branch);
 				return;
 			case 'multi':
 				onmulti(
@@ -588,6 +742,49 @@
 	});
 </script>
 
+{#snippet optionalCell(key: OptionalColumn, commit: Commit)}
+	{#if key === 'author'}
+		<span class="muted author">
+			{#if commit.author.avatarUrl}
+				<img
+					class="avatar"
+					src={commit.author.avatarUrl}
+					alt=""
+					use:tooltip={{
+						text: authorTooltip(commit, dateType),
+						delay: AVATAR_TIP_DELAY,
+					}}
+				/>
+			{/if}
+			{commit.author.name}
+		</span>
+	{:else if key === 'commit'}
+		<span class="muted mono">
+			{commit.isUncommitted ? '*' : commit.hash.slice(0, 8)}
+		</span>
+	{:else if key === 'date'}
+		<span class="muted date">
+			{#if commit.isUncommitted}—{:else}{fmtDate(
+					dateType === 'author' ? commit.authoredAt : commit.committedAt
+				)}{/if}
+		</span>
+	{:else}
+		{@const stat = commit.isUncommitted ? undefined : mapCommitStats[commit.hash]}
+		<span class="changes" use:tooltip={stat ? changesTooltip(stat) : ''}>
+			{#if commit.isUncommitted}
+				<span class="muted">—</span>
+			{:else if stat}
+				{@const gauge = changesGauge(stat)}
+				<span class="gauge" style="width:{gauge.widthPct}%">
+					<span class="gauge-added" style="width:{gauge.addedPct}%"></span>
+				</span>
+				<span class="added">+{stat.insertions}</span>
+				<span class="removed">−{stat.deletions}</span>
+			{/if}
+		</span>
+	{/if}
+{/snippet}
+
 <svelte:window onmousemove={onResizeMove} onmouseup={() => (resizing = null)} />
 
 {#snippet chipBody(chip: RefChip, colour: string)}
@@ -647,6 +844,14 @@
 		</span>
 		<span class="hcell">
 			<span class="hlabel">Graph</span>
+			{#if pinnedRef}
+				<IconButton
+					name="pinned"
+					label="Jump to the pinned branch"
+					title="{pinnedRef} is pinned to the left — click to jump to it"
+					onclick={onjumpPinned}
+				/>
+			{/if}
 			<span class="grip"></span>
 		</span>
 		<span class="hcell">
@@ -658,9 +863,23 @@
 			therefore carries its handle on its left edge, and the decorative divider that used to
 			close the Description cell would now sit in the same gap as that handle.
 		-->
-		{#each LIST_OPTIONAL_COLUMNS as column (column.key)}
+		{#each listOrderedColumns as column (column.key)}
 			{#if columns[column.key]}
-				<span class="hcell">
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<span
+					class="hcell"
+					class:drop-column={draggedColumn !== null && draggedColumn !== column.key}
+					ondragover={(event) => {
+						if (draggedColumn === null || draggedColumn === column.key) return;
+						event.preventDefault();
+					}}
+					ondrop={(event) => {
+						event.preventDefault();
+						if (draggedColumn !== null && draggedColumn !== column.key)
+							onreorderColumn(draggedColumn, column.key);
+						draggedColumn = null;
+					}}
+				>
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<span
 						class="grip left resizable"
@@ -668,7 +887,17 @@
 						title="Drag to resize the {column.label} column"
 						onmousedown={(event) => startResize(column.key, event)}
 					></span>
-					<span class="hlabel">{column.label}</span>
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<span
+						class="hlabel movable"
+						draggable="true"
+						title="Drag onto another column to move it there"
+						ondragstart={(event) => {
+							draggedColumn = column.key;
+							event.dataTransfer?.setData('text/plain', column.label);
+						}}
+						ondragend={() => (draggedColumn = null)}>{column.label}</span
+					>
 				</span>
 			{/if}
 		{/each}
@@ -803,6 +1032,8 @@
 					class:selected={v.row.commit.hash === selectedHash || setSelected.has(v.row.commit.hash)}
 					class:compared={v.row.commit.hash === compareHash}
 					class:merge-muted={muteMerges && v.row.commit.parents.length > 1}
+					class:find-match={setFindMatches.has(v.row.commit.hash)}
+					class:find-current={v.row.commit.hash === findCurrent}
 					style="top:{v.index * ROW_H}px; height:{ROW_H}px; grid-template-columns:{gridTemplate};
 						padding-right:{SCROLL_GUTTER}px"
 					role="button"
@@ -899,9 +1130,15 @@
 							{#if ghost}
 								<!-- Not a chip: this ref is not *at* this commit, it is the line the commit is
 								     drawn on. A chip would claim the branch points here. -->
-								<span
+								<button
 									class="ghost"
-									use:tooltip={`On the ${ghost} line — no ref points at this commit`}>{ghost}</span
+									use:tooltip={ghost === currentBranch
+										? `On the ${ghost} line — no ref points at this commit`
+										: `On the ${ghost} line — double-click to check ${ghost} out`}
+									ondblclick={(event) => {
+										event.stopPropagation();
+										if (ghost !== currentBranch) oncheckoutBranch(ghost, null);
+									}}>{ghost}</button
 								>
 							{/if}
 						{/if}
@@ -919,34 +1156,11 @@
 								>{parsed.type}{parsed.scope ? `(${parsed.scope})` : ''}</span
 							>{/if}{subjectText(parsed)}
 					</span>
-					{#if columns.author}
-						<span class="muted author">
-							{#if v.row.commit.author.avatarUrl}
-								<img
-									class="avatar"
-									src={v.row.commit.author.avatarUrl}
-									alt=""
-									use:tooltip={{
-										text: authorTooltip(v.row.commit, dateType),
-										delay: AVATAR_TIP_DELAY,
-									}}
-								/>
-							{/if}
-							{v.row.commit.author.name}
-						</span>
-					{/if}
-					{#if columns.commit}
-						<span class="muted mono">
-							{v.row.commit.isUncommitted ? '*' : v.row.commit.hash.slice(0, 8)}
-						</span>
-					{/if}
-					{#if columns.date}
-						<span class="muted date">
-							{#if v.row.commit.isUncommitted}—{:else}{fmtDate(
-									dateType === 'author' ? v.row.commit.authoredAt : v.row.commit.committedAt
-								)}{/if}
-						</span>
-					{/if}
+					{#each listOrderedColumns as column (column.key)}
+						{#if columns[column.key]}
+							{@render optionalCell(column.key, v.row.commit)}
+						{/if}
+					{/each}
 				</div>
 			{/each}
 		</div>
@@ -1076,6 +1290,14 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
+	.hlabel.movable {
+		cursor: grab;
+	}
+	/* While a column label is being dragged, every other optional column is a place it can land. */
+	.hcell.drop-column {
+		outline: 1px dashed var(--vscode-focusBorder);
+		outline-offset: -2px;
+	}
 	/* Sits in the grid gap so the divider line lands exactly between two columns. */
 	.grip {
 		position: absolute;
@@ -1177,6 +1399,17 @@
 	.row.selected .muted {
 		color: inherit;
 	}
+	/* Under the selection: a selected match reads as selected, the find colour returns once it moves on. */
+	.row.find-match:not(.selected)::before {
+		background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+	}
+	.row.find-current:not(.selected)::before {
+		background: var(--vscode-editor-findMatchBackground, rgba(81, 92, 106, 0.8));
+	}
+	.row.find-current::before {
+		outline: 1px solid var(--vscode-editor-findMatchBorder, var(--gg-accent));
+		outline-offset: -1px;
+	}
 	/* On the highlight layer, so the compare marker traces the same inset rounded rect. */
 	.row.compared::before {
 		outline: 1px dashed var(--gg-accent);
@@ -1256,6 +1489,11 @@
 	}
 	/* No border, no background: a ghost has to read as "this line" rather than as one more ref. */
 	.ghost {
+		font: inherit;
+		color: inherit;
+		background: none;
+		border: none;
+		cursor: default;
 		display: inline-flex;
 		align-items: center;
 		height: var(--gg-hit);
@@ -1409,5 +1647,34 @@
 	.muted.date {
 		font-family: var(--vscode-editor-font-family, monospace);
 		font-size: 0.8em;
+	}
+	.changes {
+		display: flex;
+		align-items: center;
+		gap: var(--gg-space-1);
+		min-width: 0;
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-size: 0.8em;
+	}
+	/* The gauge takes what the counts leave, so a narrow column drops the bar before the numbers. */
+	.gauge {
+		flex: 0 1 auto;
+		max-width: 40%;
+		min-width: 3px;
+		height: 6px;
+		overflow: hidden;
+		border-radius: 3px;
+		background: var(--vscode-gitDecoration-deletedResourceForeground, #f44336);
+	}
+	.gauge-added {
+		display: block;
+		height: 100%;
+		background: var(--vscode-gitDecoration-addedResourceForeground, #4caf50);
+	}
+	.added {
+		color: var(--vscode-gitDecoration-addedResourceForeground, #4caf50);
+	}
+	.removed {
+		color: var(--vscode-gitDecoration-deletedResourceForeground, #f44336);
 	}
 </style>

@@ -142,4 +142,56 @@ describe('getFileDiff', () => {
 		expect(git.callsTo('diff-tree')).toHaveLength(1);
 		expect(git.callsTo('diff-index')).toHaveLength(0);
 	});
+
+	it('passes -w beside the context for every form of diff when whitespace is ignored', async () => {
+		const listRequests = [
+			{ path: 'a.txt', hash: 'abc', context: 3, ignoreWhitespace: true },
+			{ path: 'a.txt', fromHash: 'aaa', toHash: 'bbb', context: 3, ignoreWhitespace: true },
+			{ path: 'a.txt', context: 3, ignoreWhitespace: true },
+			{ path: 'a.txt', untracked: true, context: 3, ignoreWhitespace: true },
+		];
+		for (const request of listRequests) {
+			const git = fakeGit({
+				'diff-tree': MODIFIED_DIFF,
+				diff: MODIFIED_DIFF,
+				'diff-index': MODIFIED_DIFF,
+			});
+			await getFileDiff(git, '/repo', request);
+			const argv = git.listCalls.find((call) => call[0] !== 'rev-list') ?? [];
+			expect(argv[argv.indexOf('-U3') - 1]).toBe('-w');
+		}
+	});
+
+	it('leaves -w out by default', async () => {
+		const git = fakeGit({ 'diff-tree': MODIFIED_DIFF });
+		await getFileDiff(git, '/repo', { path: 'a.txt', hash: 'abc', context: 3 });
+		expect(git.callsTo('diff-tree')[0]).not.toContain('-w');
+	});
+
+	it('reads one side of a working-tree file with plumbing: index → disk, or HEAD → index', async () => {
+		const unstaged = fakeGit({ 'diff-files': MODIFIED_DIFF });
+		await getFileDiff(unstaged, '/repo', { path: 'a.txt', side: 'unstaged', context: 3 });
+		expect(unstaged.listCalls[0]).toEqual(['diff-files', '-p', '-U3', '--', 'a.txt']);
+
+		const staged = fakeGit({ 'diff-index': MODIFIED_DIFF });
+		await getFileDiff(staged, '/repo', { path: 'a.txt', side: 'staged', context: 3 });
+		expect(staged.listCalls[0]).toEqual([
+			'diff-index',
+			'--cached',
+			'-p',
+			'-U3',
+			'HEAD',
+			'--',
+			'a.txt',
+		]);
+	});
+
+	it('reads the staged side against the empty tree when there is no HEAD yet', async () => {
+		const git = fakeGit({ 'diff-index --cached -p -U3 4b825': MODIFIED_DIFF }).rejectOn(
+			'diff-index --cached -p -U3 HEAD',
+			"fatal: bad revision 'HEAD'"
+		);
+		const result = await getFileDiff(git, '/repo', { path: 'a.txt', side: 'staged', context: 3 });
+		expect(result.listHunks.length).toBeGreaterThan(0);
+	});
 });
