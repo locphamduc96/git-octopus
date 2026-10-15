@@ -1,9 +1,18 @@
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { GitProcessExecutor } from '../../adapters/process/gitProcessExecutor';
 import { createTempRepo, type TempRepo } from '../../test/tempRepo';
-import { getCommitDetails, getFileDiff, getRemoteNames } from './gitService';
+import {
+	getCommitDetails,
+	getCommits,
+	getComparison,
+	getFileDiff,
+	getRemoteNames,
+} from './gitService';
+import { UNCOMMITTED_HASH } from '@git-octopus/shared';
+import { getFileHistory } from './fileHistory';
+import { getBlame } from './blame';
 import { listCandidateRemotes } from './remoteOwnership';
 import { parseAheadBehind } from './checkoutPlan';
 
@@ -149,7 +158,10 @@ describe('git integration', () => {
 
 			await clone.commit('seed.txt', 'seed\n', 'seed');
 			await clone.git('remote', 'add', 'team/origin', upstreamA.cwd);
-			await clone.git('remote', 'add', 'team', upstreamB.cwd);
+			// git 2.54 refuses `remote add team` beside `team/origin`, but a clone set up by an older
+			// git or a hand-edited config still carries the pair — so it is written as such a config.
+			await clone.git('config', 'remote.team.url', upstreamB.cwd);
+			await clone.git('config', 'remote.team.fetch', '+refs/heads/*:refs/remotes/team/*');
 
 			await clone.git('fetch', 'team/origin');
 			const afterFirst = (await clone.git('rev-parse', 'refs/remotes/team/origin/main')).trim();
@@ -222,6 +234,104 @@ describe('git integration', () => {
 			);
 		} finally {
 			await merged.dispose();
+		}
+	});
+
+	it('compares a commit with the working tree, leaving out files whose content did not change', async () => {
+		const wt = await createTempRepo();
+		try {
+			await wt.commit('kept.txt', 'same\n', 'kept');
+			const base = await wt.commit('edited.txt', 'one\n', 'edited');
+			await writeFile(path.join(wt.cwd, 'edited.txt'), 'one\ntwo\n');
+			// Same content written again: the mtime moves, the content does not.
+			await writeFile(path.join(wt.cwd, 'kept.txt'), 'same\n');
+
+			const listFiles = await getComparison(executor, wt.cwd, base, UNCOMMITTED_HASH);
+			expect(listFiles).toEqual([{ status: 'M', path: 'edited.txt', additions: 1, deletions: 0 }]);
+
+			const diff = await getFileDiff(executor, wt.cwd, {
+				path: 'edited.txt',
+				fromHash: base,
+				toHash: UNCOMMITTED_HASH,
+				context: 3,
+			});
+			expect(diff.listHunks).toHaveLength(1);
+			// A read of the working tree must not have left an index lock behind or needed one.
+			expect(await wt.git('status', '--porcelain')).toContain('edited.txt');
+		} finally {
+			await wt.dispose();
+		}
+	});
+
+	it('restores a file as it was at a commit, staged', async () => {
+		const wt = await createTempRepo();
+		try {
+			const old = await wt.commit('notes.txt', 'first\n', 'first');
+			await wt.commit('notes.txt', 'second\n', 'second');
+			await executor.run(
+				['restore', `--source=${old}`, '--staged', '--worktree', '--', 'notes.txt'],
+				wt.cwd
+			);
+			expect(await readFile(path.join(wt.cwd, 'notes.txt'), 'utf8')).toBe('first\n');
+			expect((await wt.git('status', '--porcelain')).trim()).toBe('M  notes.txt');
+		} finally {
+			await wt.dispose();
+		}
+	});
+
+	it('follows a file across a rename, and blames each line on the commit that wrote it', async () => {
+		const repo2 = await createTempRepo();
+		try {
+			const first = await repo2.commit('old.txt', 'one\ntwo\n', 'add old');
+			await repo2.git('mv', 'old.txt', 'new.txt');
+			await repo2.git('commit', '-m', 'rename');
+			const third = await repo2.commit('new.txt', 'one\ntwo\nthree\n', 'append three');
+
+			const history = await getFileHistory(executor, repo2.cwd, 'new.txt');
+			expect(history.truncated).toBe(false);
+			expect(history.listEntries.map((entry) => [entry.subject, entry.status, entry.path])).toEqual(
+				[
+					['append three', 'M', 'new.txt'],
+					['rename', 'R', 'new.txt'],
+					['add old', 'A', 'old.txt'],
+				]
+			);
+
+			const blame = await getBlame(executor, repo2.cwd, 'new.txt');
+			expect(blame.listLines).toEqual(['one', 'two', 'three']);
+			expect(blame.listLineHashes).toEqual([first, first, third]);
+
+			// At the first commit the file still had its old name.
+			const atFirst = await getBlame(executor, repo2.cwd, 'old.txt', first);
+			expect(atFirst.listLines).toEqual(['one', 'two']);
+		} finally {
+			await repo2.dispose();
+		}
+	});
+
+	it('leaves a hidden branch out of the walk, keeping the history it shares', async () => {
+		const repo3 = await createTempRepo();
+		try {
+			await repo3.commit('a.txt', 'a\n', 'shared');
+			await repo3.git('checkout', '-b', 'noisy/branch');
+			await repo3.commit('b.txt', 'b\n', 'only on noisy');
+			await repo3.git('checkout', 'main');
+			await repo3.commit('c.txt', 'c\n', 'on main');
+
+			const listCommits = await getCommits(
+				executor,
+				repo3.cwd,
+				50,
+				{
+					branch: null,
+					showRemoteBranches: false,
+					hiddenRefs: { listBranches: ['noisy/branch'], listRemotes: [], listTags: [] },
+				},
+				true
+			);
+			expect(listCommits.map((commit) => commit.subject)).toEqual(['on main', 'shared']);
+		} finally {
+			await repo3.dispose();
 		}
 	});
 });

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Stand-in for the Claude Code CLI in E2E runs, first on PATH: answers --version, and one `-p` call
+# with a fixed explanation. The prompt it was handed is kept where the test can read it.
+if [ "$1" = "--version" ]; then
+	echo "0.0.0-git-octopus-e2e"
+	exit 0
+fi
+prompt=$(cat)
+if [ -n "$GIT_OCTOPUS_FAKE_AGENT_LOG" ]; then
+	printf '%s' "$prompt" > "$GIT_OCTOPUS_FAKE_AGENT_LOG"
+fi
+printf '%s\n' '{"type":"result","result":"## Summary\nFake explanation from the e2e agent.\n\n## Changes\n- the files in the prompt"}'

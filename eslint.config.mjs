@@ -4,7 +4,17 @@ import svelte from 'eslint-plugin-svelte';
 
 export default tseslint.config(
 	{
-		ignores: ['**/dist/**', '**/media/**', '**/node_modules/**', '**/*.vsix'],
+		ignores: [
+			'**/dist/**',
+			'**/media/**',
+			'**/node_modules/**',
+			'**/*.vsix',
+			// E2E: the downloaded VS Code, and what a run leaves behind.
+			'**/.vscode-test/**',
+			'**/playwright-report/**',
+			'**/test-results/**',
+			'**/.cache/**',
+		],
 	},
 	js.configs.recommended,
 	...tseslint.configs.recommended,
@@ -70,6 +80,14 @@ export default tseslint.config(
 					],
 				},
 			],
+		},
+	},
+	{
+		// Playwright reads a hook's first argument as a fixture list and demands the destructuring
+		// form, so a hook that needs only `testInfo` has to write `({}, testInfo)`.
+		files: ['packages/e2e/**/*.ts'],
+		rules: {
+			'no-empty-pattern': 'off',
 		},
 	},
 	{

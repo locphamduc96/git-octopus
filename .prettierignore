@@ -1,0 +1,5 @@
+# E2E: the downloaded VS Code, its profile, and what a run leaves behind.
+**/.vscode-test/
+**/.cache/
+**/playwright-report/
+**/test-results/
