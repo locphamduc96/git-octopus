@@ -1,4 +1,4 @@
-import type { BlameCommit, DiffHunk, WorkingDiffSide } from '@git-octopus/shared';
+import type { BlameCommit, DiffHunk, FileDiffMessage, WorkingDiffSide } from '@git-octopus/shared';
 import { postToHost } from '../bridge';
 import { buildDiffKey, isCacheableDiffKey, rightRevision } from '../diffKey';
 import { onHostType, onRepoReset } from '../hostRouter';
@@ -33,6 +33,16 @@ export interface BlameData {
 let target = $state<DiffTargetState | null>(null);
 let listHunks = $state<DiffHunk[]>([]);
 let notice = $state<string | null>(null);
+export type ImageDiff = NonNullable<FileDiffMessage['image']>;
+export type LfsDiff = NonNullable<FileDiffMessage['lfs']>;
+
+/** An image's sides, instead of hunks; never cached — a data URI is too heavy to keep around. */
+let image = $state<ImageDiff | null>(null);
+/** What an LFS file's pointers name on each side, instead of the pointer text. */
+let lfsSides = $state<LfsDiff | null>(null);
+export type SubmoduleDiffView = NonNullable<FileDiffMessage['submodule']>;
+/** A submodule's pointer move, instead of its two "Subproject commit" lines. */
+let submodule = $state<SubmoduleDiffView | null>(null);
 let loading = $state(false);
 /** True only while the diff is animating away — it is still drawn, so it must stop taking clicks. */
 let closing = $state(false);
@@ -55,6 +65,9 @@ const FULL_CONTEXT = 1_000_000;
 
 function request(next: DiffTargetState): void {
 	blame = null;
+	image = null;
+	lfsSides = null;
+	submodule = null;
 	if (next.blame) {
 		requestBlame(next);
 		return;
@@ -112,7 +125,7 @@ function refresh(): void {
 }
 
 onHostType('fileDiff', (message) => {
-	if (isCacheableDiffKey(message.key)) {
+	if (isCacheableDiffKey(message.key) && !message.image && !message.lfs && !message.submodule) {
 		mapDiffCache.set(message.key, { listHunks: message.listHunks, notice: message.notice });
 	}
 	// A reply for a file the user has already stepped past would otherwise overwrite the one they
@@ -120,6 +133,9 @@ onHostType('fileDiff', (message) => {
 	if (message.key !== key) return;
 	listHunks = message.listHunks;
 	notice = message.notice ?? null;
+	image = message.image ?? null;
+	lfsSides = message.lfs ?? null;
+	submodule = message.submodule ?? null;
 	loading = false;
 });
 
@@ -170,6 +186,15 @@ export const diffView = {
 	},
 	get notice(): string | null {
 		return notice;
+	},
+	get image(): ImageDiff | null {
+		return image;
+	},
+	get lfs(): LfsDiff | null {
+		return lfsSides;
+	},
+	get submodule(): SubmoduleDiffView | null {
+		return submodule;
 	},
 	get loading(): boolean {
 		return loading;

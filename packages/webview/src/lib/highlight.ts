@@ -11,6 +11,8 @@ export type ColorThemeKind = 'dark' | 'light';
 export interface HighlightToken {
 	content: string;
 	color?: string;
+	/** Inside the part of a changed line that differs from its counterpart (see `intraline`). */
+	emph?: boolean;
 }
 
 type LangLoader = () => Promise<{ default: LanguageRegistration[] }>;

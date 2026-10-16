@@ -1,4 +1,11 @@
-import type { Commit, CommitStat, GraphRow, Ref, UpstreamTracking } from '@git-octopus/shared';
+import type {
+	Commit,
+	CommitStat,
+	GraphRow,
+	Ref,
+	SignatureStatus,
+	UpstreamTracking,
+} from '@git-octopus/shared';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import GraphView from './GraphView.svelte';
@@ -47,10 +54,13 @@ function mount(
 		onreorderColumn?: (from: string, to: string) => void;
 		mapCommitStats?: Record<string, CommitStat>;
 		onneedStats?: (listHashes: string[]) => void;
+		signature?: SignatureStatus;
 	} = {}
 ) {
+	const only = row(over.refs ?? [{ kind: 'branch', name: 'main' }]);
+	if (over.signature) only.commit.signature = over.signature;
 	render(GraphView, {
-		rows: [row(over.refs ?? [{ kind: 'branch', name: 'main' }])],
+		rows: [only],
 		selectedHash: null,
 		listSelectedHashes: [],
 		currentBranch: 'main',
@@ -300,5 +310,18 @@ describe('GraphView Changes column', () => {
 		);
 		expect(screen.getByText('+12')).toBeTruthy();
 		expect(screen.getByText('−3')).toBeTruthy();
+	});
+});
+
+describe('signature badge', () => {
+	it('marks a signed commit, coloured and explained by its status', () => {
+		mount({}, { signature: 'bad' });
+		const badge = screen.getByRole('img', { name: /Bad signature/ });
+		expect(badge.closest('.signature')?.classList.contains('bad')).toBe(true);
+	});
+
+	it('draws nothing for a commit with no signature', () => {
+		mount({});
+		expect(document.querySelector('.signature')).toBeNull();
 	});
 });

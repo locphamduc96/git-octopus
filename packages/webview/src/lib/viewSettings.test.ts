@@ -77,6 +77,7 @@ describe('settingsRequireReload', () => {
 		'showTags',
 		'showStashes',
 		'showUncommitted',
+		'showSignatures',
 	];
 
 	function changed<K extends keyof ViewSettings>(key: K, value: ViewSettings[K]): ViewSettings {

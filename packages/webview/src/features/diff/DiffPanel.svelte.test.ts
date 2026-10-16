@@ -120,7 +120,8 @@ describe('DiffPanel layouts', () => {
 
 	it('draws a replaced line as one row with the old and the new side by side', () => {
 		const { container } = mount({ listHunks: [replaced], layout: 'split' });
-		const row = screen.getByText(/old text/).closest('.row');
+		// The changed word is its own span, so the row is found from its half, not from one text node.
+		const row = container.querySelector('.half.del')?.closest('.row');
 		expect(row?.classList.contains('pair')).toBe(true);
 		expect(row?.querySelector('.half.del')?.textContent).toContain('old text');
 		expect(row?.querySelector('.half.add')?.textContent).toContain('new text');
@@ -265,6 +266,42 @@ describe('DiffPanel picking lines', () => {
 		]);
 	});
 
+	it('picks lines side by side too, a Shift range staying on its own half', async () => {
+		const twoByTwo: DiffHunk = {
+			oldStart: 1,
+			newStart: 1,
+			heading: '',
+			listLines: [
+				{ kind: 'del', text: 'd1', oldLine: 1, newLine: null },
+				{ kind: 'del', text: 'd2', oldLine: 2, newLine: null },
+				{ kind: 'add', text: 'a1', oldLine: null, newLine: 1 },
+				{ kind: 'add', text: 'a2', oldLine: null, newLine: 2 },
+			],
+		};
+		const onstageLines = vi.fn();
+		const { container } = mount({
+			listHunks: [twoByTwo],
+			layout: 'split',
+			staging: 'unstaged',
+			onstageLines,
+		});
+		const half = (row: number, side: 'del' | 'add') =>
+			container.querySelectorAll(`.half.${side} button.gutter`)[row] as HTMLButtonElement;
+		// Both old lines by a range down the left half.
+		half(0, 'del').click();
+		half(1, 'del').dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+		await Promise.resolve();
+		expect(container.querySelectorAll('.half.picked')).toHaveLength(2);
+		// Shift on the other half picks that one line, not a range across halves.
+		half(1, 'add').dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+		(await screen.findByText('Stage 3 lines')).click();
+		expect(onstageLines).toHaveBeenCalledWith('stage', [
+			{ kind: 'del', oldLine: 1, newLine: null, text: 'd1' },
+			{ kind: 'del', oldLine: 2, newLine: null, text: 'd2' },
+			{ kind: 'add', oldLine: null, newLine: 2, text: 'a2' },
+		]);
+	});
+
 	it('does not offer picking while whitespace is ignored', () => {
 		const { container } = mount({
 			listHunks: [change],
@@ -272,5 +309,28 @@ describe('DiffPanel picking lines', () => {
 			ignoreWhitespace: true,
 		});
 		expect(pickButtons(container)).toHaveLength(0);
+	});
+
+	it('marks the words that changed inside an edited line, and only with the setting on', () => {
+		const edit: DiffHunk = {
+			oldStart: 1,
+			newStart: 1,
+			heading: '',
+			listLines: [
+				{ kind: 'del', text: 'export const combo = { value: 0 };', oldLine: 2, newLine: null },
+				{
+					kind: 'add',
+					text: 'export const combo = { value: 0, best: 0 };',
+					oldLine: null,
+					newLine: 2,
+				},
+			],
+		};
+		const { container, unmount } = mount({ listHunks: [edit] });
+		const listMarked = [...container.querySelectorAll('.emph')].map((node) => node.textContent);
+		expect(listMarked).toEqual([', best: 0']);
+		unmount();
+		const off = mount({ listHunks: [edit], intraline: false });
+		expect(off.container.querySelectorAll('.emph')).toHaveLength(0);
 	});
 });

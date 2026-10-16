@@ -1,5 +1,7 @@
 <script lang="ts">
 	import RemotesSection from './RemotesSection.svelte';
+	import SigningSection from './SigningSection.svelte';
+	import { signing } from '../../lib/stores/signing.svelte';
 	import WorktreesSection from './WorktreesSection.svelte';
 	import { worktrees } from '../../lib/stores/worktrees.svelte';
 	import { remotes } from '../../lib/stores/remotes.svelte';
@@ -68,13 +70,15 @@
 		onchange({ ...settings, [key]: value });
 	}
 
-	type Tab = 'general' | 'graph' | 'commits' | 'ai' | 'identity' | 'remotes' | 'worktrees';
+	type Tab =
+		'general' | 'graph' | 'commits' | 'ai' | 'identity' | 'signing' | 'remotes' | 'worktrees';
 	const listTabs: { id: Tab; label: string; icon: string }[] = [
 		{ id: 'general', label: 'General', icon: 'settings-gear' },
 		{ id: 'graph', label: 'Graph', icon: 'git-branch' },
 		{ id: 'commits', label: 'Commits & Dates', icon: 'git-commit' },
 		{ id: 'ai', label: 'AI commit', icon: 'sparkle' },
 		{ id: 'identity', label: 'Identity', icon: 'account' },
+		{ id: 'signing', label: 'Signing', icon: 'verified' },
 		{ id: 'remotes', label: 'Remotes', icon: 'cloud' },
 		{ id: 'worktrees', label: 'Worktrees', icon: 'folder-library' },
 	];
@@ -174,6 +178,7 @@
 	function openTab(next: Tab): void {
 		tab = next;
 		if (next === 'ai') aiCommit.loadInventory();
+		if (next === 'signing') signing.load();
 		if (next === 'remotes') remotes.load();
 		if (next === 'worktrees') worktrees.load();
 	}
@@ -267,6 +272,19 @@
 								<option value="editor">VS Code editor</option>
 								<option value="panel">Git Octopus panel</option>
 							</select>
+						</div>
+						<div class="row">
+							<span class="row-label">
+								Highlight changed words
+								<span class="note">
+									Inside an edited line, mark the words that changed — not only the whole line.
+								</span>
+							</span>
+							<input
+								type="checkbox"
+								checked={settings.diffIntraline}
+								onchange={(event) => set('diffIntraline', event.currentTarget.checked)}
+							/>
 						</div>
 						<div class="row">
 							<span class="row-label">
@@ -670,6 +688,11 @@
 							/>
 						</div>
 					</section>
+				{:else if tab === 'signing'}
+					<SigningSection
+						showSignatures={settings.showSignatures}
+						onshowSignatures={(on) => set('showSignatures', on)}
+					/>
 				{:else if tab === 'remotes'}
 					<RemotesSection />
 				{:else}

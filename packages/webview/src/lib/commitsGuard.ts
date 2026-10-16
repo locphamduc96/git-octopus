@@ -28,6 +28,7 @@ export function buildHostFilters(
 		showTags: settings.showTags,
 		showStashes: settings.showStashes,
 		showUncommitted: settings.showUncommitted,
+		showSignatures: settings.showSignatures,
 	};
 }
 
@@ -57,7 +58,8 @@ export function commitsReplyMatches(
 		(echoed.commitOrder ?? 'date') === wanted.commitOrder &&
 		(echoed.showTags ?? true) === wanted.showTags &&
 		(echoed.showStashes ?? true) === wanted.showStashes &&
-		(echoed.showUncommitted ?? true) === wanted.showUncommitted
+		(echoed.showUncommitted ?? true) === wanted.showUncommitted &&
+		(echoed.showSignatures ?? false) === (wanted.showSignatures ?? false)
 	);
 }
 

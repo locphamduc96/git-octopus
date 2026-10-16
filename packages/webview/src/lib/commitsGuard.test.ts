@@ -15,6 +15,7 @@ describe('buildHostFilters', () => {
 			showTags: false,
 			showStashes: false,
 			showUncommitted: false,
+			showSignatures: true,
 		});
 		expect(filters).toEqual({
 			branch: null,
@@ -26,6 +27,7 @@ describe('buildHostFilters', () => {
 			showTags: false,
 			showStashes: false,
 			showUncommitted: false,
+			showSignatures: true,
 		});
 	});
 
@@ -65,6 +67,7 @@ describe('commitsReplyMatches', () => {
 			{ showTags: !wanted.showTags },
 			{ showStashes: !wanted.showStashes },
 			{ showUncommitted: !wanted.showUncommitted },
+			{ showSignatures: !wanted.showSignatures },
 		];
 		for (const stale of listStale) {
 			expect(commitsReplyMatches({ filters: { ...wanted, ...stale } }, wanted, 300)).toBe(false);

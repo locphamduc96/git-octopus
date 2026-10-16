@@ -50,3 +50,31 @@ async function isRepo(dir: string): Promise<boolean> {
 		.then(() => true)
 		.catch(() => false);
 }
+
+/**
+ * The repositories, each followed by its checked-out submodules — and theirs, `maxDepth` levels
+ * down. The scan above stops at the first `.git` it meets, so a submodule is only ever found
+ * through the repository that records it. One that was never initialised has no `.git` of its
+ * own, nothing to show, and is left out.
+ */
+export async function withSubmodules(
+	listRepos: RepoInfo[],
+	listSubPaths: (repoPath: string) => Promise<string[]>,
+	maxDepth = 2
+): Promise<RepoInfo[]> {
+	const listResult: RepoInfo[] = [];
+	async function add(repo: RepoInfo, depth: number): Promise<void> {
+		listResult.push(repo);
+		if (depth >= maxDepth) return;
+		for (const subPath of await listSubPaths(repo.path)) {
+			const full = path.join(repo.path, subPath);
+			if (!(await isRepo(full))) continue;
+			await add(
+				{ path: full, name: `${repo.name} › ${subPath}`, parent: repo.path, subPath },
+				depth + 1
+			);
+		}
+	}
+	for (const repo of listRepos) await add(repo, 0);
+	return listResult;
+}

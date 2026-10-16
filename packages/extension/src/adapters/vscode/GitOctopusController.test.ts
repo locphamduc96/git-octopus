@@ -383,3 +383,37 @@ describe('committing with push after', () => {
 		expect(view.webview.postedOfType('commitOutcome')).toEqual([]);
 	});
 });
+
+describe('graph keybindings', () => {
+	beforeEach(() => resetRecorded());
+
+	const contextWrites = () =>
+		recorded.listCommands
+			.filter((entry) => entry.command === 'setContext')
+			.map((entry) => entry.listArgs);
+
+	it('scopes the graph keybindings to a focused view through a context key', async () => {
+		const controller = makeController();
+		const view = await attachView(controller);
+		await view.webview.receive({ type: 'viewFocus', focused: true });
+		await view.webview.receive({ type: 'viewFocus', focused: false });
+		expect(contextWrites()).toEqual([
+			['gitOctopus.graphFocused', true],
+			['gitOctopus.graphFocused', false],
+		]);
+	});
+
+	it('hands a keybinding to the focused view only, and drops the focus when a view closes', async () => {
+		const controller = makeController();
+		const focused = await attachView(controller);
+		const other = await attachView(controller);
+		await focused.webview.receive({ type: 'viewFocus', focused: true });
+		controller.sendHostCommand('createBranch');
+		expect(focused.webview.postedOfType('hostCommand')).toEqual([
+			{ type: 'hostCommand', command: 'createBranch' },
+		]);
+		expect(other.webview.postedOfType('hostCommand')).toEqual([]);
+		focused.dispose();
+		expect(contextWrites().at(-1)).toEqual(['gitOctopus.graphFocused', false]);
+	});
+});

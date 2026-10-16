@@ -28,7 +28,7 @@ export type RepoNode =
 	  }
 	| { kind: 'tag'; name: string; hash: string }
 	| { kind: 'stash'; name: string; hash: string; message: string }
-	| { kind: 'submodule'; path: string; hash: string };
+	| { kind: 'submodule'; path: string; hash: string; initialized: boolean };
 
 /**
  * Sidebar tree: Branches / Remotes / Tags / Stashes / Submodules, the Fork-style repository
@@ -225,8 +225,18 @@ export class RepoTreeProvider implements vscode.TreeDataProvider<RepoNode> {
 			case 'submodule': {
 				const item = new vscode.TreeItem(node.path);
 				item.iconPath = new vscode.ThemeIcon('file-submodule');
-				item.description = node.hash;
-				item.tooltip = `${node.path} @ ${node.hash}`;
+				if (node.initialized) {
+					item.description = node.hash;
+					item.tooltip = `${node.path} @ ${node.hash} — click to open its graph`;
+					item.command = {
+						command: 'git-octopus.tree.openSubmodule',
+						title: 'Open Submodule',
+						arguments: [node],
+					};
+				} else {
+					item.description = 'not checked out';
+					item.tooltip = `${node.path} is not checked out — run “git submodule update --init ${node.path}”`;
+				}
 				item.contextValue = 'submodule';
 				return item;
 			}

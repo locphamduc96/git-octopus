@@ -72,7 +72,29 @@ describe('WorkingTreeService discard', () => {
 
 		expect(await new WorkingTreeService(git).run(discard(), CWD, no)).toBe(false);
 
-		expect(git.listCalls).toHaveLength(0);
+		// The one read that decides whether the question is asked at all.
+		expect(git.listCalls).toEqual([['ls-files', '--stage', '--', 'src/a.ts']]);
+	});
+
+	it('refuses a submodule before asking anything, and runs nothing that writes', async () => {
+		const git = new FakeGit({
+			'ls-files --stage': `160000 ${'a'.repeat(40)} 0\tlibs/engine\n`,
+		});
+		let asked = false;
+		const prompt: UserPrompt = {
+			...YES,
+			confirm: () => {
+				asked = true;
+				return Promise.resolve(true);
+			},
+		};
+
+		expect(await new WorkingTreeService(git).run(discard('libs/engine'), CWD, prompt)).toBe(false);
+
+		expect(asked).toBe(false);
+		expect(git.ran('checkout')).toBe(false);
+		expect(git.ran('clean')).toBe(false);
+		expect(recorded.listWarnings.join('\n')).toMatch(/submodule update -- libs\/engine/);
 	});
 });
 

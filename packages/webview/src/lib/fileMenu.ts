@@ -15,6 +15,7 @@ export type LocalFileMenuId =
 	| 'openFile'
 	| 'openFileAtRev'
 	| 'restoreFromCommit'
+	| 'applyFromStash'
 	| 'fileHistory'
 	| 'blame'
 	| 'copyPath'
@@ -29,6 +30,8 @@ export interface FileMenuOptions {
 	deleted?: boolean;
 	/** Git does not track the file yet, so it has no history and no blame. */
 	untracked?: boolean;
+	/** The commit is a stash entry: its files come back one at a time, without touching the index. */
+	stash?: boolean;
 }
 
 /** Items for the menu that opens on right-clicking a file, in the order they are shown. */
@@ -43,7 +46,11 @@ export function buildFileMenu(
 		listItems.push({ id: 'openFile', label: 'Open File' });
 		if (options.atRevision) {
 			listItems.push({ id: 'openFileAtRev', label: 'Open File at this Commit' });
-			listItems.push({ id: 'restoreFromCommit', label: 'Restore File from this Commit…' });
+			listItems.push(
+				options.stash
+					? { id: 'applyFromStash', label: 'Apply This File from Stash' }
+					: { id: 'restoreFromCommit', label: 'Restore File from this Commit…' }
+			);
 		}
 	}
 

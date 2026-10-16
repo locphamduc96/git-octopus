@@ -9,6 +9,8 @@ ROOT="$1"
 [ -n "$ROOT" ] || { echo "usage: review-repo.sh <ROOT>" >&2; exit 2; }
 mkdir -p "$ROOT"
 export GIT_MERGE_AUTOEDIT=no
+# The fixture's LFS files are bare pointers with no object behind them: never try to download one.
+export GIT_LFS_SKIP_SMUDGE=1
 
 mkgit() {
 	git init -q --initial-branch=main "$1"
@@ -41,6 +43,7 @@ board_lines() {
 # 088: lịch sử qua đổi tên + blame nhiều commit
 mkdir -p src
 printf '# Rhythm review\n\nTitle line kept for the conflict test.\n' > README.md
+printf '*.bin filter=lfs diff=lfs merge=lfs -text\n' > .gitattributes
 printf 'export const SPEED = 1;\nexport const LANES = 4;\n' > src/constants.ts
 board_lines 0 > src/scoreboard.ts
 printf 'export function pad(n: number) {\n  return String(n).padStart(6, "0");\n}\n' > src/format.ts
@@ -84,6 +87,19 @@ echo "real" > tidy.txt && rcommit . "feat: tidy the hud"
 echo "oops" >> tidy.txt && rcommit . "fixup typo"
 echo "wip" > wip.txt && rcommit . "wip"
 echo "more" >> tidy.txt && rcommit . "feat: tidy the menu"
+
+# 105: ảnh đổi giữa hai commit (PNG 1×1 đỏ rồi xanh) — nhánh riêng, không xê dịch main
+git checkout -q -b feature/art main
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' | base64 --decode > logo.png
+rcommit . "art: add the logo"
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' | base64 --decode > logo.png
+rcommit . "art: recolour the logo"
+# 111: một file LFS (chỉ pointer) đổi bản
+lfs_pointer() { printf 'version https://git-lfs.github.com/spec/v1\noid sha256:%s\nsize %s\n' "$1" "$2"; }
+lfs_pointer "$(printf 'a%.0s' $(seq 1 64))" 1048576 > music.bin
+rcommit . "art: add the music"
+lfs_pointer "$(printf 'b%.0s' $(seq 1 64))" 2621440 > music.bin
+rcommit . "art: new mix"
 
 # 094: nhánh local để kéo thả push / reset
 git checkout -q -b feature/push-me main

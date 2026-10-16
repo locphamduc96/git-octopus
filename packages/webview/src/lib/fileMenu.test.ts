@@ -56,4 +56,10 @@ describe('buildFileMenu', () => {
 			separatorBefore: false,
 		});
 	});
+
+	it('offers a stash file back on its own instead of restoring it', () => {
+		const ids = buildFileMenu({ atRevision: true, stash: true }).map((item) => item.id);
+		expect(ids).toContain('applyFromStash');
+		expect(ids).not.toContain('restoreFromCommit');
+	});
 });

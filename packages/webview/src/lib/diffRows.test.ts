@@ -2,6 +2,7 @@ import type { DiffHunk, DiffLine } from '@git-octopus/shared';
 import { describe, expect, it } from 'vitest';
 import {
 	buildDiffRows,
+	mapLinePartners,
 	isChangeRow,
 	prefixLines,
 	rowAtLine,
@@ -120,5 +121,31 @@ describe('computeRulerMarks with weights', () => {
 	it('stacks a both-sided row as a deletion over an addition', () => {
 		const listMarks = computeRulerMarks(['both', 'context'], [10, 10]);
 		expect(listMarks.map((mark) => mark.kind)).toEqual(['del', 'add']);
+	});
+});
+
+describe('mapLinePartners', () => {
+	it('pairs each deletion with the addition at the same place in the run that follows', () => {
+		const line = (kind: 'add' | 'del' | 'context', text: string) => ({
+			kind,
+			text,
+			oldLine: null,
+			newLine: null,
+		});
+		const mapPartners = mapLinePartners([
+			{
+				oldStart: 1,
+				newStart: 1,
+				heading: '',
+				listLines: [line('context', 'a'), line('del', 'b'), line('del', 'c'), line('add', 'B')],
+			},
+			{ oldStart: 9, newStart: 9, heading: '', listLines: [line('del', 'x'), line('add', 'X')] },
+		]);
+		expect([...mapPartners]).toEqual([
+			[1, 3],
+			[3, 1],
+			[4, 5],
+			[5, 4],
+		]);
 	});
 });

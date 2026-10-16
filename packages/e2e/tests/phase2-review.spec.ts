@@ -27,9 +27,20 @@ async function openWorking(section_: 'Changes' | 'Staged Changes', name: string)
 	await expect(diff(s).locator('.row.add, .row.pair').first()).toBeVisible();
 }
 
-test('2.1 the diff goes side by side, wraps, and ignores whitespace', async () => {
+test('2.1 the diff marks changed words, goes side by side, wraps, and ignores whitespace', async () => {
 	await openWorking('Changes', 'board.ts');
 	const view = diff(s);
+	// 104: inside the edited line, only the words that changed are marked.
+	// Syntax colours may cut a marked run into several spans, so the run is read joined.
+	const marked = (text: string) =>
+		view.locator('.row.add', { hasText: text }).locator('.emph').allTextContents();
+	await expect.poll(async () => (await marked('best: 0')).join('')).toBe(', best: 0');
+	await expect
+		.poll(async () => (await marked('lorem ipsum')).join(''))
+		.toContain('deliberately long');
+	await test
+		.info()
+		.attach('intraline.png', { body: await s.page.screenshot(), contentType: 'image/png' });
 	await view.getByRole('button', { name: 'Side by side' }).click();
 	await expect(view.locator('.row.pair:has(.half.del):has(.half.add)').first()).toBeVisible();
 	await view.getByRole('button', { name: 'Side by side' }).click();
@@ -84,6 +95,25 @@ test('2.2 lines and hunks are staged, unstaged and discarded on their own', asyn
 	await answer(s, 'Discard');
 	await eventually(() => s.git('diff', '--', 'src/board.ts'), /best: 0/);
 	expect(readFileSync(path.join(s.repo, 'src/board.ts'), 'utf8')).not.toContain('lorem ipsum');
+});
+
+test('2.2b lines are picked side by side as well', async () => {
+	await openWorking('Changes', 'board.ts');
+	const view = diff(s);
+	await view.getByRole('button', { name: 'Side by side' }).click();
+	await view
+		.locator('.half.del', { hasText: 'combo = { value: 0 };' })
+		.locator('button.gutter')
+		.click();
+	await view.locator('.half.add', { hasText: 'best: 0' }).locator('button.gutter').click();
+	await view.getByRole('button', { name: 'Stage 2 lines' }).click();
+	await eventually(
+		() => s.git('diff', '--cached'),
+		/\+export const combo = \{ value: 0, best: 0 \};/
+	);
+	expect(s.git('diff', '--cached')).toContain('-export const combo = { value: 0 };');
+	await view.getByRole('button', { name: 'Side by side' }).click();
+	s.git('restore', '--staged', '--', 'src/board.ts');
 });
 
 test('2.3 a commit compares with the working tree, from the menu or by Ctrl/Cmd+click', async () => {
@@ -143,4 +173,38 @@ test('2.6 one file is stashed and the rest stays', async () => {
 	await eventually(() => s.git('stash', 'list'), /todo/);
 	expect(s.git('status', '--porcelain')).not.toContain('notes/');
 	expect(s.git('status', '--porcelain')).toContain('src/board.ts');
+});
+
+test('2.6b one file comes back out of the stash, untracked as it was', async () => {
+	await closeDiff(s);
+	await row(s, 'On main: todo').click();
+	await menu(s, file(s.graph.locator('body'), 'todo.md'), 'Apply This File from Stash');
+	await eventually(() => s.git('status', '--porcelain'), /^\?\? notes\/$/m);
+	expect(s.git('stash', 'list')).toContain('todo');
+});
+
+test('2.7 an image shows its old and new pixels instead of "binary file"', async () => {
+	await closeDiff(s);
+	await row(s, 'art: recolour the logo').click();
+	await file(s.graph.locator('body'), 'logo.png').locator('button.open').click();
+	await expect(s.graph.getByAltText('Before')).toBeVisible();
+	await expect(s.graph.getByAltText('After')).toBeVisible();
+	await expect(s.graph.locator('.images .meta').first()).toContainText('1 × 1 px');
+	await test
+		.info()
+		.attach('image-diff.png', { body: await s.page.screenshot(), contentType: 'image/png' });
+	await s.graph.getByRole('radio', { name: 'Overlay' }).click();
+	await expect(s.graph.getByLabel('Show the new image over the old')).toBeVisible();
+});
+
+test('2.8 a file LFS stores is marked, and its diff names the objects, not the pointer text', async () => {
+	await closeDiff(s);
+	await row(s, 'art: new mix').click();
+	const music = file(s.graph.locator('body'), 'music.bin');
+	await expect(music.locator('.lfs')).toHaveText('LFS');
+	await music.locator('button.open').click();
+	const card = s.graph.getByRole('region', { name: 'Git LFS object' });
+	await expect(card).toContainText('1.0 MB');
+	await expect(card).toContainText('2.5 MB');
+	await expect(card).toContainText('oid bbbbbbbbbbbb');
 });

@@ -52,6 +52,7 @@
 		onopenCompareDiff,
 		onopenFile,
 		onrestoreFile,
+		onapplyFromStash,
 		history,
 		onfileHistory,
 		onblame,
@@ -99,6 +100,8 @@
 		onopenFile: (path: string, hash?: string) => void;
 		/** Put the file back as it was at `hash`, staged. */
 		onrestoreFile: (path: string, hash: string) => void;
+		/** Bring one file of a stash back into the working tree; `hash` is where its content lives. */
+		onapplyFromStash: (path: string, hash: string) => void;
 		/** The file history on show in `history` mode, or null. */
 		history: {
 			path: string;
@@ -169,9 +172,13 @@
 			case 'openFile':
 				return onopenFile(file.path);
 			case 'openFileAtRev':
-				return onopenFile(file.path, details?.hash);
+				return onopenFile(file.path, file.revision ?? details?.hash);
 			case 'restoreFromCommit':
 				if (details) onrestoreFile(file.path, details.hash);
+				return;
+			case 'applyFromStash':
+				// A file untracked when stashed lives in the stash's third parent, not the stash itself.
+				if (details) onapplyFromStash(file.path, file.revision ?? details.hash);
 				return;
 			case 'fileHistory':
 				return onfileHistory(file.path, panelRevision());
@@ -356,6 +363,7 @@
 			atRevision: mode === 'commit' && details !== null,
 			deleted: menu.file.status === 'D',
 			untracked: menu.file.status === '?',
+			stash: mode === 'commit' && details?.stash === true,
 		})}
 		onselect={runMenu}
 		onclose={() => (menu = null)}

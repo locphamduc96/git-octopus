@@ -14,6 +14,7 @@ import { InteractiveRebaseService } from './InteractiveRebaseService.js';
 import { HistoryRewriter } from './HistoryRewriter.js';
 import { WorktreeService } from './WorktreeService.js';
 import { getWorktrees } from '../../core/git/worktrees.js';
+import { getCommitDetails } from '../../core/git/gitService.js';
 import { recorded } from '../../test/vscodeStub.js';
 
 const YES: UserPrompt = {
@@ -626,6 +627,85 @@ describe('WorktreeService against a real repository', () => {
 				YES
 			);
 			expect(recorded.listCommands).toHaveLength(1);
+		} finally {
+			await repo.dispose();
+		}
+	});
+});
+
+describe('applying one file from a stash against a real repository', () => {
+	async function stashed() {
+		const repo = await createTempRepo();
+		await repo.commit('a.txt', 'a\n', 'a');
+		await repo.commit('b.txt', 'b\n', 'b');
+		await writeFile(path.join(repo.cwd, 'a.txt'), 'a stashed\n');
+		await writeFile(path.join(repo.cwd, 'b.txt'), 'b stashed\n');
+		await writeFile(path.join(repo.cwd, 'new.txt'), 'new\n');
+		await repo.git('stash', 'push', '--include-untracked', '-m', 'work');
+		const stash = (await repo.git('rev-parse', 'stash@{0}')).trim();
+		const executor = new GitProcessExecutor();
+		const service = new WorkingTreeService(executor);
+		const apply = (hash: string, file: string, prompt: UserPrompt = YES) =>
+			service.run(
+				{
+					type: 'workingTreeAction',
+					repoPath: repo.cwd,
+					action: 'applyFromStash',
+					hash,
+					path: file,
+				},
+				repo.cwd,
+				prompt
+			);
+		return { repo, stash, executor, apply };
+	}
+
+	it("lists a stash's untracked files from its third parent", async () => {
+		const { repo, stash, executor } = await stashed();
+		try {
+			const details = await getCommitDetails(executor, repo.cwd, stash);
+			expect(details.stash).toBe(true);
+			const untracked = details.files.find((file) => file.path === 'new.txt');
+			expect(untracked).toMatchObject({ status: '?' });
+			expect(untracked?.revision).toBe((await repo.git('rev-parse', `${stash}^3`)).trim());
+			expect(details.files.map((file) => file.path).sort()).toEqual(['a.txt', 'b.txt', 'new.txt']);
+		} finally {
+			await repo.dispose();
+		}
+	});
+
+	it('takes one tracked file into the working tree, leaving the rest and the stash', async () => {
+		const { repo, stash, apply } = await stashed();
+		try {
+			expect(await apply(stash, 'a.txt')).toBe(true);
+			expect(await readFile(path.join(repo.cwd, 'a.txt'), 'utf8')).toBe('a stashed\n');
+			expect(await readFile(path.join(repo.cwd, 'b.txt'), 'utf8')).toBe('b\n');
+			expect((await repo.git('diff', '--cached', '--name-only')).trim()).toBe('');
+			expect(await repo.git('stash', 'list')).toContain('work');
+		} finally {
+			await repo.dispose();
+		}
+	});
+
+	it('brings back a file that was untracked when stashed', async () => {
+		const { repo, stash, apply } = await stashed();
+		try {
+			const untrackedRoot = (await repo.git('rev-parse', `${stash}^3`)).trim();
+			expect(await apply(untrackedRoot, 'new.txt')).toBe(true);
+			expect(await readFile(path.join(repo.cwd, 'new.txt'), 'utf8')).toBe('new\n');
+			expect(await repo.git('status', '--porcelain')).toContain('?? new.txt');
+		} finally {
+			await repo.dispose();
+		}
+	});
+
+	it('asks before replacing a file that has changes of its own', async () => {
+		const { repo, stash, apply } = await stashed();
+		try {
+			await writeFile(path.join(repo.cwd, 'a.txt'), 'mine\n');
+			const refuse: UserPrompt = { ...YES, confirm: () => Promise.resolve(false) };
+			expect(await apply(stash, 'a.txt', refuse)).toBe(false);
+			expect(await readFile(path.join(repo.cwd, 'a.txt'), 'utf8')).toBe('mine\n');
 		} finally {
 			await repo.dispose();
 		}

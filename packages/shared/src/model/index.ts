@@ -86,6 +86,24 @@ export interface Commit {
 	refs: Ref[];
 	/** True for the synthetic "Uncommitted Changes" node at the top of the graph. */
 	isUncommitted?: boolean;
+	/** Only read when the view shows signatures; absent for an unsigned commit. */
+	signature?: SignatureStatus;
+}
+
+/**
+ * What git said of a commit's signature (`%G?`, minus N for "none"): good, good but from a key not
+ * trusted, bad, good but expired, made by an expired key, made by a revoked key, or not checkable —
+ * usually the key is missing from the keyring.
+ */
+export type SignatureStatus =
+	'good' | 'untrusted' | 'bad' | 'expired' | 'expiredKey' | 'revoked' | 'missingKey';
+
+export interface CommitSignature {
+	status: SignatureStatus;
+	/** `%GS` — the signer's name or, for SSH, the principal; empty when git could not tell. */
+	signer: string;
+	/** `%GK` — the key's id, or the SSH key's fingerprint. */
+	key: string;
 }
 
 /** Sentinel hash used for the synthetic uncommitted-changes node. */
@@ -143,6 +161,21 @@ export interface FileChange {
 	/** Line counts, absent for binary files and for working-tree entries. */
 	additions?: number;
 	deletions?: number;
+	/**
+	 * The commit this file is read from, when it is not the one listed: a stash keeps its untracked
+	 * files in its third parent.
+	 */
+	revision?: string;
+	/** The entry is a submodule: what the superproject points it at, not a file. */
+	submodule?: SubmoduleChange;
+}
+
+export interface SubmoduleChange {
+	/** Working tree only (`git status`): its checkout is on another commit than the one recorded. */
+	commitChanged?: boolean;
+	/** Working tree only: edits inside the submodule, tracked and untracked. */
+	modified?: boolean;
+	untracked?: boolean;
 }
 
 /**
@@ -173,6 +206,9 @@ export interface CommitDetails {
 	committedAt: number;
 	body: string;
 	files: FileChange[];
+	/** The commit is a stash entry: its files can be taken out one at a time. */
+	stash?: boolean;
+	signature?: CommitSignature;
 }
 
 export interface WorkingTreeStatus {
@@ -199,4 +235,3 @@ export function validateSteps<T extends { action: string; message?: string }>(
 	}
 	return null;
 }
-

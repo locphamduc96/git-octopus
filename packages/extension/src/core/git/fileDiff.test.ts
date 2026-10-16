@@ -47,7 +47,15 @@ describe('getFileDiff', () => {
 			context: 3,
 		});
 
-		expect(git.listCalls[0]).toEqual(['diff', '-U3', 'aaa', 'bbb', '--', 'a.txt']);
+		expect(git.listCalls[0]).toEqual([
+			'diff',
+			'--submodule=short',
+			'-U3',
+			'aaa',
+			'bbb',
+			'--',
+			'a.txt',
+		]);
 	});
 
 	it('diffs one commit with diff-tree, walking roots so the first commit still has a diff', async () => {

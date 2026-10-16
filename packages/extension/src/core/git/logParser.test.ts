@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseLog, parseRefs } from './logParser.js';
+import { parseLog, parseRefs, signatureStatus } from './logParser.js';
 
 const NUL = '\0';
 function line(fields: string[]): string {
@@ -128,5 +128,30 @@ describe('parseRefs', () => {
 		expect(parseRefs('refs/remotes/origin/main', [])).toEqual([
 			{ kind: 'branch', name: 'main', remote: 'origin' },
 		]);
+	});
+});
+
+describe('signatureStatus', () => {
+	it('maps every %G? code to a status, and N to none', () => {
+		expect(['G', 'U', 'B', 'X', 'Y', 'R', 'E', 'N', '', undefined].map(signatureStatus)).toEqual([
+			'good',
+			'untrusted',
+			'bad',
+			'expired',
+			'expiredKey',
+			'revoked',
+			'missingKey',
+			undefined,
+			undefined,
+			undefined,
+		]);
+	});
+
+	it('reads the trailing %G? field, and leaves an unsigned commit without one', () => {
+		const signed = line(['a', '', 'Ada', 'a@x', '1', '1', 'signed', '', 'G']);
+		const unsigned = line(['b', '', 'Ada', 'a@x', '1', '1', 'plain', '', 'N']);
+		const [first, second] = parseLog(`${signed}\n${unsigned}`);
+		expect(first.signature).toBe('good');
+		expect(second).not.toHaveProperty('signature');
 	});
 });

@@ -22,7 +22,7 @@ function meta(body: string, parents = 'p1'): string {
 function gitWith(options: { meta: string; nameStatus?: string; numstat?: string }) {
 	return fakeGit({
 		'show -s': options.meta,
-		'diff-tree --no-commit-id --name-status': options.nameStatus ?? '',
+		'diff-tree --no-commit-id --raw': options.nameStatus ?? '',
 		'diff-tree --no-commit-id --numstat': options.numstat ?? '',
 	});
 }

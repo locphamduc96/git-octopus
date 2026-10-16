@@ -217,6 +217,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			(hash: string) => void controller.revealCommit(hash)
 		),
 		vscode.commands.registerCommand('git-octopus.tree.refresh', () => tree.refresh()),
+		vscode.commands.registerCommand('git-octopus.tree.openSubmodule', (node: RepoNode) => {
+			if (node.kind === 'submodule') void controller.openSubmodule(node.path);
+		}),
 		vscode.commands.registerCommand('git-octopus.tree.checkout', (node: RepoNode) => {
 			if (node.kind === 'branch')
 				void runTreeAction({ action: 'checkoutBranch', branches: [node.name] });
@@ -261,6 +264,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 				void runTreeAction({ action: 'stashDrop', hash: node.hash, stashName: node.name });
 		}),
 		vscode.commands.registerCommand('git-octopus.refresh', () => void controller.refresh()),
+		vscode.commands.registerCommand('git-octopus.createBranchHere', () =>
+			controller.sendHostCommand('createBranch')
+		),
+		vscode.commands.registerCommand('git-octopus.fetchAll', () =>
+			controller.sendHostCommand('fetch')
+		),
 		vscode.commands.registerCommand('git-octopus.focus', showGraph),
 		vscode.commands.registerCommand('git-octopus.openInTab', () => tab.open()),
 		vscode.commands.registerCommand('git-octopus.moveToEditor', async () => {

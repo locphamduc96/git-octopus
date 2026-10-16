@@ -1,3 +1,5 @@
+import { statSync } from 'node:fs';
+import * as path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { useSession, type Session } from '../src/session.js';
 import {
@@ -44,6 +46,24 @@ test('1.1 keys walk the graph, and ? lists them', async () => {
 	await expect(s.graph.locator('[role="dialog"][aria-label="Keyboard shortcuts"]')).toBeVisible();
 	await s.page.keyboard.press('Escape');
 	await expect(s.graph.locator('[role="dialog"]')).toHaveCount(0);
+});
+
+test('1.1b Mod+B and Mod+L reach the graph while it has focus, not VS Code', async () => {
+	const sideBar = s.page.locator('.part.sidebar');
+	await expect(sideBar).toBeVisible();
+	await row(s, 'rebase-me: step 2').click();
+	await s.page.keyboard.press('ControlOrMeta+b');
+	// The branch is asked for in the view's own dialog; the side bar stays where it was.
+	await expect(dialog(s).locator('input')).toBeVisible();
+	await expect(sideBar).toBeVisible();
+	await s.page.keyboard.press('Escape');
+	await expect(s.graph.locator('[role="dialog"]')).toHaveCount(0);
+
+	const fetchHead = path.join(s.repo, '.git', 'FETCH_HEAD');
+	const before = statSync(fetchHead).mtimeMs;
+	await row(s, 'rebase-me: step 2').click();
+	await s.page.keyboard.press('ControlOrMeta+l');
+	await expect.poll(() => statSync(fetchHead).mtimeMs, { timeout: 20_000 }).toBeGreaterThan(before);
 });
 
 test('1.2 find highlights, steps, and filters only when asked', async () => {

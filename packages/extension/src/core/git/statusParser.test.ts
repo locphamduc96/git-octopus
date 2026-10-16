@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseStatus } from './statusParser.js';
+import { parseStatus, parseSubmoduleField } from './statusParser.js';
 
 /** Build a v2 "ordinary" entry: `1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>`. */
 function ordinary(xy: string, path: string): string {
@@ -77,5 +77,32 @@ describe('parseStatus HEAD headers', () => {
 		const result = parseStatus(output);
 		expect(result.branch).toBe('main');
 		expect(result.working.staged).toHaveLength(1);
+	});
+});
+
+describe('submodule entries', () => {
+	it('reads S<c><m><u> onto both sides of the entry', () => {
+		const output = [
+			`1 MM SC.U 160000 160000 160000 aaa bbb libs/engine`,
+			ordinary('.M', 'plain.ts'),
+			'',
+		].join('\0');
+		const { staged, unstaged } = parseStatus(output).working;
+		const state = { commitChanged: true, modified: false, untracked: true };
+		expect(staged).toEqual([
+			{ status: 'M', path: 'libs/engine', oldPath: undefined, submodule: state },
+		]);
+		expect(unstaged[0]).toEqual({ status: 'M', path: 'libs/engine', submodule: state });
+		expect(unstaged[1]).not.toHaveProperty('submodule');
+	});
+
+	it('reads the field and nothing that is not one', () => {
+		expect(parseSubmoduleField('S.M.')).toEqual({
+			commitChanged: false,
+			modified: true,
+			untracked: false,
+		});
+		expect(parseSubmoduleField('N...')).toBeNull();
+		expect(parseSubmoduleField(undefined)).toBeNull();
 	});
 });

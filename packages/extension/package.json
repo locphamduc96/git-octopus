@@ -2,7 +2,7 @@
 	"name": "git-octopus",
 	"displayName": "Git Octopus",
 	"description": "View a Git graph of your repository and perform Git actions from it.",
-	"version": "0.22.0",
+	"version": "0.25.0",
 	"publisher": "locpham",
 	"license": "MIT",
 	"icon": "media/icon.png",
@@ -73,6 +73,16 @@
 			},
 			{
 				"category": "Git Octopus",
+				"command": "git-octopus.createBranchHere",
+				"title": "Create Branch at Selected Commit"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.fetchAll",
+				"title": "Fetch All Remotes"
+			},
+			{
+				"category": "Git Octopus",
 				"command": "git-octopus.tree.refresh",
 				"title": "Refresh Repository Tree",
 				"icon": "$(refresh)"
@@ -126,6 +136,11 @@
 				"category": "Git Octopus",
 				"command": "git-octopus.tree.stashDrop",
 				"title": "Drop Stash…"
+			},
+			{
+				"category": "Git Octopus",
+				"command": "git-octopus.tree.openSubmodule",
+				"title": "Open Submodule"
 			},
 			{
 				"category": "Git Octopus",
@@ -199,6 +214,18 @@
 				{
 					"command": "git-octopus.tree.stashDrop",
 					"when": "false"
+				},
+				{
+					"command": "git-octopus.tree.openSubmodule",
+					"when": "false"
+				},
+				{
+					"command": "git-octopus.createBranchHere",
+					"when": "gitOctopus.graphFocused"
+				},
+				{
+					"command": "git-octopus.fetchAll",
+					"when": "gitOctopus.graphFocused"
 				}
 			],
 			"editor/title": [
@@ -405,7 +432,21 @@
 					"markdownDescription": "Language the AI writes commit subjects and bodies in (e.g. `English`, `Tiếng Việt`). Empty = follow the repository's recent commits. The Conventional Commits prefix (`feat:`, `fix:`, …) stays in English either way."
 				}
 			}
-		}
+		},
+		"keybindings": [
+			{
+				"command": "git-octopus.createBranchHere",
+				"key": "ctrl+b",
+				"mac": "cmd+b",
+				"when": "gitOctopus.graphFocused"
+			},
+			{
+				"command": "git-octopus.fetchAll",
+				"key": "ctrl+l",
+				"mac": "cmd+l",
+				"when": "gitOctopus.graphFocused"
+			}
+		]
 	},
 	"scripts": {
 		"build": "node esbuild.mjs",

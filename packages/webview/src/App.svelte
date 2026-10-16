@@ -65,6 +65,7 @@
 	import { commitStats } from './lib/stores/commitStats.svelte';
 	import { aiCommit } from './lib/stores/aiCommit.svelte';
 	import { worktrees } from './lib/stores/worktrees.svelte';
+	import { lfs } from './lib/stores/lfs.svelte';
 	import { rebaseEditor } from './lib/stores/rebaseEditor.svelte';
 	import GraphView from './features/graph/GraphView.svelte';
 	import GraphSkeleton from './features/graph/GraphSkeleton.svelte';
@@ -558,6 +559,7 @@
 					// Which branches other worktrees hold changes with any refresh; the branch menus
 					// offer those worktrees instead of a checkout git would refuse.
 					worktrees.load();
+					lfs.set(message.lfsPatterns ?? []);
 					const wasFullLoad = status === 'loading';
 					rows = layoutCommits(message.commits, {
 						setPinned: pinnedChain(message.commits, message.listBranches, pinnedRef),
@@ -644,6 +646,10 @@
 				}
 				case 'fileIcons': {
 					setFileIconTheme(message.theme);
+					break;
+				}
+				case 'hostCommand': {
+					runHostCommand(message.command);
 					break;
 				}
 				case 'revealCommit': {
@@ -1017,12 +1023,14 @@
 
 	function openDiff(path: string): void {
 		if (!selectedHash) return;
-		const oldPath = details?.files.find((file) => file.path === path)?.oldPath;
+		const entry = details?.files.find((file) => file.path === path);
+		// A stash's untracked file is diffed in the parent that holds it.
+		const hash = entry?.revision ?? selectedHash;
 		if (prefs.settings.diffTarget === 'panel') {
-			diffView.show({ path, oldPath, hash: selectedHash, title: selectedHash.slice(0, 8) });
+			diffView.show({ path, oldPath: entry?.oldPath, hash, title: selectedHash.slice(0, 8) });
 			return;
 		}
-		postToHost({ type: 'openDiff', hash: selectedHash, path, oldPath });
+		postToHost({ type: 'openDiff', hash, path, oldPath: entry?.oldPath });
 	}
 
 	/**
@@ -1164,6 +1172,16 @@
 		});
 	}
 
+	function applyFromStash(path: string, hash: string): void {
+		postToHost({
+			type: 'workingTreeAction',
+			repoPath: session.repoPath,
+			action: 'applyFromStash',
+			path,
+			hash,
+		});
+	}
+
 	function openSettings(): void {
 		settingsOpen = true;
 		identity.loadWorkspaceIdentities();
@@ -1216,6 +1234,25 @@
 		});
 	}
 
+	/**
+	 * A graph keybinding VS Code resolved for this view: Mod+B branches from the selected commit
+	 * (HEAD when nothing real is selected), Mod+L fetches.
+	 */
+	function runHostCommand(command: 'createBranch' | 'fetch'): void {
+		if (command === 'fetch') {
+			postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'fetch' });
+			return;
+		}
+		const selected = rows.find((row) => row.commit.hash === selectedHash)?.commit;
+		if (selected && !selected.isUncommitted) runAction('createBranch', selected);
+		else runHeadAction('createBranch');
+	}
+
+	// A view that opens already focused fires no focus event; it says so once on load.
+	$effect(() => {
+		if (document.hasFocus()) postToHost({ type: 'viewFocus', focused: true });
+	});
+
 	function resizePanel(clientPos: number): void {
 		if (!shell) return;
 		const box = shell.getBoundingClientRect();
@@ -1226,7 +1263,11 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window
+	onkeydown={onKeydown}
+	onfocus={() => postToHost({ type: 'viewFocus', focused: true })}
+	onblur={() => postToHost({ type: 'viewFocus', focused: false })}
+/>
 
 {#if shortcutsOpen}
 	<ShortcutsDialog onclose={() => (shortcutsOpen = false)} />
@@ -1565,6 +1606,11 @@
 						layout={prefs.settings.diffLayout}
 						wrap={prefs.settings.diffWrap}
 						ignoreWhitespace={prefs.settings.diffIgnoreWhitespace}
+						intraline={prefs.settings.diffIntraline}
+						image={diffView.image}
+						lfs={diffView.lfs}
+						submodule={diffView.submodule}
+						onopenSubmodule={selectRepo}
 						onmode={diffView.setMode}
 						onlayout={diffView.setLayout}
 						onwrap={diffView.toggleWrap}
@@ -1624,6 +1670,7 @@
 				onopenCompareDiff={openCompareDiff}
 				onopenFile={(path, hash) => postToHost({ type: 'openFile', path, hash })}
 				onrestoreFile={restoreFile}
+				onapplyFromStash={applyFromStash}
 				history={fileHistory.current}
 				onfileHistory={openFileHistory}
 				onblame={openBlame}

@@ -42,6 +42,7 @@
 	import { tooltip } from '../../lib/ui/tooltip';
 	import ContextMenu from '../../lib/ui/ContextMenu.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
+	import { MAP_SIGNATURE_LOOK } from '../../lib/signature';
 	import IconButton from '../../lib/ui/IconButton.svelte';
 	import RefIcon from '../../lib/ui/RefIcon.svelte';
 	import {
@@ -1145,7 +1146,11 @@
 					</span>
 					<span class="graph-cell"></span>
 					<span class="subject" class:uncommitted={v.row.commit.isUncommitted}>
-						{#if showTypeBadge && v.row.commit.parents.length > 1}<span
+						{#if v.row.commit.signature}{@const look =
+								MAP_SIGNATURE_LOOK[v.row.commit.signature]}<span
+								class="signature {look.tone}"
+								use:tooltip={look.label}><Icon name={look.icon} label={look.label} /></span
+							>{/if}{#if showTypeBadge && v.row.commit.parents.length > 1}<span
 								class="type"
 								style="color:{typeColour('merge')}; border-color:{typeColour('merge')}"
 								use:tooltip={`Merge commit — ${v.row.commit.parents.length} parents`}>merge</span
@@ -1602,6 +1607,23 @@
 	}
 	.subject.uncommitted {
 		font-weight: 600;
+	}
+	.signature {
+		display: inline-flex;
+		vertical-align: middle;
+		margin-right: var(--gg-space-1);
+	}
+	.signature :global(.codicon) {
+		font-size: 13px;
+	}
+	.signature.good {
+		color: var(--vscode-testing-iconPassed, #73c991);
+	}
+	.signature.warn {
+		color: var(--vscode-editorWarning-foreground, #cca700);
+	}
+	.signature.bad {
+		color: var(--vscode-errorForeground, #f48771);
 	}
 	/* Outlined rather than filled, so every colour stays legible on light and dark themes. */
 	.ticket,

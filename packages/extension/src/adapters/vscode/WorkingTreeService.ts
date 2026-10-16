@@ -33,6 +33,18 @@ export class WorkingTreeService {
 				return this.runGit(['reset', '-q', 'HEAD'], cwd);
 			case 'discard': {
 				if (!message.path) return false;
+				// A submodule's change is the commit its checkout is on, and `checkout HEAD --` cannot
+				// move that — with `submodule.recurse` set it would check the submodule out instead,
+				// which is not what "discard" promised either. Neither is run.
+				const index = await this.executor
+					.run(['ls-files', '--stage', '--', message.path], cwd)
+					.catch(() => '');
+				if (index.startsWith('160000 ')) {
+					vscode.window.showWarningMessage(
+						`Git Octopus: ${message.path} is a submodule — discarding here cannot reset it. Run “git submodule update -- ${message.path}” to put it back on the recorded commit, or open the submodule to discard the changes inside it.`
+					);
+					return false;
+				}
 				const confirmed = await prompt.confirm({
 					title: 'Git Octopus',
 					message: `Discard changes in ${message.path}? This cannot be undone.`,
@@ -89,6 +101,28 @@ export class WorkingTreeService {
 					['restore', `--source=${message.hash}`, '--staged', '--worktree', '--', message.path],
 					cwd,
 					`Restored ${message.path} from ${short}.`
+				);
+			}
+			case 'applyFromStash': {
+				// One file out of a stash, the way `stash apply` would bring it back: into the working
+				// tree only, the index left alone, and the stash kept.
+				if (!message.path || !message.hash || !/^[0-9a-f]{7,64}$/.test(message.hash)) return false;
+				const local = (
+					await this.executor.run(['status', '--porcelain', '--', message.path], cwd)
+				).trim();
+				if (local !== '') {
+					const confirmed = await prompt.confirm({
+						title: 'Git Octopus',
+						message: `${message.path} has changes of its own. Replace them with the stashed version?`,
+						confirmLabel: 'Replace',
+						danger: true,
+					});
+					if (!confirmed) return false;
+				}
+				return this.runGit(
+					['restore', `--source=${message.hash}`, '--worktree', '--', message.path],
+					cwd,
+					`Applied ${message.path} from the stash.`
 				);
 			}
 			case 'undoCommit':

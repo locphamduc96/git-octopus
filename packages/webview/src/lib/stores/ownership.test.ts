@@ -23,6 +23,7 @@ beforeAll(async () => {
 	await import('./commitDraft.svelte');
 	await import('./commitTemplate.svelte');
 	await import('./remotes.svelte');
+	await import('./signing.svelte');
 	await import('./worktrees.svelte');
 	await import('./rebaseEditor.svelte');
 	await import('./identity.svelte');

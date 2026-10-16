@@ -1,4 +1,5 @@
 <script lang="ts" module>
+	import { lfs } from '../stores/lfs.svelte';
 	/**
 	 * A row whose actions are a union reports that union back through `onaction`. The `string`
 	 * default is for the lists that show no actions at all, which have nothing to infer from.
@@ -15,6 +16,7 @@
 	import FileIcon from './FileIcon.svelte';
 	import Icon from './Icon.svelte';
 	import { tooltip } from './tooltip';
+	import { submoduleNotes } from '../submodule';
 
 	let {
 		file,
@@ -44,6 +46,7 @@
 	const cut = $derived(label !== undefined ? -1 : file.path.lastIndexOf('/'));
 	const dir = $derived(cut === -1 ? '' : file.path.slice(0, cut + 1));
 	const name = $derived(label ?? file.path.slice(cut + 1));
+	const listSubmoduleNotes = $derived(file.submodule ? submoduleNotes(file.submodule) : []);
 
 	let row = $state<HTMLLIElement | null>(null);
 	$effect(() => {
@@ -65,7 +68,11 @@
 		: undefined}
 >
 	<button class="open" style="padding-left:{indent}px" onclick={() => onopen(file.path)}>
-		<FileIcon path={file.path} fallback="file" />
+		{#if file.submodule}
+			<Icon name="file-submodule" />
+		{:else}
+			<FileIcon path={file.path} fallback="file" />
+		{/if}
 		<span class="path"
 			>{#if dir}<span class="dir">{dir}</span>{/if}<span class="name">{name}</span></span
 		>
@@ -84,6 +91,21 @@
 			</button>
 		{/each}
 	</span>
+	{#if file.submodule}
+		<span
+			class="lfs"
+			use:tooltip={listSubmoduleNotes.length > 0
+				? `Submodule — ${listSubmoduleNotes.join(', ')}. Staging records the commit it is on; nothing inside it is staged or discarded from here.`
+				: 'Submodule: the change is the commit this repository points it at'}
+			>{listSubmoduleNotes.length > 0 ? listSubmoduleNotes.join(' · ') : 'submodule'}</span
+		>
+	{:else if lfs.stores(file.path)}
+		<span
+			class="lfs"
+			use:tooltip={'Stored by Git LFS: git keeps a pointer, the content lives on the LFS server'}
+			>LFS</span
+		>
+	{/if}
 	{#if file.additions !== undefined || file.deletions !== undefined}
 		<span class="counts">
 			{#if file.additions}<span class="add">+{file.additions}</span>{/if}
@@ -162,6 +184,15 @@
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.lfs {
+		flex: none;
+		padding: 0 4px;
+		font-size: 0.75em;
+		line-height: 14px;
+		color: var(--gg-fg-muted);
+		border: 1px solid var(--gg-border);
+		border-radius: 3px;
 	}
 	.name {
 		flex: 0 1 auto;

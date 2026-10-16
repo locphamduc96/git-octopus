@@ -17,6 +17,20 @@ import type {
 export interface RepoInfo {
 	path: string;
 	name: string;
+	/** A submodule: the repository that records it, and where inside that one it sits. */
+	parent?: string;
+	subPath?: string;
+}
+
+/** A submodule's pointer moving, as the diff panel shows it in place of hunks. */
+export interface SubmoduleDiff {
+	/** Abbreviated or full commit ids; absent on the side where the submodule does not exist. */
+	from?: string;
+	to?: string;
+	/** The submodule's checkout has edits of its own (`-dirty`), which no diff here shows. */
+	dirty: boolean;
+	/** The submodule as a repository this view can switch to, or null when it is not checked out. */
+	repoPath: string | null;
 }
 
 /**
@@ -95,6 +109,8 @@ export interface GraphFilters {
 	showTags?: boolean;
 	showStashes?: boolean;
 	showUncommitted?: boolean;
+	/** Ask git to verify every signed commit — off by default, since each one runs gpg or ssh. */
+	showSignatures?: boolean;
 }
 
 export interface LoadCommitsMessage {
@@ -239,6 +255,18 @@ export interface BlameMessage {
 	notice?: string;
 }
 
+/** What a Git LFS pointer names: the object's hash and its size in bytes. */
+export interface LfsPointer {
+	oid: string;
+	size: number;
+}
+
+/** One side of an image diff, inline. */
+export interface ImageSide {
+	dataUri: string;
+	bytes: number;
+}
+
 export interface FileDiffMessage {
 	type: 'fileDiff';
 	key: string;
@@ -246,6 +274,11 @@ export interface FileDiffMessage {
 	listHunks: DiffHunk[];
 	/** Set when there is nothing to draw — binary, unchanged, or unreadable — and says why. */
 	notice?: string;
+	/** An image: its sides before and after, whichever exist, instead of hunks. */
+	image?: { before?: ImageSide; after?: ImageSide };
+	/** A file Git LFS stores: what its pointer names on each side, instead of the pointer's text. */
+	lfs?: { before?: LfsPointer; after?: LfsPointer };
+	submodule?: SubmoduleDiff;
 }
 
 export interface OpenCompareDiffMessage {
@@ -362,6 +395,21 @@ export interface MultiCommitActionMessage {
 	subjects: string[];
 }
 
+/**
+ * The view gained or lost keyboard focus. VS Code reads its keybindings for the graph (Mod+B,
+ * Mod+L) off this, so they take over those keys only while the graph has focus.
+ */
+export interface ViewFocusMessage {
+	type: 'viewFocus';
+	focused: boolean;
+}
+
+/** A keybinding VS Code resolved while the graph had focus, handed to the view to act on. */
+export interface HostCommandMessage {
+	type: 'hostCommand';
+	command: 'createBranch' | 'fetch';
+}
+
 /** Cherry-pick commits in the order the cherry-pick editor left them. */
 export interface CherryPickCommitsMessage {
 	type: 'cherryPickCommits';
@@ -445,6 +493,7 @@ export type WorkingTreeAction =
 	| 'amend'
 	| 'undoCommit'
 	| 'restoreFromCommit'
+	| 'applyFromStash'
 	| 'stashFile'
 	| 'takeOurs'
 	| 'takeTheirs'
@@ -485,7 +534,10 @@ export interface WorkingTreeActionMessage {
 	action: WorkingTreeAction;
 	path?: string;
 	message?: string;
-	/** The commit `restoreFromCommit` takes the file from. */
+	/**
+	 * The commit `restoreFromCommit` takes the file from; for `applyFromStash`, the stash — or its
+	 * untracked-files parent, for a file that was untracked when stashed.
+	 */
 	hash?: string;
 	/** `commit` / `amend`: run with `--no-verify`, skipping the repository's hooks this once. */
 	noVerify?: boolean;
@@ -545,6 +597,61 @@ export interface LoadRemotesMessage {
 export interface RemotesMessage {
 	type: 'remotes';
 	listRemotes: RemoteInfo[];
+}
+
+/** The keys the Signing tab reads, as `git config --get-regexp` names them (lowercased). */
+export const LIST_SIGNING_KEYS = [
+	'commit.gpgsign',
+	'tag.gpgsign',
+	'gpg.format',
+	'user.signingkey',
+	'gpg.ssh.allowedsignersfile',
+	'gpg.program',
+	'gpg.ssh.program',
+] as const;
+export type SigningKey = (typeof LIST_SIGNING_KEYS)[number];
+/** The ones the tab writes — the two program paths are only checked, never set from here. */
+export const LIST_WRITABLE_SIGNING_KEYS = [
+	'commit.gpgsign',
+	'tag.gpgsign',
+	'gpg.format',
+	'user.signingkey',
+	'gpg.ssh.allowedsignersfile',
+] as const satisfies readonly SigningKey[];
+export type WritableSigningKey = (typeof LIST_WRITABLE_SIGNING_KEYS)[number];
+
+export interface SigningConfigValue {
+	/** As written; a bare `key` with no `=` (git's "true") reads as an empty string with `bare`. */
+	value: string;
+	bare?: boolean;
+	/** `local`, `global`, `system`, `worktree` or `command`. */
+	scope: string;
+	/** The file the value came from, e.g. `/Users/me/.gitconfig`. */
+	origin: string;
+}
+
+/** Read the repository's signing config. */
+export interface LoadSigningMessage {
+	type: 'loadSigning';
+}
+
+export interface SigningMessage {
+	type: 'signing';
+	repoPath: string | null;
+	/** The effective value of each key that is set anywhere. */
+	mapValues: Partial<Record<SigningKey, SigningConfigValue>>;
+	/** Whether this repository's own config sets the key, whatever wins. */
+	listLocalKeys: SigningKey[];
+	/** e.g. "2.54.0", or null when `git --version` could not be read. */
+	gitVersion: string | null;
+}
+
+/** Write signing keys to the repository's config; null removes the repository's own value. */
+export interface SigningActionMessage {
+	type: 'signingAction';
+	/** See `RemoteActionMessage.repoPath`. */
+	repoPath: string;
+	mapValues: Partial<Record<WritableSigningKey, string | null>>;
 }
 
 /** Add a remote (and fetch it), or remove one. */
@@ -1097,6 +1204,8 @@ export type WebviewToHost =
 	| LoadCommitTemplateMessage
 	| LoadRemotesMessage
 	| RemoteActionMessage
+	| LoadSigningMessage
+	| SigningActionMessage
 	| LoadWorktreesMessage
 	| WorktreeActionMessage
 	| LoadRebaseTodoMessage
@@ -1107,6 +1216,7 @@ export type WebviewToHost =
 	| SquashCommitsMessage
 	| MultiCommitActionMessage
 	| CherryPickCommitsMessage
+	| ViewFocusMessage
 	| SequencerActionMessage
 	| BranchActionMessage
 	| CheckFastForwardMessage
@@ -1142,6 +1252,8 @@ export type RepoState = 'rebasing' | 'merging' | 'cherryPicking' | 'reverting';
 
 export interface CommitsMessage {
 	type: 'commits';
+	/** `.gitattributes` patterns that LFS stores (committed at HEAD); absent when there are none. */
+	lfsPatterns?: string[];
 	/** What the walk behind this answer was actually run with — lets a view drop stale replies. */
 	limit?: number;
 	filters?: GraphFilters;
@@ -1308,6 +1420,7 @@ export interface WorkspaceIdentitiesMessage {
 /** Messages sent from the extension host to the webview. */
 export type HostToWebview =
 	| CommitsMessage
+	| HostCommandMessage
 	| CommitOutcomeMessage
 	| CommitStatsMessage
 	| StatusUpdateMessage
@@ -1318,6 +1431,7 @@ export type HostToWebview =
 	| BlameMessage
 	| CommitTemplateMessage
 	| RemotesMessage
+	| SigningMessage
 	| WorktreesMessage
 	| RebaseTodoMessage
 	| ViewSettingsMessage

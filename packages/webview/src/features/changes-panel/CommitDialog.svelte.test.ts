@@ -62,10 +62,11 @@ describe('CommitDialog', () => {
 	});
 
 	it('hands over what it commits, so a refusal can bring it back', async () => {
-		const props = mount({ ondraft: vi.fn() });
+		const ondraft = vi.fn();
+		mount({ ondraft });
 		await fireEvent.input(summaryBox(), { target: { value: 'feat: x' } });
 		await fireEvent.keyDown(summaryBox(), { key: 'Enter' });
-		expect(props.ondraft).toHaveBeenCalledWith({
+		expect(ondraft).toHaveBeenCalledWith({
 			summary: 'feat: x',
 			description: '',
 			amend: false,

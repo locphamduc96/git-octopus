@@ -97,6 +97,8 @@ export interface ViewSettings {
 	diffWrap: boolean;
 	/** Diff with `-w`: changes that are only whitespace drop out. */
 	diffIgnoreWhitespace: boolean;
+	/** Mark the words that changed inside an edited line, not only the whole line. */
+	diffIntraline: boolean;
 	/** Push straight after a commit made from the commit dialog. */
 	pushAfterCommit: boolean;
 	/** Left-to-right order of the columns right of Description. */
@@ -115,6 +117,8 @@ export interface ViewSettings {
 	showGhostBranch: boolean;
 	showStashes: boolean;
 	showUncommitted: boolean;
+	/** Verify signed commits and mark them on the graph. */
+	showSignatures: boolean;
 	scrollToHeadOnLoad: boolean;
 	autoFastForwardOnCheckout: boolean;
 	pullStrategy: PullStrategy;
@@ -201,6 +205,7 @@ export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
 	diffLayout: 'unified',
 	diffWrap: false,
 	diffIgnoreWhitespace: false,
+	diffIntraline: true,
 	pushAfterCommit: false,
 	columnOrder: LIST_DEFAULT_COLUMN_ORDER,
 	fetchAvatars: false,
@@ -214,6 +219,8 @@ export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
 	showGhostBranch: true,
 	showStashes: true,
 	showUncommitted: true,
+	// Off: every signed commit costs a gpg or ssh-keygen run, on every load.
+	showSignatures: false,
 	scrollToHeadOnLoad: false,
 	autoFastForwardOnCheckout: true,
 	// `config` changes nothing for anyone: it is what the button always ran.
@@ -265,6 +272,7 @@ export function settingsRequireReload(prev: ViewSettings, next: ViewSettings): b
 		next.showRemoteBranches !== prev.showRemoteBranches ||
 		next.showTags !== prev.showTags ||
 		next.showStashes !== prev.showStashes ||
-		next.showUncommitted !== prev.showUncommitted
+		next.showUncommitted !== prev.showUncommitted ||
+		next.showSignatures !== prev.showSignatures
 	);
 }

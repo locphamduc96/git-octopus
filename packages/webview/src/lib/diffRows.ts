@@ -68,6 +68,38 @@ export function buildDiffRows(
 	return listRows;
 }
 
+/**
+ * Each deleted line's added counterpart, and back, by the flat line index the rows use: within a
+ * hunk, a run of deletions pairs with the run of additions straight after it, line by line — the
+ * same reading split view draws.
+ */
+export function mapLinePartners(listHunks: DiffHunk[]): Map<number, number> {
+	const mapPartners = new Map<number, number>();
+	let lineIndex = 0;
+	for (const hunk of listHunks) {
+		const listLines = hunk.listLines;
+		let index = 0;
+		while (index < listLines.length) {
+			if (listLines[index].kind !== 'del') {
+				index++;
+				continue;
+			}
+			const listDels: number[] = [];
+			while (index < listLines.length && listLines[index].kind === 'del')
+				listDels.push(lineIndex + index++);
+			const listAdds: number[] = [];
+			while (index < listLines.length && listLines[index].kind === 'add')
+				listAdds.push(lineIndex + index++);
+			for (let k = 0; k < Math.min(listDels.length, listAdds.length); k++) {
+				mapPartners.set(listDels[k], listAdds[k]);
+				mapPartners.set(listAdds[k], listDels[k]);
+			}
+		}
+		lineIndex += listLines.length;
+	}
+	return mapPartners;
+}
+
 /** What a row contributes to the overview ruler. */
 export function rulerKind(row: DiffRow): RulerRowKind {
 	if (row.kind === 'gap') return 'gap';

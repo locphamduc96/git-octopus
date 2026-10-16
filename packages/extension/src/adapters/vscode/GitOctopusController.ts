@@ -21,6 +21,7 @@ import {
 import { getBranchInventory } from '../../core/git/staleBranches.js';
 import { readCommitTemplate } from '../fs/commitTemplate.js';
 import { getRemotes } from '../../core/git/remotes.js';
+import { getSigningConfig, setSigningConfig } from '../../core/git/signing.js';
 import { getWorktrees } from '../../core/git/worktrees.js';
 import { WorktreeService } from './WorktreeService.js';
 import { InteractiveRebaseService } from './InteractiveRebaseService.js';
@@ -41,8 +42,10 @@ import { redactSecrets } from '../../core/git/redactSecrets.js';
 import type { UserPrompt } from '../../app/ports/userPrompt.js';
 import { nativePrompt } from './nativePrompt.js';
 import { WebviewPromptBroker } from './webviewPrompt.js';
-import { findRepos } from '../fs/repoScanner.js';
+import { findRepos, withSubmodules } from '../fs/repoScanner.js';
+import { getSubmodulePaths } from '../../core/git/submodules.js';
 import { pathExists } from '../fs/pathExists.js';
+import { readBlob } from '../process/blobReader.js';
 import type { DiffService } from './DiffService.js';
 import type { CommitActionService } from './CommitActionService.js';
 import type { WorkingTreeService } from './WorkingTreeService.js';
@@ -73,6 +76,8 @@ export const STATE_VIEW_SETTINGS = 'gitOctopus.viewSettings';
  */
 export class GitOctopusController {
 	private listWebviews: vscode.Webview[] = [];
+	/** The views that have keyboard focus — at most one in practice, kept as a set for safety. */
+	private setFocused = new Set<vscode.Webview>();
 	private repos: RepoInfo[] = [];
 	private activeRepo: string | null;
 	private filters: GraphFilters;
@@ -155,6 +160,31 @@ export class GitOctopusController {
 	public onChangeCount?: (count: number) => void;
 
 	/** The repository everything currently acts on — the sidebar tree reads from here. */
+	public async selectRepo(repoPath: string): Promise<void> {
+		// Only a repository this controller discovered may become active: everything else runs
+		// `git` with this value as its working directory.
+		if (!this.repos.some((repo) => repo.path === repoPath)) return;
+		this.activeRepo = repoPath;
+		this.filters = { ...this.filters, branch: null };
+		this.persist();
+		await this.refresh();
+		await this.sendIdentity();
+	}
+
+	/** Switch to a submodule of the active repository, named by its path inside it. */
+	public async openSubmodule(subPath: string): Promise<void> {
+		const target = this.repos.find(
+			(repo) => repo.parent === this.activeRepo && repo.subPath === subPath
+		);
+		if (target) {
+			await this.selectRepo(target.path);
+			return;
+		}
+		vscode.window.showWarningMessage(
+			`Git Octopus: ${subPath} is not checked out — run “git submodule update --init ${subPath}” first.`
+		);
+	}
+
 	public get activeRepoPath(): string | null {
 		return this.activeRepo;
 	}
@@ -199,7 +229,30 @@ export class GitOctopusController {
 			this.mapWebviewLimit.delete(webview);
 			this.mapWebviewPrompt.get(webview)?.cancelAll();
 			this.mapWebviewPrompt.delete(webview);
+			this.setViewFocus(webview, false);
 		});
+	}
+
+	/**
+	 * Track which view has focus and tell VS Code, whose keybindings for the graph are scoped to the
+	 * `gitOctopus.graphFocused` context: Mod+B means "create branch" only while the graph has focus,
+	 * and toggles the side bar everywhere else.
+	 */
+	private setViewFocus(webview: vscode.Webview, focused: boolean): void {
+		const before = this.setFocused.size > 0;
+		if (focused) this.setFocused.add(webview);
+		else this.setFocused.delete(webview);
+		const after = this.setFocused.size > 0;
+		if (before !== after) {
+			void vscode.commands.executeCommand('setContext', 'gitOctopus.graphFocused', after);
+		}
+	}
+
+	/** A graph keybinding fired: the focused view acts on it, with its own selection. */
+	public sendHostCommand(command: 'createBranch' | 'fetch'): void {
+		for (const webview of this.setFocused) {
+			void webview.postMessage({ type: 'hostCommand', command } satisfies HostToWebview);
+		}
 	}
 
 	/**
@@ -427,6 +480,9 @@ export class GitOctopusController {
 		const prompt = this.promptFor(webview);
 
 		switch (message.type) {
+			case 'viewFocus':
+				this.setViewFocus(webview, message.focused);
+				return;
 			case 'loadCommits':
 				if (message.filters) {
 					this.filters = message.filters;
@@ -462,14 +518,7 @@ export class GitOctopusController {
 				trace('commits reply sent');
 				return;
 			case 'selectRepo':
-				// Only a repository this controller discovered may become active: everything else
-				// runs `git` with this value as its working directory.
-				if (!this.repos.some((repo) => repo.path === message.path)) return;
-				this.activeRepo = message.path;
-				this.filters = { ...this.filters, branch: null };
-				this.persist();
-				await this.refresh();
-				await this.sendIdentity();
+				await this.selectRepo(message.path);
 				return;
 			case 'loadIdentity':
 				await this.sendIdentity();
@@ -702,6 +751,23 @@ export class GitOctopusController {
 				} satisfies HostToWebview);
 				return;
 			}
+			case 'loadSigning':
+				await this.sendSigning(webview);
+				return;
+			case 'signingAction': {
+				if (!cwd || this.repoMismatch(message)) return;
+				try {
+					await setSigningConfig(this.executor, cwd, message.mapValues);
+				} catch (error) {
+					vscode.window.showErrorMessage(
+						`Git Octopus: ${redactSecrets(error instanceof Error ? error.message : String(error))}`
+					);
+				}
+				await this.sendSigning(webview);
+				// What verifies a signature may just have changed; badges already drawn would lie.
+				if (this.filters.showSignatures) await this.refresh();
+				return;
+			}
 			case 'loadWorktrees': {
 				this.reply(webview, {
 					type: 'worktrees',
@@ -875,6 +941,17 @@ export class GitOctopusController {
 	}
 
 	/** Read the active repo's identity plus the saved identities, and push them to every webview. */
+	private async sendSigning(webview: vscode.Webview): Promise<void> {
+		const cwd = this.activeRepo;
+		this.reply(webview, {
+			type: 'signing',
+			repoPath: cwd,
+			...(cwd
+				? await getSigningConfig(this.executor, cwd)
+				: { mapValues: {}, listLocalKeys: [], gitVersion: null }),
+		});
+	}
+
 	private async sendIdentity(): Promise<void> {
 		const cwd = this.activeRepo;
 		const identity = cwd
@@ -949,7 +1026,9 @@ export class GitOctopusController {
 	/** Re-scan the workspace, keeping the active repository when it still exists. */
 	private async discoverRepos(): Promise<void> {
 		const listRoots = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
-		this.repos = await findRepos(listRoots);
+		this.repos = await withSubmodules(await findRepos(listRoots), (repoPath) =>
+			getSubmodulePaths(this.executor, repoPath)
+		);
 		if (!this.activeRepo || !this.repos.some((repo) => repo.path === this.activeRepo)) {
 			this.activeRepo = this.repos[0]?.path ?? null;
 			this.persist();
@@ -965,6 +1044,7 @@ export class GitOctopusController {
 			repoName: active?.name ?? null,
 			avatarUrl: gravatarUrl,
 			pathExists,
+			readBlob,
 		};
 	}
 }

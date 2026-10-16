@@ -2,6 +2,8 @@ import type { Commit, GraphFilters, HostToWebview, RepoInfo } from '@git-octopus
 import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import type { PathExists } from '../ports/pathExists.js';
+import { lfsPatterns } from '../../core/git/lfs.js';
+import type { BlobReader } from '../ports/blobReader.js';
 import {
 	getAheadBehind,
 	getBranchEntries,
@@ -28,6 +30,8 @@ export interface RepoContext {
 	avatarUrl?: (email: string) => string;
 	/** Probes git's sequencer files; injected so `app` never reaches the filesystem itself. */
 	pathExists: PathExists;
+	/** Reads a binary file's bytes, for the image diff; absent, images show as plain binaries. */
+	readBlob?: BlobReader;
 }
 
 const DEFAULT_FILTERS: GraphFilters = { branch: null, showRemoteBranches: true };
@@ -63,24 +67,35 @@ export async function loadCommits(
 				? await getStashes(ctx.executor, ctx.cwd)
 				: [];
 		// One commit past the limit answers "is there more?" without a second log walk.
-		const [listRaw, headHash, listLocal, listRemote, previousBranch, aheadBehind, repoState] =
-			await Promise.all([
-				getCommits(
-					ctx.executor,
-					ctx.cwd,
-					limit + 1,
-					filters,
-					!isUnborn,
-					listStashes.map((stash) => stash.hash),
-					listRemoteNames
-				),
-				getHeadHash(ctx.executor, ctx.cwd),
-				getBranchEntries(ctx.executor, ctx.cwd, 'refs/heads'),
-				getBranchEntries(ctx.executor, ctx.cwd, 'refs/remotes'),
-				getPreviousBranch(ctx.executor, ctx.cwd),
-				getAheadBehind(ctx.executor, ctx.cwd),
-				getRepoState(ctx.executor, ctx.cwd, ctx.pathExists),
-			]);
+		const [
+			listRaw,
+			headHash,
+			listLocal,
+			listRemote,
+			previousBranch,
+			aheadBehind,
+			repoState,
+			gitattributes,
+		] = await Promise.all([
+			getCommits(
+				ctx.executor,
+				ctx.cwd,
+				limit + 1,
+				filters,
+				!isUnborn,
+				listStashes.map((stash) => stash.hash),
+				listRemoteNames
+			),
+			getHeadHash(ctx.executor, ctx.cwd),
+			getBranchEntries(ctx.executor, ctx.cwd, 'refs/heads'),
+			getBranchEntries(ctx.executor, ctx.cwd, 'refs/remotes'),
+			getPreviousBranch(ctx.executor, ctx.cwd),
+			getAheadBehind(ctx.executor, ctx.cwd),
+			getRepoState(ctx.executor, ctx.cwd, ctx.pathExists),
+			// The committed attributes: which files LFS stores, for the chip on their rows.
+			ctx.executor.run(['cat-file', 'blob', 'HEAD:.gitattributes'], ctx.cwd).catch(() => ''),
+		]);
+		const listLfsPatterns = lfsPatterns(gitattributes);
 
 		const hasMore = listRaw.length > limit;
 		const listHistory = withoutHiddenRefs(
@@ -134,6 +149,7 @@ export async function loadCommits(
 			headHash,
 			ahead: aheadBehind.ahead,
 			behind: aheadBehind.behind,
+			...(listLfsPatterns.length > 0 ? { lfsPatterns: listLfsPatterns } : {}),
 		};
 	} catch (err) {
 		return {

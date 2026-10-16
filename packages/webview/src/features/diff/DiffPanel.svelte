@@ -7,6 +7,7 @@
 	import {
 		buildDiffRows,
 		isChangeRow,
+		mapLinePartners,
 		prefixLines,
 		rowAtLine,
 		rowColumns,
@@ -14,10 +15,16 @@
 		rulerKind,
 		pickKey,
 		type DiffLayout,
+		type DiffRow,
 		type LineCell,
 	} from '../../lib/diffRows';
 	import type { HighlightToken } from '../../lib/highlight';
+	import { applyRanges, intralineRanges, type CharRange } from '../../lib/intraline';
 	import IconButton from '../../lib/ui/IconButton.svelte';
+	import ImageCompare from './ImageCompare.svelte';
+	import LfsCard from './LfsCard.svelte';
+	import SubmoduleCard from './SubmoduleCard.svelte';
+	import type { ImageDiff, LfsDiff, SubmoduleDiffView } from '../../lib/stores/diffView.svelte';
 	import { tooltip } from '../../lib/ui/tooltip';
 	import type { DiffMode } from '../../lib/viewSettings';
 
@@ -32,6 +39,10 @@
 		layout = 'unified',
 		wrap = false,
 		ignoreWhitespace = false,
+		intraline = true,
+		image = null,
+		lfs = null,
+		submodule = null,
 		blame = null,
 		canTrace = false,
 		staging = null,
@@ -43,6 +54,7 @@
 		onhistory = () => {},
 		onrevealCommit = () => {},
 		onstageLines = () => {},
+		onopenSubmodule = () => {},
 		onclose,
 	}: {
 		path: string;
@@ -58,6 +70,14 @@
 		/** Wrap long lines; split view wraps whatever this says. */
 		wrap?: boolean;
 		ignoreWhitespace?: boolean;
+		/** Mark the words that changed inside an edited line. */
+		intraline?: boolean;
+		/** An image's sides, drawn in place of hunks. */
+		image?: ImageDiff | null;
+		/** What an LFS file's pointers name, in place of the pointer text. */
+		lfs?: LfsDiff | null;
+		/** A submodule's pointer move, in place of its "Subproject commit" lines. */
+		submodule?: SubmoduleDiffView | null;
 		/** Set while the panel shows the file's blame instead of its diff. */
 		blame?: BlameData | null;
 		/** The file has a revision to read history and blame from — false for an untracked file. */
@@ -73,6 +93,8 @@
 		/** A blame annotation was clicked: bring that commit forward. */
 		onrevealCommit?: (hash: string) => void;
 		onstageLines?: (action: 'stage' | 'unstage' | 'discard', listLines: SelectedDiffLine[]) => void;
+		/** Switch the view to the submodule's own repository. */
+		onopenSubmodule?: (repoPath: string) => void;
 		onclose: () => void;
 	} = $props();
 
@@ -96,6 +118,41 @@
 		buildDiffRows(listHunks, effectiveLayout, mode === 'compact' && blame === null)
 	);
 
+	/**
+	 * Each edited line's counterpart, for marking the words that changed. Off under blame (no
+	 * pairs) and under ignore-whitespace, where git's hunks no longer line up with the raw text.
+	 */
+	const mapPartners = $derived(
+		intraline && blame === null && !ignoreWhitespace ? mapLinePartners(listHunks) : null
+	);
+	const listAllLines = $derived(listHunks.flatMap((hunk) => hunk.listLines));
+	/**
+	 * Ranges are worked out for the rows actually drawn and kept for this diff: comparing every
+	 * pair up front would cost a large diff seconds it never shows.
+	 */
+	const mapEmphCache = $derived.by(() => {
+		void mapPartners;
+		return new Map<number, CharRange[]>();
+	});
+
+	function emphFor(lineIndex: number): CharRange[] {
+		if (mapPartners === null) return [];
+		const cached = mapEmphCache.get(lineIndex);
+		if (cached) return cached;
+		const partner = mapPartners.get(lineIndex);
+		const line = listAllLines[lineIndex];
+		if (partner === undefined || !line) return [];
+		const other = listAllLines[partner];
+		const isDel = line.kind === 'del';
+		const { listOld, listNew } = intralineRanges(
+			isDel ? line.text : other.text,
+			isDel ? other.text : line.text
+		);
+		mapEmphCache.set(lineIndex, isDel ? listOld : listNew);
+		mapEmphCache.set(partner, isDel ? listNew : listOld);
+		return isDel ? listOld : listNew;
+	}
+
 	/** Two halves side by side cannot share one sideways scroll, so split view always wraps. */
 	const wrapActive = $derived(wrap || effectiveLayout === 'split');
 
@@ -103,40 +160,54 @@
 
 	/**
 	 * Lines can be picked only where a picked line maps onto one line of the diff git would apply:
-	 * one column, no blame, and whitespace counted — a patch built from a `-w` diff does not apply.
+	 * no blame, and whitespace counted — a patch built from a `-w` diff does not apply. Both layouts
+	 * pick: a split row is two lines, one per half.
 	 */
-	const pickable = $derived(
-		staging !== null && effectiveLayout === 'unified' && blame === null && !ignoreWhitespace
-	);
+	const pickable = $derived(staging !== null && blame === null && !ignoreWhitespace);
 	let setPicked = $state(new Set<string>());
 	let lastPickedRow: number | null = null;
+	/** Which half of a split row the last pick was on; null in the unified layout. */
+	let lastPickedHalf: 0 | 1 | null = null;
 	// A new diff — another file, or the same one after staging — starts with nothing picked.
 	$effect(() => {
 		void listHunks;
 		void staging;
+		void effectiveLayout;
 		setPicked = new Set();
 		lastPickedRow = null;
+		lastPickedHalf = null;
 	});
 
-	/** Click picks or drops one changed line; Shift+click picks every changed line up to it. */
-	function pickRow(rowIndex: number, range: boolean): void {
-		const row = listRows[rowIndex];
-		if (row?.kind !== 'line') return;
-		const key = pickKey(row.cell.line);
+	/** The line a row holds — on a split row, the one in `half` (0 old, 1 new). */
+	function cellOf(row: DiffRow | undefined, half: 0 | 1 | null): LineCell | null {
+		if (row?.kind === 'line') return row.cell;
+		if (row?.kind === 'pair') return half === 0 ? row.left : half === 1 ? row.right : null;
+		return null;
+	}
+
+	/**
+	 * Click picks or drops one changed line; Shift+click picks every changed line up to it. On a
+	 * split row a range stays on its half — old lines down the left, new lines down the right — and a
+	 * Shift+click on the other half picks just that line.
+	 */
+	function pickRow(rowIndex: number, range: boolean, half: 0 | 1 | null = null): void {
+		const cell = cellOf(listRows[rowIndex], half);
+		const key = cell ? pickKey(cell.line) : null;
 		if (key === null) return;
 		const next = new Set(setPicked);
-		if (range && lastPickedRow !== null) {
+		if (range && lastPickedRow !== null && lastPickedHalf === half) {
 			const from = Math.min(lastPickedRow, rowIndex);
 			const to = Math.max(lastPickedRow, rowIndex);
 			for (let index = from; index <= to; index++) {
-				const between = listRows[index];
-				const betweenKey = between?.kind === 'line' ? pickKey(between.cell.line) : null;
+				const between = cellOf(listRows[index], half);
+				const betweenKey = between ? pickKey(between.line) : null;
 				if (betweenKey !== null) next.add(betweenKey);
 			}
 		} else if (next.has(key)) next.delete(key);
 		else next.add(key);
 		setPicked = next;
 		lastPickedRow = rowIndex;
+		lastPickedHalf = half;
 	}
 
 	function selectedLine(line: DiffHunk['listLines'][number]): SelectedDiffLine {
@@ -462,14 +533,19 @@
 />
 
 {#snippet cellText(cell: LineCell)}
-	{@const listTokens = listLineTokens?.[cell.lineIndex]}
+	{@const listEmph = cell.line.kind === 'context' ? [] : emphFor(cell.lineIndex)}
+	{@const listTokens =
+		listEmph.length > 0
+			? applyRanges(listLineTokens?.[cell.lineIndex], cell.line.text, listEmph)
+			: listLineTokens?.[cell.lineIndex]}
 	<!-- Token spans carry nothing but a colour, so the row keeps exactly the height of the plain
 	     branch it replaces. -->
 	<span class="text"
 		><span class="marker"
 			>{cell.line.kind === 'add' ? '+' : cell.line.kind === 'del' ? '-' : ' '}</span
-		>{#if listTokens}{#each listTokens as token}<span style:color={token.color}
-					>{token.content}</span
+		>{#if listTokens}{#each listTokens as token}<span
+					style:color={token.color}
+					class:emph={token.emph}>{token.content}</span
 				>{/each}{:else}{cell.line.text}{/if}</span
 	>
 {/snippet}
@@ -514,7 +590,9 @@
 			disabled={!hasNextChange}
 			onclick={() => goToChange(1)}
 		/>
-		{#if blame === null}
+		{#if image || lfs || submodule}
+			<!-- An image, an LFS object or a submodule has no lines: none of the text views apply. -->
+		{:else if blame === null}
 			<span class="modes">
 				<button class:active={mode === 'compact'} onclick={() => onmode('compact')}>Changes</button>
 				<button class:active={mode === 'full'} onclick={() => onmode('full')}>Whole file</button>
@@ -567,7 +645,16 @@
 		/>
 	</header>
 
-	{#if notice}
+	{#if submodule}
+		<div class="media">
+			<SubmoduleCard {path} {submodule} onopen={onopenSubmodule} />
+		</div>
+	{:else if image || lfs}
+		<div class="media">
+			{#if lfs}<LfsCard {lfs} />{/if}
+			{#if image}<ImageCompare {image} />{/if}
+		</div>
+	{:else if notice}
 		<p class="hint">{notice}</p>
 	{:else}
 		<!--
@@ -669,14 +756,32 @@
 									style="top:{topOf(v.index)}px; height:{heightOf(v.index)}px"
 								>
 									{#each [v.row.left, v.row.right] as cell, side (side)}
-										<div class="half {cell === null ? 'empty' : cell.line.kind}">
-											<span class="gutter"
-												>{cell === null
-													? ''
-													: side === 0
-														? (cell.line.oldLine ?? '')
-														: (cell.line.newLine ?? '')}</span
-											>
+										{@const lineNumber =
+											cell === null
+												? ''
+												: side === 0
+													? (cell.line.oldLine ?? '')
+													: (cell.line.newLine ?? '')}
+										{@const canPick = pickable && cell !== null && cell.line.kind !== 'context'}
+										{@const picked = canPick && setPicked.has(pickKey(cell.line) ?? '')}
+										<div
+											class="half {cell === null ? 'empty' : cell.line.kind}"
+											class:pickable={canPick}
+											class:picked
+										>
+											{#if canPick}
+												{@const rowIndex = v.index}
+												<button
+													class="gutter"
+													aria-pressed={picked}
+													aria-label="Pick line"
+													use:tooltip={'Pick this line — Shift+click picks a range on this side'}
+													onclick={(event) => pickRow(rowIndex, event.shiftKey, side === 0 ? 0 : 1)}
+													>{lineNumber}</button
+												>
+											{:else}
+												<span class="gutter">{lineNumber}</span>
+											{/if}
 											{#if cell !== null}{@render cellText(cell)}{/if}
 										</div>
 									{/each}
@@ -755,6 +860,13 @@
 </div>
 
 <style>
+	.media {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		overflow: auto;
+	}
 	.diff {
 		flex: 1;
 		display: flex;
@@ -1040,13 +1152,16 @@
 		font: inherit;
 		cursor: pointer;
 	}
-	.row.pickable .gutter:hover {
+	.row.pickable .gutter:hover,
+	.half.pickable .gutter:hover {
 		color: var(--gg-fg);
 	}
-	.row.picked {
+	.row.picked,
+	.half.picked {
 		box-shadow: inset 3px 0 0 var(--vscode-focusBorder, #007fd4);
 	}
-	.row.picked .gutter {
+	.row.picked .gutter,
+	.half.picked .gutter {
 		color: var(--gg-fg);
 		font-weight: 600;
 	}
@@ -1144,6 +1259,12 @@
 	}
 	.row.del {
 		--row-tint: var(--vscode-diffEditor-removedTextBackground, rgba(248, 81, 73, 0.15));
+	}
+	/* The words that changed: the row's own tint laid twice more over itself, so it reads stronger in any
+	   theme without a colour of its own. */
+	.emph {
+		background: linear-gradient(var(--row-tint), var(--row-tint)), var(--row-tint);
+		border-radius: 2px;
 	}
 	.row.gap {
 		--row-tint: var(--vscode-diffEditor-diagonalFill, rgba(128, 128, 128, 0.12));

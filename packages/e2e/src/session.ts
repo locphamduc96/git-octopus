@@ -51,8 +51,17 @@ export interface Session {
  * included, whatever state the tests left them in.
  */
 export interface SessionOptions {
-	/** Shape the fresh repository before VS Code opens it (run git through the helper). */
-	prepare?: (git: (...listArgs: string[]) => string) => void;
+	/**
+	 * Shape the fresh repository before VS Code opens it (run git through the helper). `root` is the
+	 * session's temporary folder — anything written there is deleted with it.
+	 */
+	prepare?: (git: (...listArgs: string[]) => string, root: string) => void;
+	/**
+	 * Point git — the fixture, the helper and VS Code alike — at an empty global config in the
+	 * session folder, so the developer's own `~/.gitconfig` cannot change the outcome. Signing needs
+	 * it: one bad `gpg.format` there is fatal to every signature git reads.
+	 */
+	isolateGlobalConfig?: boolean;
 }
 
 export async function openSession(options: SessionOptions = {}): Promise<Session> {
@@ -66,12 +75,18 @@ export async function openSession(options: SessionOptions = {}): Promise<Session
 		}
 	};
 	try {
-		execFileSync('sh', [FIXTURE_SCRIPT, root], { stdio: 'pipe' });
+		const mapGitEnv: Record<string, string> = {};
+		if (options.isolateGlobalConfig) {
+			mapGitEnv.GIT_CONFIG_GLOBAL = path.join(root, 'global.gitconfig');
+			writeFileSync(mapGitEnv.GIT_CONFIG_GLOBAL, '');
+		}
+		const gitEnv = { ...process.env, ...mapGitEnv };
+		execFileSync('sh', [FIXTURE_SCRIPT, root], { stdio: 'pipe', env: gitEnv });
 		const repo = path.join(root, 'review');
 		const agentLog = path.join(root, 'agent-prompt.txt');
 		const git = (...listArgs: string[]): string =>
-			execFileSync('git', ['-C', repo, ...listArgs], { encoding: 'utf8' });
-		options.prepare?.(git);
+			execFileSync('git', ['-C', repo, ...listArgs], { encoding: 'utf8', env: gitEnv });
+		options.prepare?.(git, root);
 		const userData = path.join(STATE_DIR, 'user-data');
 		rmSync(userData, { recursive: true, force: true });
 		mkdirSync(path.join(userData, 'User'), { recursive: true });
@@ -101,7 +116,7 @@ export async function openSession(options: SessionOptions = {}): Promise<Session
 				'--no-cached-data',
 				'--new-window',
 			],
-			env: launchEnv(agentLog),
+			env: { ...launchEnv(agentLog), ...mapGitEnv },
 		});
 		const page = await app.firstWindow();
 		await page.waitForSelector('.monaco-workbench', { timeout: 60_000 });

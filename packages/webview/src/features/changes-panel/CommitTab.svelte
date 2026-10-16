@@ -4,6 +4,7 @@
 	import FileTree from '../../lib/ui/FileTree.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
 	import { buildFileTree, type FileViewMode } from '../../lib/fileTree';
+	import { MAP_SIGNATURE_LOOK } from '../../lib/signature';
 
 	let {
 		details,
@@ -98,6 +99,11 @@
 						<span class="mono">{details.hash.slice(0, 8)}</span>
 						· {details.author.name}
 						· {fmtWhen(details.authoredAt)}
+						{#if details.signature}
+							{@const look = MAP_SIGNATURE_LOOK[details.signature.status]}
+							<span class="signature {look.tone}" title={look.label}><Icon name={look.icon} /></span
+							>
+						{/if}
 					</span>
 				{/if}
 			</span>
@@ -144,6 +150,18 @@
 						{/if}
 						<span class="name">{personLabel(details.committer)}</span>
 						<span class="when">{fmtWhen(details.committedAt)}</span>
+					</dd>
+				{/if}
+
+				{#if details.signature}
+					{@const look = MAP_SIGNATURE_LOOK[details.signature.status]}
+					<dt><Icon name="shield" />Signature</dt>
+					<dd class="signature {look.tone}" title={details.signature.key}>
+						<Icon name={look.icon} />
+						<span class="name">
+							{look.label}{details.signature.signer ? ` — ${details.signature.signer}` : ''}
+						</span>
+						{#if details.signature.key}<span class="key mono">{details.signature.key}</span>{/if}
 					</dd>
 				{/if}
 			</dl>
@@ -259,6 +277,34 @@
 	.name {
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.byline .signature {
+		display: inline-flex;
+		vertical-align: middle;
+	}
+	dd.signature {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0 var(--gg-space-1);
+		min-width: 0;
+	}
+	.signature.good > :global(.codicon) {
+		color: var(--vscode-testing-iconPassed, #73c991);
+	}
+	.signature.warn > :global(.codicon) {
+		color: var(--vscode-editorWarning-foreground, #cca700);
+	}
+	.signature.bad > :global(.codicon) {
+		color: var(--vscode-errorForeground, #f48771);
+	}
+	.signature .key {
+		flex-basis: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.85em;
+		color: var(--gg-fg-muted);
 	}
 	.when {
 		flex: none;

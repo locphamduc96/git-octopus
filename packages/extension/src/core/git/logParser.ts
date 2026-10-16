@@ -1,7 +1,28 @@
-import type { Commit, Ref } from '@git-octopus/shared';
+import type { Commit, Ref, SignatureStatus } from '@git-octopus/shared';
 
 /** NUL-separated fields, one commit per line. Keep in sync with LOG_FORMAT. */
 export const LOG_FORMAT = '%H%x00%P%x00%an%x00%ae%x00%at%x00%ct%x00%s%x00%D';
+
+/**
+ * {@link LOG_FORMAT} plus the signature check. Separate because `%G?` runs gpg (or ssh-keygen)
+ * once per signed commit, which a large history pays for in seconds.
+ */
+export const LOG_FORMAT_SIGNED = `${LOG_FORMAT}%x00%G?`;
+
+const MAP_SIGNATURE: Record<string, SignatureStatus> = {
+	G: 'good',
+	U: 'untrusted',
+	B: 'bad',
+	X: 'expired',
+	Y: 'expiredKey',
+	R: 'revoked',
+	E: 'missingKey',
+};
+
+/** `%G?` as a status; N (no signature) and anything unknown are no status at all. */
+export function signatureStatus(code: string | undefined): SignatureStatus | undefined {
+	return code ? MAP_SIGNATURE[code] : undefined;
+}
 
 /**
  * Parse `git log` output produced with {@link LOG_FORMAT} into commits.
@@ -11,9 +32,10 @@ export function parseLog(output: string, listRemotes: string[] = []): Commit[] {
 	const listCommits: Commit[] = [];
 	for (const line of output.split('\n')) {
 		if (line === '') continue;
-		const [hash, parents, name, email, authoredAt, committedAt, subject, decoration] =
+		const [hash, parents, name, email, authoredAt, committedAt, subject, decoration, signed] =
 			line.split('\0');
 		if (!hash) continue;
+		const signature = signatureStatus(signed);
 		listCommits.push({
 			hash,
 			parents: parents ? parents.split(' ') : [],
@@ -22,6 +44,7 @@ export function parseLog(output: string, listRemotes: string[] = []): Commit[] {
 			committedAt: Number.parseInt(committedAt ?? '0', 10) || 0,
 			subject: subject ?? '',
 			refs: parseRefs(decoration ?? '', listRemotes),
+			...(signature ? { signature } : {}),
 		});
 	}
 	return listCommits;

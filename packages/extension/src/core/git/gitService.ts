@@ -1,6 +1,7 @@
 import type {
 	Commit,
 	CommitDetails,
+	CommitSignature,
 	DiffHunk,
 	FileChange,
 	FileStatus,
@@ -11,7 +12,7 @@ import type {
 import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 import { isBinaryDiff, parseUnifiedDiff } from './diffParser.js';
 import type { GitExecutor } from './GitExecutor.js';
-import { LOG_FORMAT, parseLog } from './logParser.js';
+import { LOG_FORMAT, LOG_FORMAT_SIGNED, parseLog, signatureStatus } from './logParser.js';
 import { STATUS_ARGS, parseStatus, type StatusResult } from './statusParser.js';
 import { parseUpstreamTracking } from './upstreamTrack.js';
 import { parseNumstat } from './numstatParser.js';
@@ -24,6 +25,7 @@ export interface GraphFilterOptions {
 	showRemoteBranches: boolean;
 	commitOrder?: 'date' | 'authorDate' | 'topo';
 	showTags?: boolean;
+	showSignatures?: boolean;
 }
 
 /**
@@ -97,21 +99,29 @@ export async function getCommits(
 	/** Configured remote names — the only thing that can say where a remote's name ends. */
 	listRemotes: string[] = []
 ): Promise<Commit[]> {
-	const output = await executor.run(
-		[
-			'log',
-			// Full ref paths so a local `feature/x` is never mistaken for a remote branch.
-			'--decorate=full',
-			`--pretty=format:${LOG_FORMAT}`,
-			...refArgs(filters, headResolves),
-			...listExtraRevs,
-			mapOrderArg[filters.commitOrder ?? 'date'],
-			'-n',
-			String(limit),
-		],
-		cwd
-	);
-	return parseLog(output, listRemotes);
+	const walk = (format: string): Promise<string> =>
+		executor.run(
+			[
+				'log',
+				// Full ref paths so a local `feature/x` is never mistaken for a remote branch.
+				'--decorate=full',
+				`--pretty=format:${format}`,
+				...refArgs(filters, headResolves),
+				...listExtraRevs,
+				mapOrderArg[filters.commitOrder ?? 'date'],
+				'-n',
+				String(limit),
+			],
+			cwd
+		);
+	if (filters.showSignatures) {
+		// Verifying is where git reads the gpg settings, and a bad one (`gpg.format =` left empty)
+		// is fatal to the whole walk. The badges are the extra; the graph is not — the Signing tab
+		// is where the broken setting gets named.
+		const signed = await walk(LOG_FORMAT_SIGNED).catch(() => null);
+		if (signed !== null) return parseLog(signed, listRemotes);
+	}
+	return parseLog(await walk(LOG_FORMAT), listRemotes);
 }
 
 export interface StashEntry {
@@ -244,6 +254,8 @@ export async function getRemoteNames(executor: GitExecutor, cwd: string): Promis
 export interface SubmoduleEntry {
 	path: string;
 	hash: string;
+	/** `git submodule status` prefixes `-` to one never checked out. */
+	initialized: boolean;
 }
 
 /**
@@ -253,8 +265,14 @@ export interface SubmoduleEntry {
 export function parseSubmoduleStatus(output: string): SubmoduleEntry[] {
 	const listSubmodules: SubmoduleEntry[] = [];
 	for (const line of output.split('\n')) {
-		const match = /^[ +\-U]?([0-9a-f]{40})\s+(\S+)/.exec(line);
-		if (match) listSubmodules.push({ hash: match[1].slice(0, 8), path: match[2] });
+		const match = /^([ +\-U]?)([0-9a-f]{40})\s+(\S+)/.exec(line);
+		if (match) {
+			listSubmodules.push({
+				hash: match[2].slice(0, 8),
+				path: match[3],
+				initialized: match[1] !== '-',
+			});
+		}
 	}
 	return listSubmodules;
 }
@@ -393,9 +411,30 @@ function commitDiffRange(hash: string, listParents: string[]): string[] {
 	return listParents.length > 1 ? [listParents[0], hash] : ['--root', hash];
 }
 
-async function getParents(executor: GitExecutor, cwd: string, hash: string): Promise<string[]> {
+export async function getParents(
+	executor: GitExecutor,
+	cwd: string,
+	hash: string
+): Promise<string[]> {
 	const output = await executor.run(['rev-list', '--parents', '-n', '1', hash], cwd);
 	return output.trim().split(' ').slice(1);
+}
+
+/**
+ * One commit's signature, asked on its own: verifying can fail where reading the commit cannot — a
+ * broken gpg setting is fatal to the whole `git show` — and the details must open regardless.
+ */
+async function getSignature(
+	executor: GitExecutor,
+	cwd: string,
+	hash: string
+): Promise<CommitSignature | null> {
+	const output = await executor
+		.run(['show', '-s', '--format=%G?%x00%GS%x00%GK', hash], cwd)
+		.catch(() => '');
+	const [code, signer, key] = output.trim().split('\0');
+	const status = signatureStatus(code);
+	return status ? { status, signer: signer ?? '', key: key ?? '' } : null;
 }
 
 /** Load metadata, the full message and the changed files (with line counts) for one commit. */
@@ -418,15 +457,44 @@ export async function getCommitDetails(
 	] = meta.split('\0');
 	const listParents = parents ? parents.split(' ').filter((parent) => parent !== '') : [];
 	const listRange = commitDiffRange(hash, listParents);
-	const [nameStatus, numstat] = await Promise.all([
-		executor.run(['diff-tree', '--no-commit-id', '--name-status', '-r', ...listRange], cwd),
+	const [nameStatus, numstat, signature] = await Promise.all([
+		// `--raw` over `--name-status`: the same lines plus the modes, which mark submodules.
+		executor.run(['diff-tree', '--no-commit-id', '--raw', '-r', ...listRange], cwd),
 		executor.run(['diff-tree', '--no-commit-id', '--numstat', '-r', ...listRange], cwd),
+		getSignature(executor, cwd, hash),
 	]);
 	const mapCounts = parseNumstat(numstat);
-	const files = parseNameStatus(nameStatus).map((file) => ({
+	const files: FileChange[] = parseNameStatus(nameStatus).map((file) => ({
 		...file,
 		...mapCounts.get(file.path),
 	}));
+
+	// A stash looks like a merge: HEAD, then a snapshot of the index, then — with `-u` — a root
+	// commit of the untracked files. Only a merge can be one, so only a merge pays to ask.
+	const stash =
+		listParents.length >= 2 && (await getStashHashes(executor, cwd)).has(fullHash ?? hash);
+	if (stash && listParents[2]) {
+		const untrackedRoot = listParents[2];
+		const [untrackedNames, untrackedCounts] = await Promise.all([
+			executor.run(
+				['diff-tree', '--no-commit-id', '--name-status', '-r', '--root', untrackedRoot],
+				cwd
+			),
+			executor.run(
+				['diff-tree', '--no-commit-id', '--numstat', '-r', '--root', untrackedRoot],
+				cwd
+			),
+		]);
+		const mapUntrackedCounts = parseNumstat(untrackedCounts);
+		for (const file of parseNameStatus(untrackedNames)) {
+			files.push({
+				...file,
+				...mapUntrackedCounts.get(file.path),
+				status: '?',
+				revision: untrackedRoot,
+			});
+		}
+	}
 
 	return {
 		hash: fullHash ?? hash,
@@ -437,7 +505,17 @@ export async function getCommitDetails(
 		committedAt: Number.parseInt(committedAt ?? '0', 10) || 0,
 		body: bodyParts.join('\0').replace(/\n+$/, ''),
 		files,
+		...(stash ? { stash: true } : {}),
+		...(signature ? { signature } : {}),
 	};
+}
+
+/** Every commit `refs/stash` has pointed at — the stash entries, newest first. */
+async function getStashHashes(executor: GitExecutor, cwd: string): Promise<Set<string>> {
+	const output = await executor
+		.run(['log', '--walk-reflogs', '--format=%H', 'refs/stash'], cwd)
+		.catch(() => '');
+	return new Set(output.split('\n').filter((line) => line !== ''));
 }
 
 /** Files that differ between two commits, or between a commit and the working tree. */
@@ -529,6 +607,8 @@ export interface FileDiffResult {
 	listHunks: DiffHunk[];
 	/** Set when there is nothing to draw, and says why. */
 	notice?: string;
+	/** git reported the file as binary — the caller may still have a way to show it. */
+	binary?: boolean;
 }
 
 function diffArgs(request: FileDiffRequest, listParents: string[]): string[] {
@@ -551,6 +631,8 @@ function diffArgs(request: FileDiffRequest, listParents: string[]): string[] {
 		}
 		return [
 			'diff',
+			// `diff.submodule = log` would turn a submodule's lines into a summary no hunk parser reads.
+			'--submodule=short',
 			...rename,
 			...listContext,
 			request.fromHash,
@@ -622,7 +704,11 @@ export async function getFileDiff(
 		};
 	}
 	if (isBinaryDiff(output)) {
-		return { listHunks: [], notice: 'Binary file — open it in the editor to view it.' };
+		return {
+			listHunks: [],
+			notice: 'Binary file — open it in the editor to view it.',
+			binary: true,
+		};
 	}
 	const listHunks = parseUnifiedDiff(output);
 	if (listHunks.length === 0) {
@@ -631,20 +717,36 @@ export async function getFileDiff(
 	return { listHunks };
 }
 
-function parseNameStatus(output: string): FileChange[] {
+/**
+ * `--name-status` lines (`M\tpath`), or `--raw` ones — the same tail behind a
+ * `:<mode> <mode> <hash> <hash> ` head, whose modes are the one place a submodule (160000) shows.
+ */
+export function parseNameStatus(output: string): FileChange[] {
 	const listFiles: FileChange[] = [];
-	for (const line of output.split('\n')) {
-		if (line === '') continue;
+	for (const raw of output.split('\n')) {
+		if (raw === '') continue;
+		let line = raw;
+		let submodule = false;
+		if (raw.startsWith(':')) {
+			const tab = raw.indexOf('\t');
+			if (tab === -1) continue;
+			const listMeta = raw.slice(1, tab).split(' ');
+			submodule = listMeta[0] === MODE_SUBMODULE || listMeta[1] === MODE_SUBMODULE;
+			line = `${listMeta[4] ?? ''}${raw.slice(tab)}`;
+		}
 		const parts = line.split('\t');
 		const status = (parts[0]?.[0] ?? 'X') as FileStatus;
+		const extra = submodule ? { submodule: {} } : {};
 		if ((status === 'R' || status === 'C') && parts.length >= 3) {
-			listFiles.push({ status, oldPath: parts[1], path: parts[2] });
+			listFiles.push({ status, oldPath: parts[1], path: parts[2], ...extra });
 		} else if (parts[1]) {
-			listFiles.push({ status, path: parts[1] });
+			listFiles.push({ status, path: parts[1], ...extra });
 		}
 	}
 	return listFiles;
 }
+
+const MODE_SUBMODULE = '160000';
 
 export interface RepoIdentity {
 	/** Effective values (local override when present, otherwise inherited), null when unset. */

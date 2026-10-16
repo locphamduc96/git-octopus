@@ -24,6 +24,8 @@ export const LIST_SHORTCUT_GROUPS: ShortcutGroup[] = [
 			{ keys: ['Mod+H'], label: 'Jump to HEAD' },
 			{ keys: ['Mod+S'], label: 'Jump to the latest stash' },
 			{ keys: ['Mod+R'], label: 'Reload the graph' },
+			{ keys: ['Mod+B'], label: 'Create a branch at the selected commit (HEAD when none)' },
+			{ keys: ['Mod+L'], label: 'Fetch all remotes' },
 			{ keys: ['Mod+Z'], label: 'Undo the last action that moved a branch' },
 			{ keys: ['Mod+Shift+Z', 'Mod+Y'], label: 'Redo what was just undone' },
 		],

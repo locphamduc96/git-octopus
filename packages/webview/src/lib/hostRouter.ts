@@ -48,6 +48,7 @@ export const LIST_ROUTED_BY_STORE = [
 	'commitOutcome',
 	'commitTemplate',
 	'remotes',
+	'signing',
 	'worktrees',
 	'rebaseTodo',
 	'colorTheme',

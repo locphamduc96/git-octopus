@@ -1,5 +1,92 @@
 # Changelog
 
+## 0.25.0
+
+### Added
+
+- **Commit signing from the view.** Settings → Signing turns signing on for commits and tags in
+  this repository, picks GPG, SSH or X.509 and the key, and sets the SSH allowed signers file — all
+  in the repository's own config. It shows where each value comes from and names what breaks
+  signing: an empty `gpg.format` or signing program, git older than 2.34 for SSH, an SSH setup with
+  nothing to verify against.
+- **Signature badges.** With **Show signatures on the graph** on (off by default — every signed
+  commit is verified on each load), a shield by the subject says whether the signature is good,
+  untrusted, expired, revoked, bad, or cannot be checked. The commit details show the signer and
+  the key. A gpg setting git cannot read no longer stops the graph from loading.
+- **Submodules.** A submodule in the working tree is marked as one, with what moved inside it: new
+  commits, modified or untracked content. Its diff is the commit it moves from and to, not two
+  "Subproject commit" lines, with **Open submodule** to switch to its graph; checked-out submodules
+  are in the repository picker, and clicking one in the sidebar's Submodules section opens it.
+  Discard on a submodule says why it cannot reset one instead of quietly doing nothing.
+
+## 0.24.0
+
+### Added
+
+- **Image diffs.** A changed image shows before and after side by side, or one over the other with a
+  slider; sizes in pixels and bytes; images under 64 px are blown up pixel by pixel. Sides over 5 MB
+  are left to the editor.
+- **Git LFS files.** A file `.gitattributes` sends through LFS carries an LFS chip; its diff names
+  the object each side points at — size and hash — instead of the three-line pointer. When the
+  working tree holds the real image, it is shown.
+
+## 0.23.0
+
+### Added
+
+- **Changed words marked inside a line.** An edited line shows which words changed, not only that
+  the line did — in the unified and the side-by-side diff. Switch it off under Settings → General.
+- **Pick lines side by side.** Lines can be staged, unstaged or discarded from the side-by-side
+  diff too; a Shift+click range stays on its own side.
+- **Apply one file from a stash.** A stash's file menu offers **Apply This File from Stash**: the
+  file comes back into the working tree, the index and the stash are left as they were. Files that
+  were untracked when stashed are listed and can be taken out the same way.
+- **Cmd/Ctrl+B and Cmd/Ctrl+L in the graph.** While the graph has focus they create a branch at the
+  selected commit and fetch; anywhere else they keep VS Code's meaning.
+
+## 0.22.0
+
+### Added
+
+- **Changes column** with the lines each commit added and removed, read only for the rows on
+  screen.
+- **Worktrees**: list, open in a new window, add, remove and prune from Settings → Worktrees; a
+  branch checked out in another worktree offers that worktree instead of a checkout.
+- **AI Explain** for a commit, a branch or the uncommitted changes, with the agent CLI already
+  chosen for AI commit; the account opens as a Markdown document.
+- **Drag a branch onto another → Interactive Rebase**, and an editor for cherry-picking several
+  commits in a chosen order, with `-x` or without committing.
+- Columns reordered by dragging their header; double-click a faded branch name to check it out.
+
+### Fixed
+
+- A commit a hook refused lost its message; the commit dialog now comes back with it.
+
+## 0.21.0
+
+### Added
+
+- **Interactive rebase** from a commit: reorder, pick, reword, squash, fix up or drop.
+- **Conflicts**: open VS Code's merge editor, take one side whole, put the markers back.
+- **Stash one file**, **Redo** for Undo.
+- Commit dialog: **push after committing**, **skip Git hooks**, `commit.template` filled in.
+- Drag a branch to reset another to it, push it to a remote branch, or rebase it onto a branch
+  that exists only on a remote.
+- Add and remove remotes; set and unset a branch's upstream.
+
+## 0.20.0
+
+### Added
+
+- **Find** highlights every match in the full graph and steps through them; filtering is a toggle.
+- **Hide**, **Show Only**, **Also Show** and **Show Only Related Branches**, with pills that undo
+  them; **Pin to Left**.
+- Keyboard: Alt+↑/↓ along a branch, ←/→ to the neighbouring lane, **?** for every shortcut.
+- **Stage, unstage or discard single lines and hunks** from the diff.
+- Diff: **side by side**, word wrap, ignore whitespace.
+- **Compare a commit with the working tree**; **Restore File from this Commit**.
+- **File History** across renames and **Blame**.
+
 ## 0.19.13
 
 ### Fixed

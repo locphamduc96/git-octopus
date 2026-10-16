@@ -32,15 +32,20 @@ View a Git graph of your repository and perform Git actions from it, inside Visu
   lists what it brought in: its files against the branch it was merged into.
 - **Working tree**: stage, unstage and discard per file, stage or unstage everything, stash all or
   **stash one file**, commit — with **push after committing**, **skip hooks** for one commit, and
-  your `commit.template` filled in — and undo the last commit. Or **pick lines**: in a file's diff, click line numbers (Shift+click for
-  a range) to stage, unstage or discard just those lines, or a whole hunk from its header. The diff
-  re-reads the file before applying, so a picked line that changed meanwhile is refused, not
-  misapplied.
+  your `commit.template` filled in — and undo the last commit; a commit a hook refuses comes back
+  with your message. Or **pick lines**: in a file's diff, unified or side by side, click line
+  numbers (Shift+click for a range) to stage, unstage or discard just those lines, or a whole hunk
+  from its header. The diff re-reads the file before applying, so a picked line that changed
+  meanwhile is refused, not misapplied.
 - **Diffs in the view**: any file's changes open in an inline panel with syntax highlighting and an
   overview ruler of every change — unified or **side by side**, with **word wrap** and **ignore
-  whitespace** toggles. Ctrl/Cmd + click a second commit to compare two commits, or the Uncommitted
-  row to **compare a commit with the working tree**; **Restore File from this Commit** puts a file
-  back as it was.
+  whitespace** toggles, and the **words that changed** marked inside each edited line. Ctrl/Cmd +
+  click a second commit to compare two commits, or the Uncommitted row to **compare a commit with
+  the working tree**; **Restore File from this Commit** puts a file back as it was, and **Apply This
+  File from Stash** takes one file out of a stash — untracked ones included — leaving the stash
+  alone. A changed **image** shows before and after side by side or overlaid, small sprites blown
+  up pixel by pixel; a file **Git LFS** stores is marked on its row, and its diff names the objects
+  each side points at instead of the pointer's text.
 - **History and blame**: **File History** lists every commit that touched a file, across renames —
   ↑/↓ walk it with the diff open. **Blame** shows who last changed each line, at any commit or in
   the working tree; click an annotation to jump to its commit.
@@ -102,6 +107,11 @@ View a Git graph of your repository and perform Git actions from it, inside Visu
 - **Git identities per repository**: keep an identity per client, each with one or more remote
   patterns, and apply it to a repository without touching your global config — optionally applied
   on its own when a repository's remote matches exactly one of them.
+- **Signed commits**: the Signing tab turns commit and tag signing on for a repository, with GPG,
+  SSH or X.509 and the key to use — written to that repository's config, never the global one —
+  and says what would stop it working, such as a bad `gpg.format` in your global config. Switch on
+  **Show signatures on the graph** and a shield beside each signed commit says whether its
+  signature checks out; the commit details name the signer and the key.
 - **In the Panel or an editor tab**: the graph opens in the bottom Panel or as an editor tab you
   can split, drag to another group or move into its own window. The octopus button on the editor
   title bar opens it, **Move to Editor Tab** / **Move to Panel** swap between the two, and the
@@ -115,8 +125,12 @@ View a Git graph of your repository and perform Git actions from it, inside Visu
 - **Find** with Ctrl+F highlights every matching commit in the full graph — Enter and Shift+Enter
   step through them, with match case, regular expressions, and a filter mode that hides the rest.
 - **Keyboard**: ↑/↓ by date, Alt+↑/↓ along the selected commit's branch, ←/→ to the lane beside it;
-  press **?** for the full list.
-- Several repositories in one workspace.
+  while the graph has focus, Cmd/Ctrl+B creates a branch at the selected commit and Cmd/Ctrl+L
+  fetches — everywhere else those keys stay VS Code's. Press **?** for the full list.
+- Several repositories in one workspace, and the **submodules** inside them: a submodule's row in
+  the working tree says whether it has new commits, edits or untracked files of its own; its diff
+  shows the commit it moves from and to, with **Open submodule** to switch to its graph; and every
+  checked-out submodule is in the repository picker.
 
 ## Managing multiple Git identities
 
