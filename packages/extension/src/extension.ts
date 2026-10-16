@@ -3,27 +3,28 @@ import type { CommitActionMessage } from '@git-octopus/shared';
 import {
 	GitOctopusController,
 	STATE_VIEW_SETTINGS,
-} from './adapters/vscode/GitOctopusController.js';
+} from '@git-octopus/host/adapters/services/GitOctopusController';
 import { GitOctopusViewProvider } from './adapters/vscode/GitOctopusViewProvider.js';
 import { GitOctopusTab, pickGraphLocation } from './adapters/vscode/GitOctopusTab.js';
-import { GitProcessExecutor } from './adapters/process/gitProcessExecutor.js';
-import { SerializingGitExecutor } from './adapters/process/serializingGitExecutor.js';
-import { LockRetryGitExecutor } from './adapters/process/lockRetryGitExecutor.js';
+import { GitProcessExecutor } from '@git-octopus/host/adapters/process/gitProcessExecutor';
+import { SerializingGitExecutor } from '@git-octopus/host/adapters/process/serializingGitExecutor';
+import { LockRetryGitExecutor } from '@git-octopus/host/adapters/process/lockRetryGitExecutor';
 import { DiffService } from './adapters/vscode/DiffService.js';
 import {
 	CommitActionService,
 	readHostViewSettings,
-} from './adapters/vscode/CommitActionService.js';
-import { WorkingTreeService } from './adapters/vscode/WorkingTreeService.js';
-import { RepoActionService } from './adapters/vscode/RepoActionService.js';
-import { CommitAgentService } from './adapters/vscode/CommitAgentService.js';
+} from '@git-octopus/host/adapters/services/CommitActionService';
+import { WorkingTreeService } from '@git-octopus/host/adapters/services/WorkingTreeService';
+import { RepoActionService } from '@git-octopus/host/adapters/services/RepoActionService';
+import { CommitAgentService } from '@git-octopus/host/adapters/services/CommitAgentService';
 import { RepoTreeProvider, type RepoNode } from './adapters/vscode/RepoTreeProvider.js';
 import { RepoWatcher } from './adapters/vscode/RepoWatcher.js';
-import { AutoFetchScheduler } from './adapters/vscode/AutoFetchScheduler.js';
+import { AutoFetchScheduler } from '@git-octopus/host/adapters/services/AutoFetchScheduler';
+import { vscodeControllerShell } from './adapters/vscode/vscodeShell.js';
 import { pickAutoFetchMinutes } from '@git-octopus/shared';
 import { AskpassServer } from './adapters/askpass/askpassServer.js';
 import { nativePrompt } from './adapters/vscode/nativePrompt.js';
-import { pathExists } from './adapters/fs/pathExists.js';
+import { pathExists } from '@git-octopus/host/adapters/fs/pathExists';
 
 /**
  * The askpass bridge, or undefined when it must stay out of the way: on Windows (not supported
@@ -53,26 +54,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		new LockRetryGitExecutor(new GitProcessExecutor(askpass))
 	);
 	const diff = new DiffService(executor);
+	const shell = vscodeControllerShell(context, diff);
 	// The stored blob is everything the view persists — settings, columns, panel state. Only the
 	// settings half is a preference the host acts on, so only that half is handed over.
-	const actions = new CommitActionService(executor, () =>
+	const actions = new CommitActionService(executor, shell, () =>
 		readHostViewSettings(context.globalState.get<unknown>(STATE_VIEW_SETTINGS))
 	);
 	const controller = new GitOctopusController(
-		context.extensionUri,
+		shell,
 		executor,
-		diff,
 		actions,
-		new WorkingTreeService(executor),
-		new RepoActionService(executor),
+		new WorkingTreeService(executor, shell),
+		new RepoActionService(executor, shell),
 		new CommitAgentService(
 			executor,
+			shell,
 			context.globalState,
 			undefined,
 			vscode.Uri.joinPath(context.globalStorageUri, 'agent-workdir').fsPath
-		),
-		context.workspaceState,
-		context.globalState
+		)
 	);
 	// Preferences follow the user to their other machines; nothing else here is worth syncing.
 	context.globalState.setKeysForSync([STATE_VIEW_SETTINGS]);

@@ -9,7 +9,11 @@
 		"node": ">=20"
 	},
 	"pnpm": {
+		"overrides": {
+			"electron>@types/node": "^20.17.10"
+		},
 		"onlyBuiltDependencies": [
+			"electron",
 			"esbuild",
 			"@vscode/vsce-sign",
 			"keytar"
@@ -23,7 +27,8 @@
 		"format": "prettier --write .",
 		"typecheck": "pnpm -r typecheck",
 		"package": "pnpm --filter @git-octopus/webview build && pnpm --filter git-octopus run package",
-		"e2e": "pnpm --filter @git-octopus/webview build && pnpm --filter git-octopus build && pnpm --filter @git-octopus/e2e e2e"
+		"e2e": "pnpm --filter @git-octopus/webview build && pnpm --filter git-octopus build && pnpm --filter @git-octopus/e2e e2e",
+		"perf:desktop": "pnpm --filter @git-octopus/webview build && pnpm --filter git-octopus build && pnpm --filter @git-octopus/desktop spike:build && pnpm --filter @git-octopus/e2e perf"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.17.0",

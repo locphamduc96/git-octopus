@@ -4,7 +4,7 @@ import type {
 	PickRequest,
 	TextRequest,
 	UserPrompt,
-} from '../../app/ports/userPrompt.js';
+} from '@git-octopus/host/app/ports/userPrompt';
 
 /**
  * The {@link UserPrompt} port on native VS Code UI — the exact dialogs the services used before

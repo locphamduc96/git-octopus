@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { GitOctopusController } from './GitOctopusController.js';
+import { GitOctopusController } from '@git-octopus/host/adapters/services/GitOctopusController';
 
 /** Thin adapter registering the controller as the Panel/Side Bar view. */
 export class GitOctopusViewProvider implements vscode.WebviewViewProvider {

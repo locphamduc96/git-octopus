@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { FileIconTheme } from '@git-octopus/shared';
-import { buildIconTheme, type RawIconTheme } from '../../core/icons/iconTheme.js';
+import { buildIconTheme, type RawIconTheme } from '@git-octopus/host/core/icons/iconTheme';
 
 /**
  * A file-icon theme located on disk. Icon paths are resolved per webview, since a webview URI is

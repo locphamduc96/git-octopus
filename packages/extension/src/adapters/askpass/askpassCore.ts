@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import * as net from 'node:net';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import type { GitAuthContext } from '../../core/git/GitExecutor.js';
+import type { GitAuthContext } from '@git-octopus/host/core/git/GitExecutor';
 import {
 	buildReply,
 	classifyPrompt,

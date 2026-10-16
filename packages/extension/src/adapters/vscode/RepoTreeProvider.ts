@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { GitExecutor } from '../../core/git/GitExecutor.js';
+import type { GitExecutor } from '@git-octopus/host/core/git/GitExecutor';
 import {
 	getAheadBehind,
 	getBranchEntries,
@@ -7,8 +7,8 @@ import {
 	getStashes,
 	getSubmodules,
 	getTags,
-} from '../../core/git/gitService.js';
-import { buildRefTree, type RefTreeNode } from '../../core/git/refTree.js';
+} from '@git-octopus/host/core/git/gitService';
+import { buildRefTree, type RefTreeNode } from '@git-octopus/host/core/git/refTree';
 
 type Section = 'branches' | 'remotes' | 'tags' | 'stashes' | 'submodules';
 

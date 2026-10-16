@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.25.1
+
+### Fixed
+
+- A setting that reloads the graph (show signatures, tags, stashes, commit order…) no longer flips
+  back to its old value for a moment after it is changed.
+
+### Changed
+
+- The host now lives in a package of its own, shared with the coming desktop app; nothing changes
+  for the extension.
+
 ## 0.25.0
 
 ### Added

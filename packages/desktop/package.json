@@ -1,0 +1,20 @@
+{
+	"name": "@git-octopus/desktop",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Git Octopus as a standalone macOS app (Electron)",
+	"license": "MIT",
+	"main": "spike/dist/main.js",
+	"scripts": {
+		"spike:build": "node spike/build.mjs",
+		"spike": "node spike/build.mjs && electron spike/dist/main.js",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"devDependencies": {
+		"@git-octopus/host": "workspace:*",
+		"@git-octopus/shared": "workspace:*",
+		"@types/node": "^20.17.10",
+		"electron": "44.5.1",
+		"esbuild": "^0.24.2"
+	}
+}

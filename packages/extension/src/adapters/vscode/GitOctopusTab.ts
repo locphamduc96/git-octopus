@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { GitOctopusController } from './GitOctopusController.js';
+import type { GitOctopusController } from '@git-octopus/host/adapters/services/GitOctopusController';
 
 /** Where "Open Git Octopus" shows the graph — the values of the `gitOctopus.defaultLocation` setting. */
 export type GraphLocation = 'panel' | 'editor';

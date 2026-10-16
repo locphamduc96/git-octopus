@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { chmod } from 'node:fs/promises';
 import * as path from 'node:path';
-import type { AskpassBridge, GitAuthContext } from '../../core/git/GitExecutor.js';
+import type { AskpassBridge, GitAuthContext } from '@git-octopus/host/core/git/GitExecutor';
 import { AskpassCore, type PromptRequest } from './askpassCore.js';
 import { CONFIRM_NO, CONFIRM_YES } from './askpassProtocol.js';
 

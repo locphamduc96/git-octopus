@@ -13,7 +13,7 @@ import { EXTENSION_ROOT, FAKE_BIN, FIXTURE_SCRIPT, STATE_DIR } from './paths.js'
 import { vscodeExecutable } from './vscodeBinary.js';
 
 /** Settings that keep VS Code's own furniture out of the way and make every dialog a DOM one. */
-const SETTINGS = {
+export const SETTINGS = {
 	'window.dialogStyle': 'custom',
 	'window.restoreWindows': 'none',
 	'window.newWindowDimensions': 'maximized',
@@ -28,6 +28,9 @@ const SETTINGS = {
 	'telemetry.telemetryLevel': 'off',
 	'git.openRepositoryInParentFolders': 'never',
 	'gitOctopus.defaultLocation': 'editor',
+	// One step smaller, so a laptop screen (1512 points wide) has room for every optional column
+	// beside the details panel — the width the drag and compare tests need, on any display.
+	'window.zoomLevel': -1,
 };
 
 export interface Session {
@@ -136,7 +139,7 @@ export async function openSession(options: SessionOptions = {}): Promise<Session
  * variables would hand the launch to the editor already running — both are dropped. The fake agent
  * CLI goes first on PATH, so AI features answer without an account.
  */
-function launchEnv(agentLog: string): Record<string, string> {
+export function launchEnv(agentLog: string): Record<string, string> {
 	const mapEnv: Record<string, string> = {};
 	for (const [key, value] of Object.entries(process.env)) {
 		if (value === undefined || key.startsWith('VSCODE_') || key.startsWith('ELECTRON_')) continue;

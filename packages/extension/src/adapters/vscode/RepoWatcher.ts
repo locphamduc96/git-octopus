@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import type { RefreshKind } from '../../core/refreshPolicy.js';
+import type { RefreshKind } from '@git-octopus/host/core/refreshPolicy';
 
 export type { RefreshKind };
 

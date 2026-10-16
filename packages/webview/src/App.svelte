@@ -1360,6 +1360,9 @@
 				if (next.commitLimit !== prefs.settings.commitLimit) graphLimit = 0;
 				const diffModeChanged = next.diffMode !== prefs.settings.diffMode;
 				prefs.setSettings(next);
+				// Saved here rather than by the effect: the host answers every load with the settings
+				// it holds, and a load that reached it before this save would put the old values back.
+				prefs.save();
 				if (reload) load();
 				// The open diff was fetched with the old context count, so it has to be asked for again.
 				if (diffModeChanged) diffView.refresh();

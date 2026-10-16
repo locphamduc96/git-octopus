@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
-import type { GitExecutor } from '../../core/git/GitExecutor.js';
+import type { GitExecutor } from '@git-octopus/host/core/git/GitExecutor';
 import { UNCOMMITTED_HASH } from '@git-octopus/shared';
-import { getFileAtRev } from '../../core/git/gitService.js';
+import { getFileAtRev } from '@git-octopus/host/core/git/gitService';
 
 /**
  * Opens VS Code diff editors for a file at a commit vs its parent, and serves the file content

@@ -2,7 +2,7 @@
 	"name": "git-octopus",
 	"displayName": "Git Octopus",
 	"description": "View a Git graph of your repository and perform Git actions from it.",
-	"version": "0.25.0",
+	"version": "0.25.1",
 	"publisher": "locpham",
 	"license": "MIT",
 	"icon": "media/icon.png",
@@ -457,6 +457,7 @@
 	},
 	"dependencies": {
 		"@git-octopus/graph-layout": "workspace:*",
+		"@git-octopus/host": "workspace:*",
 		"@git-octopus/shared": "workspace:*"
 	},
 	"devDependencies": {

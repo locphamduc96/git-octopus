@@ -54,13 +54,33 @@ export default tseslint.config(
 		},
 	},
 	{
+		// The host runs inside VS Code and inside the desktop app, so it may assume neither: the shell
+		// is reached through the ports in `app/ports/shell.ts`. Listed before the `app/`–`core/` rule
+		// below, which repeats these names — for files both cover, the later rule is the one that holds.
+		files: ['packages/host/src/**/*.ts'],
+		rules: {
+			'no-restricted-imports': [
+				'error',
+				{
+					patterns: [
+						{
+							group: ['vscode', 'electron'],
+							message:
+								'The host is shared by the extension and the desktop app — reach the shell through a port in app/ports/shell.ts.',
+						},
+					],
+				},
+			],
+		},
+	},
+	{
 		// The ports & adapters boundary, enforced rather than reviewed. `core/` is the domain and
 		// `app/` orchestrates it; neither may reach an adapter, the editor API, or the filesystem —
 		// a dependency they need is declared as a port and handed in.
 		//
 		// Test files are exempt on purpose: a test in `core/` that drives the real process executor
 		// is an integration test, and moving it elsewhere would buy nothing.
-		files: ['packages/extension/src/{app,core}/**/*.ts'],
+		files: ['packages/host/src/{app,core}/**/*.ts'],
 		ignores: ['**/*.test.ts'],
 		rules: {
 			'no-restricted-imports': [
