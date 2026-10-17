@@ -98,8 +98,11 @@ describe('DesktopShell', () => {
 			terminalShell.open.openTerminal('/r');
 			terminalApp = 'kitty';
 			terminalShell.open.openTerminal('/r');
+			terminalApp = 'constructor';
+			terminalShell.open.openTerminal('/r');
 			await settle();
 			expect(listRuns).toEqual([
+				['-a', 'Terminal', '/r'],
 				['-a', 'Terminal', '/r'],
 				['-a', 'Terminal', '/r'],
 			]);

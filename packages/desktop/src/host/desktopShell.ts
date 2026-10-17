@@ -171,7 +171,7 @@ export class DesktopShell implements ControllerShell {
 	private async launchTerminal(cwd: string): Promise<void> {
 		const run = this.options.runOpen ?? ((listArgs: string[]) => macOpen(...listArgs));
 		const chosen = this.options.readViewSettings?.()?.terminalApp;
-		const app = chosen !== undefined && chosen in mapTerminalArgs ? chosen : 'Terminal';
+		const app = chosen !== undefined && Object.hasOwn(mapTerminalArgs, chosen) ? chosen : 'Terminal';
 		try {
 			await run(mapTerminalArgs[app](cwd));
 			return;
