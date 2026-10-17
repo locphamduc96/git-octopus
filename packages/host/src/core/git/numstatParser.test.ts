@@ -25,6 +25,30 @@ describe('parseNumstat', () => {
 		expect(map.has('src/new/file.ts')).toBe(true);
 	});
 
+	it('keys a rename that moves a file out of a folder by the flattened path', () => {
+		const map = parseNumstat('1\t0\tsrc/{old => }/x.ts');
+		expect([...map.keys()]).toEqual(['src/x.ts']);
+	});
+
+	it('keys a rename that moves a file into a new folder by the nested path', () => {
+		const map = parseNumstat('1\t0\tsrc/{ => sub}/x.ts');
+		expect([...map.keys()]).toEqual(['src/sub/x.ts']);
+	});
+
+	it('skips a line that has counts but no path', () => {
+		expect(parseNumstat('4\t2\t').size).toBe(0);
+		expect(parseNumstat('4\t2').size).toBe(0);
+	});
+
+	it('keeps separate counts for several files in one output', () => {
+		const map = parseNumstat('1\t2\ta.ts\n3\t4\tsrc/{old => new}/b.ts\n-\t-\tc.png\n5\t6\td.ts');
+		expect(map.size).toBe(4);
+		expect(map.get('a.ts')).toEqual({ additions: 1, deletions: 2 });
+		expect(map.get('src/new/b.ts')).toEqual({ additions: 3, deletions: 4 });
+		expect(map.get('c.png')).toEqual({ additions: 0, deletions: 0 });
+		expect(map.get('d.ts')).toEqual({ additions: 5, deletions: 6 });
+	});
+
 	it('returns nothing for empty output', () => {
 		expect(parseNumstat('').size).toBe(0);
 	});
