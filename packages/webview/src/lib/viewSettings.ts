@@ -98,6 +98,20 @@ export const LIST_TERMINAL_APPS = membersOf<TerminalApp>()([
 	'Warp',
 ]);
 
+/** The desktop app opens with the panel; the extension keeps the room for the graph. */
+export function branchesPanelShown(settings: ViewSettings, desktop: boolean): boolean {
+	return settings.showBranchesPanel ?? desktop;
+}
+
+export const REF_PANEL_MIN_WIDTH = 160;
+export const REF_PANEL_MAX_WIDTH = 520;
+export const REF_PANEL_DEFAULT_WIDTH = 240;
+
+export function clampRefPanelWidth(raw: unknown): number {
+	if (typeof raw !== 'number' || !Number.isFinite(raw)) return REF_PANEL_DEFAULT_WIDTH;
+	return Math.round(Math.min(REF_PANEL_MAX_WIDTH, Math.max(REF_PANEL_MIN_WIDTH, raw)));
+}
+
 /** The member `raw` names, or nothing when it names none. */
 export function pickOption<T extends string>(listValid: readonly T[], raw: string): T | undefined {
 	return listValid.find((option) => option === raw);
@@ -142,6 +156,8 @@ export interface ViewSettings {
 	/** Verify signed commits and mark them on the graph. */
 	showSignatures: boolean;
 	scrollToHeadOnLoad: boolean;
+	/** The branches panel beside the graph; null until the user chooses, then the choice wins. */
+	showBranchesPanel: boolean | null;
 	autoFastForwardOnCheckout: boolean;
 	pullStrategy: PullStrategy;
 	/** Minutes between background fetches; 0 is never. Default lives in `shared`, see below. */
@@ -245,6 +261,7 @@ export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
 	// Off: every signed commit costs a gpg or ssh-keygen run, on every load.
 	showSignatures: false,
 	scrollToHeadOnLoad: false,
+	showBranchesPanel: null,
 	autoFastForwardOnCheckout: true,
 	// `config` changes nothing for anyone: it is what the button always ran.
 	pullStrategy: 'config',
@@ -276,6 +293,10 @@ export interface GlobalPreferences {
 	metaOpen: boolean;
 	/** Working-tree groups the user folded; the rest are open. */
 	listCollapsedSections: WorkingSection[];
+	/** Width of the branches panel, in pixels. */
+	refPanelWidth: number;
+	/** Keys of the branches-panel sections and folders the user folded. */
+	listRefPanelCollapsed: string[];
 }
 
 /**
@@ -303,6 +324,13 @@ export function mergePreferences(
 		listCollapsedSections: Array.isArray(next.listCollapsedSections)
 			? next.listCollapsedSections.filter(isWorkingSection)
 			: current.listCollapsedSections,
+		refPanelWidth:
+			next.refPanelWidth === undefined
+				? current.refPanelWidth
+				: clampRefPanelWidth(next.refPanelWidth),
+		listRefPanelCollapsed: Array.isArray(next.listRefPanelCollapsed)
+			? next.listRefPanelCollapsed.filter((key): key is string => typeof key === 'string')
+			: current.listRefPanelCollapsed,
 	};
 }
 

@@ -12,7 +12,7 @@
 		listWorktrees,
 		listSubmodules,
 		hidden,
-		initialCollapsed = [],
+		listInitialCollapsed = [],
 		onchange,
 		onselect,
 		onactivate,
@@ -24,7 +24,7 @@
 		listWorktrees: WorktreeInfo[];
 		listSubmodules: RepoInfo[];
 		hidden: HiddenRefs;
-		initialCollapsed?: string[];
+		listInitialCollapsed?: string[];
 		onchange: (listCollapsed: string[]) => void;
 		onselect: (item: RefPanelItem) => void;
 		onactivate: (item: RefPanelItem) => void;
@@ -35,7 +35,7 @@
 
 	// The prop seeds the state once, by design — later values come from the panel's own changes.
 	// svelte-ignore state_referenced_locally
-	let listCollapsed = $state(initialCollapsed);
+	let listCollapsed = $state(listInitialCollapsed);
 </script>
 
 <RefPanel

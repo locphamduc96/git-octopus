@@ -46,11 +46,24 @@
 	import { nextRowIndex, stepAcrossLanes, stepAlongLane } from './lib/keyNav';
 	import { buildPanelFiles, stepPath, type PanelMode } from './lib/panelFiles';
 	import {
+		branchesPanelShown,
+		clampRefPanelWidth,
 		moveColumn,
 		normalizeColumnOrder,
 		pullActionFor,
 		settingsRequireReload,
 	} from './lib/viewSettings';
+	import { buildRefMenu, resolveMenuSelection, type MenuEntry } from './lib/graphMenu';
+	import { chipRef, chipRemote, type RefChip } from './lib/graphChips';
+	import ContextMenu from './lib/ui/ContextMenu.svelte';
+	import RefPanel from './features/ref-panel/RefPanel.svelte';
+	import type { RefPanelItem } from './features/ref-panel/refPanelModel';
+	import {
+		chipForItem,
+		commitForItem,
+		refPanel,
+		toggleHiddenRef,
+	} from './lib/stores/refPanel.svelte';
 	import ControlBar from './features/control-bar/ControlBar.svelte';
 	import DiffPanel from './features/diff/DiffPanel.svelte';
 	import FindWidget from './features/find/FindWidget.svelte';
@@ -1270,6 +1283,142 @@
 		if (document.hasFocus()) postToHost({ type: 'viewFocus', focused: true });
 	});
 
+	const refPanelOn = $derived(branchesPanelShown(prefs.settings, capabilities.desktop) && !stacked);
+	const refPanelData = $derived(refPanel.repoPath === session.repoPath ? refPanel.data : null);
+	const listSubmodules = $derived(repos.filter((repo) => repo.parent === session.repoPath));
+	/** Dragged width, held here until the drag settles so a drag is not a stream of saves. */
+	let refPanelDrag = $state<number | null>(null);
+	let refPanelDragTimer: ReturnType<typeof setTimeout> | undefined;
+	const refPanelWidth = $derived(refPanelDrag ?? prefs.refPanelWidth);
+	let refMenu = $state<{ x: number; y: number; chip: RefChip; commit: Commit } | null>(null);
+
+	// The host answers once a repository is active, and again after every graph reload.
+	$effect(() => {
+		if (refPanelOn && session.activeRepo !== null) postToHost({ type: 'loadRefPanel' });
+	});
+
+	function resizeRefPanel(clientX: number): void {
+		if (!shell) return;
+		refPanelDrag = clampRefPanelWidth(clientX - shell.getBoundingClientRect().left);
+		clearTimeout(refPanelDragTimer);
+		refPanelDragTimer = setTimeout(() => {
+			if (refPanelDrag !== null) prefs.setRefPanelWidth(refPanelDrag);
+			refPanelDrag = null;
+		}, 200);
+	}
+
+	function loadedCommit(item: RefPanelItem): Commit | undefined {
+		return item.hash ? rows.find((row) => row.commit.hash === item.hash)?.commit : undefined;
+	}
+
+	function selectRefItem(item: RefPanelItem): void {
+		if (item.hash) revealCommit(item.hash);
+	}
+
+	function activateRefItem(item: RefPanelItem): void {
+		if (item.kind === 'local') {
+			if (!item.current) checkoutBranch(item.name, null);
+		} else if (item.kind === 'remote' && refPanelData) {
+			const chip = chipForItem(item, refPanelData, {});
+			if (!chip) return;
+			const hasLocal = refPanelData.listLocal.some((ref) => ref.name === chip.name);
+			checkoutBranch(hasLocal ? chip.name : null, chipRemote(chip));
+		} else if (item.kind === 'worktree') {
+			if (!item.current) worktrees.open(item.name);
+		} else if (item.kind === 'submodule') {
+			selectRepo(item.name);
+		}
+	}
+
+	function openRefItemMenu(item: RefPanelItem, event: MouseEvent): void {
+		event.preventDefault();
+		if (!refPanelData) return;
+		const chip = chipForItem(item, refPanelData, mapTracking);
+		if (!chip) return;
+		refMenu = {
+			x: event.clientX,
+			y: event.clientY,
+			chip,
+			commit: commitForItem(item, loadedCommit(item)),
+		};
+	}
+
+	const refMenuBuild = $derived(
+		refMenu
+			? buildRefMenu(refMenu.chip, currentBranch, {
+					pinnedRef,
+					listSolo,
+					mapWorktrees: worktrees.mapElsewhere,
+				})
+			: { items: [], mapEntries: {} }
+	);
+
+	function runRefMenuEntry(entry: MenuEntry, commit: Commit): void {
+		switch (entry.type) {
+			case 'filter':
+				setBranchFilter(entry.ref);
+				return;
+			case 'pin':
+				setPinned(entry.ref);
+				return;
+			case 'solo':
+				changeSolo(entry.op, entry.ref);
+				return;
+			case 'hide':
+				hideRefs(entry.refs);
+				return;
+			case 'related':
+				showRelated();
+				return;
+			case 'explain':
+				aiCommit.explain(entry.target);
+				return;
+			case 'worktree':
+				if (entry.op === 'open') worktrees.open(entry.path);
+				else worktrees.add(entry.branch);
+				return;
+			case 'commit':
+				runAction(entry.action, commit, entry.target);
+				return;
+			case 'branch': {
+				const source = chipRef(entry.target.chip);
+				if (source) runBranchAction(entry.action, source.ref, source.label, entry.onto);
+				return;
+			}
+			default:
+				return;
+		}
+	}
+
+	function onRefMenuSelect(id: string): void {
+		const open = refMenu;
+		const build = refMenuBuild;
+		refMenu = null;
+		const selected = resolveMenuSelection(build.items, id);
+		const entry = build.mapEntries[id];
+		if (!open || !selected || !entry) return;
+		runRefMenuEntry(entry, open.commit);
+	}
+
+	/**
+	 * The press that began on a splitter. Grabbing the panel's edge to resize it can start a native
+	 * drag of the row beside it, which would end the resize after one step.
+	 */
+	let edgeGrab = false;
+
+	function dragRefItem(item: RefPanelItem, event: DragEvent): void {
+		const chip = refPanelData ? chipForItem(item, refPanelData, mapTracking) : null;
+		const source = chip && chipRef(chip);
+		if (!source || edgeGrab) {
+			event.preventDefault();
+			return;
+		}
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'copy';
+			event.dataTransfer.setData('text/plain', source.label);
+		}
+	}
+
 	function resizePanel(clientPos: number): void {
 		if (!shell) return;
 		const box = shell.getBoundingClientRect();
@@ -1281,6 +1430,8 @@
 </script>
 
 <svelte:window
+	onmousedowncapture={(event) =>
+		(edgeGrab = event.target instanceof Element && event.target.closest('.splitter') !== null)}
 	onkeydown={onKeydown}
 	onfocus={() => postToHost({ type: 'viewFocus', focused: true })}
 	onblur={() => postToHost({ type: 'viewFocus', focused: false })}
@@ -1419,6 +1570,27 @@
 			is what read as a flash. Underneath, the graph is `inert` so nothing there takes a click, a
 			key or the focus while it cannot be seen.
 		-->
+		{#if refPanelOn}
+			<div class="ref-area" style="width:{refPanelWidth}px">
+				{#if refPanelData}
+					<RefPanel
+						data={refPanelData}
+						listWorktrees={worktrees.list ?? []}
+						{listSubmodules}
+						hidden={hiddenRefs}
+						listCollapsed={prefs.listRefPanelCollapsed}
+						oncollapsechange={prefs.setRefPanelCollapsed}
+						onselect={selectRefItem}
+						onactivate={activateRefItem}
+						oncontextmenu={openRefItemMenu}
+						ondragstart={dragRefItem}
+						ontogglehidden={(item) => saveHidden(toggleHiddenRef(item, hiddenRefs))}
+					/>
+				{/if}
+			</div>
+			<Splitter onresize={resizeRefPanel} />
+		{/if}
+
 		<div class="graph-area">
 			<div class="graph-stack" inert={diffView.target !== null}>
 				<ControlBar
@@ -1703,6 +1875,16 @@
 	</div>
 </div>
 
+{#if refMenu}
+	<ContextMenu
+		x={refMenu.x}
+		y={refMenu.y}
+		items={refMenuBuild.items}
+		onselect={onRefMenuSelect}
+		onclose={() => (refMenu = null)}
+	/>
+{/if}
+
 <HostNotices />
 
 <style>
@@ -1717,6 +1899,13 @@
 		min-height: 0;
 	}
 	.shell.stacked {
+		flex-direction: column;
+	}
+	.ref-area {
+		flex: none;
+		min-width: 0;
+		min-height: 0;
+		display: flex;
 		flex-direction: column;
 	}
 	.graph-area {

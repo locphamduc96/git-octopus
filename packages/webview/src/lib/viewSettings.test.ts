@@ -8,6 +8,10 @@ import {
 	LIST_DIFF_TARGETS,
 	LIST_GRAPH_STYLES,
 	LIST_PULL_STRATEGIES,
+	REF_PANEL_DEFAULT_WIDTH,
+	REF_PANEL_MAX_WIDTH,
+	REF_PANEL_MIN_WIDTH,
+	branchesPanelShown,
 	mergePreferences,
 	pickOption,
 	pullActionFor,
@@ -23,6 +27,8 @@ function currentPreferences(): GlobalPreferences {
 		fileView: 'tree',
 		metaOpen: false,
 		listCollapsedSections: [],
+		refPanelWidth: REF_PANEL_DEFAULT_WIDTH,
+		listRefPanelCollapsed: [],
 	};
 }
 
@@ -36,6 +42,52 @@ describe('terminalApp', () => {
 	it.each([['kitty'], [42], [null], [{}], ['']])('reads %j back as Terminal', (bad) => {
 		const merged = mergePreferences(currentPreferences(), { settings: { terminalApp: bad } });
 		expect(merged.settings.terminalApp).toBe('Terminal');
+	});
+});
+
+describe('showBranchesPanel', () => {
+	it('is unset by default, so the shell decides: desktop shows the panel, the extension hides it', () => {
+		expect(DEFAULT_VIEW_SETTINGS.showBranchesPanel).toBeNull();
+		expect(branchesPanelShown(DEFAULT_VIEW_SETTINGS, true)).toBe(true);
+		expect(branchesPanelShown(DEFAULT_VIEW_SETTINGS, false)).toBe(false);
+	});
+
+	it('lets an explicit choice win in both shells', () => {
+		const off: ViewSettings = { ...DEFAULT_VIEW_SETTINGS, showBranchesPanel: false };
+		const on: ViewSettings = { ...DEFAULT_VIEW_SETTINGS, showBranchesPanel: true };
+		expect(branchesPanelShown(off, true)).toBe(false);
+		expect(branchesPanelShown(on, false)).toBe(true);
+	});
+
+	it('keeps a stored choice and leaves it unset for a blob that predates the setting', () => {
+		const chosen = mergePreferences(currentPreferences(), {
+			settings: { showBranchesPanel: false },
+		});
+		expect(chosen.settings.showBranchesPanel).toBe(false);
+		const older = mergePreferences(currentPreferences(), { settings: { commitLimit: 100 } });
+		expect(older.settings.showBranchesPanel).toBeNull();
+	});
+});
+
+describe('ref panel layout preferences', () => {
+	it('clamps a stored width into the allowed range and ignores garbage', () => {
+		const wide = mergePreferences(currentPreferences(), { refPanelWidth: 9000 });
+		expect(wide.refPanelWidth).toBe(REF_PANEL_MAX_WIDTH);
+		const narrow = mergePreferences(currentPreferences(), { refPanelWidth: 3 });
+		expect(narrow.refPanelWidth).toBe(REF_PANEL_MIN_WIDTH);
+		const bad = mergePreferences(currentPreferences(), { refPanelWidth: 'wide' });
+		expect(bad.refPanelWidth).toBe(REF_PANEL_DEFAULT_WIDTH);
+		const kept = mergePreferences(currentPreferences(), {});
+		expect(kept.refPanelWidth).toBe(REF_PANEL_DEFAULT_WIDTH);
+	});
+
+	it('keeps the folded keys that are strings', () => {
+		const merged = mergePreferences(currentPreferences(), {
+			listRefPanelCollapsed: ['tags', 3, 'local:folder:feature'],
+		});
+		expect(merged.listRefPanelCollapsed).toEqual(['tags', 'local:folder:feature']);
+		const kept = mergePreferences(currentPreferences(), { listRefPanelCollapsed: 'tags' });
+		expect(kept.listRefPanelCollapsed).toEqual([]);
 	});
 });
 

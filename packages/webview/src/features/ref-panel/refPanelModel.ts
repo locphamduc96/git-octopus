@@ -1,28 +1,14 @@
-import type { HiddenRefs, RepoInfo, WorktreeInfo } from '@git-octopus/shared';
+import type {
+	HiddenRefs,
+	RefPanelData,
+	RefPanelRef,
+	RefPanelRemoteRef,
+	RefPanelStash,
+	RepoInfo,
+	WorktreeInfo,
+} from '@git-octopus/shared';
 
-/*
- * Structurally identical to the types `@git-octopus/shared` gains with the ref-panel messages;
- * the wiring step swaps these declarations for that import.
- */
-export interface RefPanelRef {
-	name: string;
-	hash: string;
-}
-export interface RefPanelRemoteRef extends RefPanelRef {
-	remote: string;
-}
-export interface RefPanelStash {
-	selector: string;
-	hash: string;
-	message: string;
-}
-export interface RefPanelData {
-	listLocal: RefPanelRef[];
-	listRemote: RefPanelRemoteRef[];
-	listTags: RefPanelRef[];
-	listStashes: RefPanelStash[];
-	current: string | null;
-}
+export type { RefPanelData, RefPanelRef, RefPanelRemoteRef, RefPanelStash };
 
 export type RefPanelKind = 'local' | 'remote' | 'tag' | 'stash' | 'worktree' | 'submodule';
 export type RefPanelSectionId =

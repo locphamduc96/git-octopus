@@ -45,3 +45,49 @@ describe('SettingsWidget terminal app row', () => {
 		]);
 	});
 });
+
+describe('SettingsWidget branches panel row', () => {
+	const onchange = vi.fn();
+
+	function renderWith(showBranchesPanel: boolean | null) {
+		return render(SettingsWidget, {
+			settings: { ...DEFAULT_VIEW_SETTINGS, showBranchesPanel },
+			identity: null,
+			listIdentities: [],
+			listWorkspaceIdentities: [],
+			suggestedIdentity: null,
+			onapplyIdentity: () => {},
+			onclearIdentityOverride: () => {},
+			onsaveIdentities: () => {},
+			onchange,
+			onclose: () => {},
+		});
+	}
+
+	function checkbox(): HTMLInputElement {
+		return screen.getByLabelText('Show branches panel') as HTMLInputElement;
+	}
+
+	it('shows the shell default until the user chooses, and the choice after that', () => {
+		dispatchHostMessage({ type: 'capabilities', desktop: false, editorDiff: true });
+		const extension = renderWith(null);
+		expect(checkbox().checked).toBe(false);
+		extension.unmount();
+
+		dispatchHostMessage({ type: 'capabilities', desktop: true, editorDiff: false });
+		const desktop = renderWith(null);
+		expect(checkbox().checked).toBe(true);
+		desktop.unmount();
+
+		renderWith(false);
+		expect(checkbox().checked).toBe(false);
+	});
+
+	it('saves an explicit choice, even one that matches the shell default', () => {
+		dispatchHostMessage({ type: 'capabilities', desktop: true, editorDiff: false });
+		onchange.mockClear();
+		renderWith(null);
+		checkbox().click();
+		expect(onchange).toHaveBeenCalledWith(expect.objectContaining({ showBranchesPanel: false }));
+	});
+});

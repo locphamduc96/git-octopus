@@ -37,7 +37,7 @@ const listSubmodules = [
 ];
 
 function mount(
-	over: { initialCollapsed?: string[]; hidden?: Partial<{ listBranches: string[] }> } = {}
+	over: { listInitialCollapsed?: string[]; hidden?: Partial<{ listBranches: string[] }> } = {}
 ) {
 	const handlers = {
 		onchange: vi.fn(),
@@ -52,7 +52,7 @@ function mount(
 		listWorktrees,
 		listSubmodules,
 		hidden: { listBranches: [], listRemotes: [], listTags: [], ...over.hidden },
-		initialCollapsed: over.initialCollapsed,
+		listInitialCollapsed: over.listInitialCollapsed,
 		...handlers,
 	});
 	return handlers;
@@ -93,7 +93,7 @@ describe('RefPanel', () => {
 	});
 
 	it('starts with the sections and folders it was told are collapsed', () => {
-		mount({ initialCollapsed: ['tags', 'local:folder:feature'] });
+		mount({ listInitialCollapsed: ['tags', 'local:folder:feature'] });
 		expect(screen.queryByRole('treeitem', { name: 'v1.0' })).toBeNull();
 		expect(screen.queryByRole('treeitem', { name: 'feature/a' })).toBeNull();
 		expect(row('main')).toBeTruthy();
@@ -218,9 +218,9 @@ describe('RefPanel', () => {
 
 	it('keeps the keys it handles from reaching the window', async () => {
 		mount();
-		const seen: string[] = [];
+		const listSeenKeys: string[] = [];
 		const listener = (event: KeyboardEvent): void => {
-			seen.push(event.key);
+			listSeenKeys.push(event.key);
 		};
 		window.addEventListener('keydown', listener);
 		try {
@@ -231,16 +231,16 @@ describe('RefPanel', () => {
 			await fireEvent.keyDown(screen.getByLabelText('Filter refs'), { key: 'ArrowDown' });
 			await fireEvent.input(screen.getByLabelText('Filter refs'), { target: { value: 'x' } });
 			await fireEvent.keyDown(screen.getByLabelText('Filter refs'), { key: 'Escape' });
-			expect(seen).toEqual([]);
+			expect(listSeenKeys).toEqual([]);
 			await fireEvent.keyDown(row('Local (3)'), { key: 'Tab' });
-			expect(seen).toEqual(['Tab']);
+			expect(listSeenKeys).toEqual(['Tab']);
 		} finally {
 			window.removeEventListener('keydown', listener);
 		}
 	});
 
 	it('narrows the rows to what the filter matches, opening folded folders', async () => {
-		mount({ initialCollapsed: ['local:folder:feature'] });
+		mount({ listInitialCollapsed: ['local:folder:feature'] });
 		await fireEvent.input(screen.getByLabelText('Filter refs'), {
 			target: { value: 'FEATURE/A' },
 		});

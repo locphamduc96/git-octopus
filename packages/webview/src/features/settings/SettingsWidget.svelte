@@ -22,6 +22,7 @@
 	import { aiCommit } from '../../lib/stores/aiCommit.svelte';
 	import {
 		LIST_COMMIT_ORDERS,
+		branchesPanelShown,
 		LIST_DATE_TYPES,
 		LIST_DIFF_TARGETS,
 		LIST_GRAPH_STYLES,
@@ -311,6 +312,20 @@
 								type="checkbox"
 								checked={settings.scrollToHeadOnLoad}
 								onchange={(event) => set('scrollToHeadOnLoad', event.currentTarget.checked)}
+							/>
+						</div>
+						<div class="row">
+							<span class="row-label">
+								Show branches panel
+								<span class="note"
+									>Branches, remotes, tags, stashes, worktrees and submodules beside the graph.</span
+								>
+							</span>
+							<input
+								type="checkbox"
+								aria-label="Show branches panel"
+								checked={branchesPanelShown(settings, capabilities.desktop)}
+								onchange={(event) => set('showBranchesPanel', event.currentTarget.checked)}
 							/>
 						</div>
 						<div class="row">
