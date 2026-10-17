@@ -79,11 +79,11 @@ describe('RefPanel', () => {
 		await fireEvent.click(row('feature (2)'));
 		expect(screen.queryByRole('treeitem', { name: 'feature/a' })).toBeNull();
 		expect(row('feature (2)').getAttribute('aria-expanded')).toBe('false');
-		expect(handlers.onchange).toHaveBeenLastCalledWith(['local:feature']);
+		expect(handlers.onchange).toHaveBeenLastCalledWith(['local:folder:feature']);
 
 		await fireEvent.click(row('Local (3)'));
 		expect(screen.queryByRole('treeitem', { name: 'main' })).toBeNull();
-		expect(handlers.onchange).toHaveBeenLastCalledWith(['local:feature', 'local']);
+		expect(handlers.onchange).toHaveBeenLastCalledWith(['local:folder:feature', 'local']);
 
 		await fireEvent.click(row('Local (3)'));
 		await fireEvent.click(row('feature (2)'));
@@ -93,7 +93,7 @@ describe('RefPanel', () => {
 	});
 
 	it('starts with the sections and folders it was told are collapsed', () => {
-		mount({ initialCollapsed: ['tags', 'local:feature'] });
+		mount({ initialCollapsed: ['tags', 'local:folder:feature'] });
 		expect(screen.queryByRole('treeitem', { name: 'v1.0' })).toBeNull();
 		expect(screen.queryByRole('treeitem', { name: 'feature/a' })).toBeNull();
 		expect(row('main')).toBeTruthy();
@@ -205,8 +205,42 @@ describe('RefPanel', () => {
 		expect(handlers.onselect).not.toHaveBeenCalled();
 	});
 
+	it('does not activate the row when the visibility button is double-clicked', async () => {
+		const handlers = mount();
+		const button = screen.getByLabelText('Hide feature/a from the graph');
+		await fireEvent.click(button);
+		await fireEvent.click(button);
+		await fireEvent.doubleClick(button);
+		expect(handlers.ontogglehidden).toHaveBeenCalledTimes(2);
+		expect(handlers.onactivate).not.toHaveBeenCalled();
+		expect(handlers.onselect).not.toHaveBeenCalled();
+	});
+
+	it('keeps the keys it handles from reaching the window', async () => {
+		mount();
+		const seen: string[] = [];
+		const listener = (event: KeyboardEvent): void => {
+			seen.push(event.key);
+		};
+		window.addEventListener('keydown', listener);
+		try {
+			const local = row('Local (3)');
+			local.focus();
+			await fireEvent.keyDown(local, { key: 'ArrowDown' });
+			await fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Enter' });
+			await fireEvent.keyDown(screen.getByLabelText('Filter refs'), { key: 'ArrowDown' });
+			await fireEvent.input(screen.getByLabelText('Filter refs'), { target: { value: 'x' } });
+			await fireEvent.keyDown(screen.getByLabelText('Filter refs'), { key: 'Escape' });
+			expect(seen).toEqual([]);
+			await fireEvent.keyDown(row('Local (3)'), { key: 'Tab' });
+			expect(seen).toEqual(['Tab']);
+		} finally {
+			window.removeEventListener('keydown', listener);
+		}
+	});
+
 	it('narrows the rows to what the filter matches, opening folded folders', async () => {
-		mount({ initialCollapsed: ['local:feature'] });
+		mount({ initialCollapsed: ['local:folder:feature'] });
 		await fireEvent.input(screen.getByLabelText('Filter refs'), {
 			target: { value: 'FEATURE/A' },
 		});

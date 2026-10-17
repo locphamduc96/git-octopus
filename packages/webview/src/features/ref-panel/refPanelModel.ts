@@ -114,13 +114,13 @@ function byName(a: { name: string }, b: { name: string }): number {
 }
 
 /**
- * Groups items into folders by the `/` in `pathOf(item)`, folders first. `listPrefix` is the path
- * above the first level (a remote's name), so folder keys stay unique across remotes.
+ * Groups items into folders by the `/` in `pathOf(item)`, folders first. A folder's key is
+ * `keyBase` plus its path; `keyBase` carries a `:` that no ref name can hold, so a folder key never
+ * equals an item key or a remote group key, and the base keeps folders of different remotes apart.
  */
 function toFolderNodes(
 	listItems: RefPanelItem[],
-	sectionId: string,
-	listPrefix: string[],
+	keyBase: string,
 	pathOf: (item: RefPanelItem) => string
 ): RefPanelNode[] {
 	const root: FolderDraft = { mapFolders: new Map(), listItems: [] };
@@ -138,7 +138,7 @@ function toFolderNodes(
 		}
 		folder.listItems.push(item);
 	}
-	return draftToNodes(root, sectionId, listPrefix, pathOf);
+	return draftToNodes(root, keyBase, [], pathOf);
 }
 
 function countOf(listNodes: RefPanelNode[]): number {
@@ -149,7 +149,7 @@ function countOf(listNodes: RefPanelNode[]): number {
 
 function draftToNodes(
 	draft: FolderDraft,
-	sectionId: string,
+	keyBase: string,
 	listPrefix: string[],
 	pathOf: (item: RefPanelItem) => string
 ): RefPanelNode[] {
@@ -157,10 +157,10 @@ function draftToNodes(
 		.sort(([a], [b]) => a.localeCompare(b))
 		.map(([name, child]) => {
 			const listPath = [...listPrefix, name];
-			const listChildren = draftToNodes(child, sectionId, listPath, pathOf);
+			const listChildren = draftToNodes(child, keyBase, listPath, pathOf);
 			return {
 				type: 'folder',
-				key: `${sectionId}:${listPath.join('/')}`,
+				key: `${keyBase}${listPath.join('/')}`,
 				name,
 				count: countOf(listChildren),
 				listChildren,
@@ -268,12 +268,12 @@ export function buildRefPanel(input: RefPanelInput): RefPanelSection[] {
 		.sort((a, b) => a.localeCompare(b))
 		.map((remote) => {
 			const listOfRemote = listRemoteKept.filter((item) => item.remote === remote);
-			const listChildren = toFolderNodes(listOfRemote, 'remote', [remote], (item) =>
+			const listChildren = toFolderNodes(listOfRemote, `remote:folder:${remote}:`, (item) =>
 				item.name.slice(remote.length + 1)
 			);
 			return {
 				type: 'folder' as const,
-				key: `remote:${remote}`,
+				key: `remote:group:${remote}`,
 				name: remote,
 				count: countOf(listChildren),
 				listChildren,
@@ -284,13 +284,13 @@ export function buildRefPanel(input: RefPanelInput): RefPanelSection[] {
 		section(
 			'local',
 			'Local',
-			toFolderNodes(keep(listLocal), 'local', [], (item) => item.name)
+			toFolderNodes(keep(listLocal), 'local:folder:', (item) => item.name)
 		),
 		section('remote', 'Remote', listRemoteGroups),
 		section(
 			'tags',
 			'Tags',
-			toFolderNodes(keep(listTags), 'tags', [], (item) => item.name)
+			toFolderNodes(keep(listTags), 'tags:folder:', (item) => item.name)
 		),
 		section('stashes', 'Stashes', flatNodes(keep(listStashes))),
 		section('worktrees', 'Worktrees', flatNodes(keep(listWorktreeItems))),
@@ -354,7 +354,7 @@ export function flattenRefPanel(
 				name: node.name,
 				count: node.count,
 				expanded,
-				isRemote: depth === 1 && node.key.startsWith('remote:'),
+				isRemote: depth === 1 && node.key.startsWith('remote:group:'),
 			});
 			if (expanded) walk(node.listChildren, depth + 1);
 		}

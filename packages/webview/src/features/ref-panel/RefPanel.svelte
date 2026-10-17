@@ -140,15 +140,18 @@
 				return;
 		}
 		event.preventDefault();
+		event.stopPropagation();
 	}
 
 	function onfilterkeydown(event: KeyboardEvent): void {
 		if (event.key === 'Escape' && filter !== '') {
 			filter = '';
 			event.preventDefault();
+			event.stopPropagation();
 		} else if (event.key === 'ArrowDown' && listRows.length > 0) {
 			focusRow(tabKey ?? listRows[0].key);
 			event.preventDefault();
+			event.stopPropagation();
 		}
 	}
 
@@ -236,7 +239,10 @@
 					tabindex={tabKey === row.key ? 0 : -1}
 					draggable={setHideable.has(item.kind)}
 					onclick={() => choose(row)}
-					ondblclick={() => onactivate(item)}
+					ondblclick={(event) => {
+						if ((event.target as Element).closest('.toggle')) return;
+						onactivate(item);
+					}}
 					oncontextmenu={(event) => {
 						event.preventDefault();
 						oncontextmenu(item, event);

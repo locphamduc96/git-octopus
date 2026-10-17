@@ -100,7 +100,7 @@ describe('buildRefPanel', () => {
 		const [local] = buildRefPanel(input());
 		expect(names(local.listNodes)).toEqual(['feature/', 'fix/', 'main']);
 		const feature = local.listNodes[0] as RefPanelFolderNode;
-		expect(feature.key).toBe('local:feature');
+		expect(feature.key).toBe('local:folder:feature');
 		expect(feature.count).toBe(2);
 		expect(names(feature.listChildren)).toEqual(['a', 'b']);
 		const fix = local.listNodes[1] as RefPanelFolderNode;
@@ -114,9 +114,9 @@ describe('buildRefPanel', () => {
 		const remote = listSections[1];
 		expect(names(remote.listNodes)).toEqual(['origin/', 'upstream/']);
 		const origin = remote.listNodes[0] as RefPanelFolderNode;
-		expect(origin.key).toBe('remote:origin');
+		expect(origin.key).toBe('remote:group:origin');
 		expect(names(origin.listChildren)).toEqual(['feature/', 'main']);
-		const feature = find(remote.listNodes, 'remote:origin/feature') as RefPanelFolderNode;
+		const feature = find(remote.listNodes, 'remote:folder:origin:feature') as RefPanelFolderNode;
 		const item = feature.listChildren[0];
 		expect(item.type === 'item' && item.item).toMatchObject({
 			kind: 'remote',
@@ -192,7 +192,7 @@ describe('buildRefPanel', () => {
 		expect(names(local.listNodes)).toEqual(['feature/']);
 		expect((local.listNodes[0] as RefPanelFolderNode).listChildren).toHaveLength(1);
 		expect(names(remote.listNodes)).toEqual(['origin/']);
-		const feature = find(remote.listNodes, 'remote:origin/feature') as RefPanelFolderNode;
+		const feature = find(remote.listNodes, 'remote:folder:origin:feature') as RefPanelFolderNode;
 		expect(names(feature.listChildren)).toEqual(['a']);
 	});
 
@@ -227,11 +227,11 @@ describe('flattenRefPanel', () => {
 		const listLocal = listRows.slice(0, 7);
 		expect(listLocal.map((row) => `${row.depth}:${row.key}`)).toEqual([
 			'0:local',
-			'1:local:feature',
+			'1:local:folder:feature',
 			'2:local:feature/a',
 			'2:local:feature/b',
-			'1:local:fix',
-			'2:local:fix/deep',
+			'1:local:folder:fix',
+			'2:local:folder:fix/deep',
 			'3:local:fix/deep/nest',
 		]);
 	});
@@ -239,32 +239,54 @@ describe('flattenRefPanel', () => {
 	it('leaves out what is below a collapsed section or folder', () => {
 		const listRows = flattenRefPanel(
 			buildRefPanel(input()),
-			new Set(['local:feature', 'remote', 'tags']),
+			new Set(['local:folder:feature', 'remote', 'tags']),
 			false
 		);
 		const listKeys = listRows.map((row) => row.key);
-		expect(listKeys).toContain('local:feature');
+		expect(listKeys).toContain('local:folder:feature');
 		expect(listKeys).not.toContain('local:feature/a');
 		expect(listKeys).toContain('remote');
-		expect(listKeys).not.toContain('remote:origin');
+		expect(listKeys).not.toContain('remote:group:origin');
 		expect(listKeys).not.toContain('tag:v1.0');
-		const feature = listRows.find((row) => row.key === 'local:feature');
+		const feature = listRows.find((row) => row.key === 'local:folder:feature');
 		expect(feature?.type === 'folder' && feature.expanded).toBe(false);
 	});
 
 	it('opens everything while filtering', () => {
 		const listRows = flattenRefPanel(
 			buildRefPanel(input({ filter: 'feature/a' })),
-			new Set(['local', 'local:feature']),
+			new Set(['local', 'local:folder:feature']),
 			true
 		);
 		expect(listRows.map((row) => row.key)).toContain('local:feature/a');
 	});
 
+	it('keeps every key unique when remote names and branch folders overlap', () => {
+		const listRows = flattenRefPanel(
+			buildRefPanel(
+				input({
+					data: {
+						...data,
+						listRemote: [
+							{ name: 'origin/feature/x', hash: hash('1'), remote: 'origin' },
+							{ name: 'origin/feature/y', hash: hash('2'), remote: 'origin/feature' },
+							{ name: 'origin/feature/b/z', hash: hash('3'), remote: 'origin' },
+							{ name: 'origin/feature/b/z2', hash: hash('4'), remote: 'origin/feature' },
+						],
+					},
+				})
+			),
+			new Set(),
+			false
+		);
+		const listKeys = listRows.map((row) => row.key);
+		expect(new Set(listKeys).size).toBe(listKeys.length);
+	});
+
 	it('marks the remote groups', () => {
 		const listRows = flattenRefPanel(buildRefPanel(input()), new Set(), false);
-		const origin = listRows.find((row) => row.key === 'remote:origin');
-		const feature = listRows.find((row) => row.key === 'remote:origin/feature');
+		const origin = listRows.find((row) => row.key === 'remote:group:origin');
+		const feature = listRows.find((row) => row.key === 'remote:folder:origin:feature');
 		expect(origin?.type === 'folder' && origin.isRemote).toBe(true);
 		expect(feature?.type === 'folder' && feature.isRemote).toBe(false);
 	});
