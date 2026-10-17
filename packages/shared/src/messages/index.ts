@@ -631,6 +631,45 @@ export interface WorktreesMessage {
 	listWorktrees: WorktreeInfo[];
 }
 
+/** One ref in the side panel; `hash` is the commit it points at (annotated tags peeled to their commit). */
+export interface RefPanelRef {
+	/** Short name: `feature/x` (local), `origin/feature/x` (remote), `v1.0` (tag). */
+	name: string;
+	hash: string;
+}
+
+export interface RefPanelRemoteRef extends RefPanelRef {
+	/** The remote's name, e.g. `origin`. */
+	remote: string;
+}
+
+export interface RefPanelStash {
+	/** `stash@{0}` */
+	selector: string;
+	hash: string;
+	message: string;
+}
+
+export interface RefPanelData {
+	listLocal: RefPanelRef[];
+	listRemote: RefPanelRemoteRef[];
+	listTags: RefPanelRef[];
+	listStashes: RefPanelStash[];
+	/** The checked-out branch's short name; null when detached. */
+	current: string | null;
+}
+
+/** View -> host: send the side panel's refs now, and again after every reload of the graph. */
+export interface LoadRefPanelMessage {
+	type: 'loadRefPanel';
+}
+
+export interface RefPanelMessage {
+	type: 'refPanel';
+	repoPath: string;
+	data: RefPanelData;
+}
+
 /** Open, add, remove or prune worktrees. */
 export interface WorktreeActionMessage {
 	type: 'worktreeAction';
@@ -1261,6 +1300,7 @@ export type WebviewToHost =
 	| LoadSigningMessage
 	| SigningActionMessage
 	| LoadWorktreesMessage
+	| LoadRefPanelMessage
 	| WorktreeActionMessage
 	| LoadRebaseTodoMessage
 	| InteractiveRebaseMessage
@@ -1501,6 +1541,7 @@ export type HostToWebview =
 	| RemotesMessage
 	| SigningMessage
 	| WorktreesMessage
+	| RefPanelMessage
 	| RebaseTodoMessage
 	| ViewSettingsMessage
 	| FileIconsMessage

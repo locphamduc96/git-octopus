@@ -21,6 +21,7 @@ import { getBranchInventory } from '../../core/git/staleBranches.js';
 import { readCommitTemplate } from '../fs/commitTemplate.js';
 import { getRemotes } from '../../core/git/remotes.js';
 import { getSigningConfig, setSigningConfig } from '../../core/git/signing.js';
+import { getRefPanelData } from '../../core/git/refInventory.js';
 import { getWorktrees } from '../../core/git/worktrees.js';
 import { WorktreeService } from './WorktreeService.js';
 import { InteractiveRebaseService } from './InteractiveRebaseService.js';
@@ -76,6 +77,8 @@ export class GitOctopusController {
 	 * deepest request still on screen.
 	 */
 	private readonly mapWebviewLimit = new Map<ViewChannel, number>();
+	/** Views that asked for the side panel's refs — only these pay for the extra git call on a reload. */
+	private readonly setRefPanelViews = new Set<ViewChannel>();
 	/** Working-tree state as last reported, so a row appearing or vanishing can be detected. */
 	private lastChangeCount = 0;
 	/**
@@ -209,6 +212,7 @@ export class GitOctopusController {
 			this.listWebviews = this.listWebviews.filter((item) => item !== webview);
 			this.mapWebviewVisible.delete(webview);
 			this.mapWebviewLimit.delete(webview);
+			this.setRefPanelViews.delete(webview);
 			this.mapWebviewPrompt.get(webview)?.cancelAll();
 			this.mapWebviewPrompt.delete(webview);
 			this.setViewFocus(webview, false);
@@ -296,6 +300,28 @@ export class GitOctopusController {
 		// history the user has already pulled in.
 		await this.send({ type: 'loadCommits', limit: this.broadcastLimit, filters: this.filters });
 		this.sendUndoState();
+		await this.sendRefPanel();
+	}
+
+	/**
+	 * Read the side panel's refs once and post them to the views that asked, or to `only` when a
+	 * single view just asked. Never fails: a panel that cannot refresh must not break the reload.
+	 */
+	private async sendRefPanel(only?: ViewChannel): Promise<void> {
+		const listTargets = only ? [only] : [...this.setRefPanelViews];
+		const cwd = this.activeRepo;
+		if (listTargets.length === 0 || !cwd) return;
+		try {
+			const data = await getRefPanelData(this.executor, cwd);
+			if (!this.stillCurrent(cwd)) return;
+			for (const target of listTargets) {
+				this.reply(target, { type: 'refPanel', repoPath: cwd, data });
+			}
+		} catch (error) {
+			this.trace(
+				`ref panel read failed: ${error instanceof Error ? error.message : String(error)}`
+			);
+		}
 	}
 
 	/**
@@ -767,6 +793,10 @@ export class GitOctopusController {
 				} satisfies HostToWebview);
 				return;
 			}
+			case 'loadRefPanel':
+				this.setRefPanelViews.add(webview);
+				await this.sendRefPanel(webview);
+				return;
 			case 'worktreeAction': {
 				if (!cwd || this.repoMismatch(message)) return;
 				if (await this.worktrees.run(message, cwd, prompt)) await this.refresh();

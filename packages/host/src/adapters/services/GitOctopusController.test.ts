@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CommitActionMessage } from '@git-octopus/shared';
+import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import { STATE_VIEW_SETTINGS } from './GitOctopusController.js';
 import { recorded, resetRecorded } from '../../test/fakeShell.js';
 import { attachView, makeController, memento } from '../../test/controllerHarness.js';
@@ -441,5 +442,96 @@ describe('a shell that draws its own notices (the desktop app)', () => {
 			{ type: 'hostNoticeReply', id: 4, action: 'Remove' },
 			{ type: 'hostProgressCancel', id: 5 },
 		]);
+	});
+});
+
+describe('the side panel’s refs', () => {
+	let repoDir = '';
+	let refReads = 0;
+	const HASH_A = 'a'.repeat(40);
+	const REFS = `refs/heads/main\0${HASH_A}\0\0*\nrefs/tags/v1\0${'b'.repeat(40)}\0${HASH_A}\0 `;
+
+	const executor: GitExecutor = {
+		run: (args) => {
+			if (args[0] === 'for-each-ref' && args.includes('refs/remotes/')) {
+				refReads += 1;
+				return Promise.resolve(REFS);
+			}
+			return Promise.resolve('');
+		},
+	};
+
+	beforeEach(async () => {
+		refReads = 0;
+		repoDir = await mkdtemp(path.join(tmpdir(), 'git-octopus-refpanel-'));
+		await mkdir(path.join(repoDir, '.git'));
+	});
+
+	afterEach(() => rm(repoDir, { recursive: true, force: true }));
+
+	it('answers loadRefPanel with the active repository’s refs', async () => {
+		const controller = makeController({ listRoots: [repoDir], executor });
+		const view = await attachView(controller);
+		await view.webview.receive({ type: 'loadCommits', limit: 300 });
+
+		await view.webview.receive({ type: 'loadRefPanel' });
+
+		const [reply] = view.webview.postedOfType('refPanel');
+		expect(reply.repoPath).toContain(path.basename(repoDir));
+		expect(reply.data).toEqual({
+			listLocal: [{ name: 'main', hash: HASH_A }],
+			listRemote: [],
+			listTags: [{ name: 'v1', hash: HASH_A }],
+			listStashes: [],
+			current: 'main',
+		});
+	});
+
+	it('sends the refs again on a graph refresh, but only to a view that asked', async () => {
+		const controller = makeController({ listRoots: [repoDir], executor });
+		const asking = await attachView(controller);
+		const silent = await attachView(controller);
+		await asking.webview.receive({ type: 'loadCommits', limit: 300 });
+		await silent.webview.receive({ type: 'loadCommits', limit: 300 });
+		await controller.refresh();
+		expect(refReads).toBe(0);
+		expect(asking.webview.postedOfType('refPanel')).toEqual([]);
+
+		await asking.webview.receive({ type: 'loadRefPanel' });
+		await controller.refresh();
+
+		expect(asking.webview.postedOfType('refPanel')).toHaveLength(2);
+		expect(silent.webview.postedOfType('refPanel')).toEqual([]);
+		expect(refReads).toBe(2);
+	});
+
+	it('stops sending once the view that asked is gone', async () => {
+		const controller = makeController({ listRoots: [repoDir], executor });
+		const view = await attachView(controller);
+		await view.webview.receive({ type: 'loadCommits', limit: 300 });
+		await view.webview.receive({ type: 'loadRefPanel' });
+		view.dispose();
+		const readsBefore = refReads;
+
+		await controller.refresh();
+
+		expect(refReads).toBe(readsBefore);
+	});
+
+	it('answers empty lists for a repository with no refs', async () => {
+		const controller = makeController({ listRoots: [repoDir] });
+		const view = await attachView(controller);
+		await view.webview.receive({ type: 'loadCommits', limit: 300 });
+
+		await view.webview.receive({ type: 'loadRefPanel' });
+
+		expect(view.webview.postedOfType('refPanel')[0]?.data).toEqual({
+			listLocal: [],
+			listRemote: [],
+			listTags: [],
+			listStashes: [],
+			current: null,
+		});
+		expect(recorded.listErrors).toEqual([]);
 	});
 });
