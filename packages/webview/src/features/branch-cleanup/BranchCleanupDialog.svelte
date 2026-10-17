@@ -265,10 +265,6 @@
 	}
 	.branches li {
 		padding: var(--gg-space-1) 0;
-		border-bottom: 1px solid var(--gg-border);
-	}
-	.branches li:last-child {
-		border-bottom: none;
 	}
 	.branches label {
 		display: flex;

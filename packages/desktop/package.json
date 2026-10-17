@@ -1,6 +1,6 @@
 {
 	"name": "@git-octopus/desktop",
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"private": true,
 	"description": "Git Octopus as a standalone macOS app (Electron)",
 	"license": "MIT",

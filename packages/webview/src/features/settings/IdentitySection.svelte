@@ -432,9 +432,6 @@
 		align-items: center;
 		padding: 3px var(--gg-space-3);
 	}
-	.ws-row + .ws-row {
-		border-top: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
-	}
 	.ws-repo,
 	.ws-email {
 		overflow: hidden;

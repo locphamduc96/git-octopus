@@ -496,7 +496,7 @@
 		display: flex;
 		flex-direction: column;
 		padding: var(--gg-space-2) 0;
-		border-right: 1px solid var(--gg-border);
+		border-right: 1px solid var(--gg-seam);
 		background: var(--gg-bg-raised);
 		overflow-y: auto;
 	}

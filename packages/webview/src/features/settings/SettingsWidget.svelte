@@ -239,7 +239,7 @@
 			<div class="content">
 				<h3 class="content-title">{tabLabel}</h3>
 				{#if tab === 'general'}
-					<section>
+					<section class="gg-block">
 						<div class="row">
 							<span class="row-label">Commits to load</span>
 							<SelectField
@@ -381,7 +381,7 @@
 						</div>
 					</section>
 				{:else if tab === 'graph'}
-					<section>
+					<section class="gg-block">
 						<div class="row">
 							<span class="row-label">Graph style</span>
 							<SelectField
@@ -508,7 +508,7 @@
 						</div>
 					</section>
 				{:else if tab === 'commits'}
-					<section>
+					<section class="gg-block">
 						<div class="row">
 							<span class="row-label">
 								Commit ordering
@@ -609,7 +609,7 @@
 						</div>
 					</section>
 				{:else if tab === 'ai'}
-					<section>
+					<section class="gg-block">
 						{#if !aiCommit.inventory}
 							<p class="note">Looking for agent CLIs…</p>
 						{:else}
@@ -700,7 +700,7 @@
 						{onsaveIdentities}
 					/>
 					<!-- A set-and-forget switch, so it trails the identities it acts on. -->
-					<section class="trail">
+					<section class="gg-block">
 						<div class="row">
 							<span class="row-label">
 								Auto-apply identity by remote
@@ -769,7 +769,7 @@
 		font-weight: 600;
 		font-size: var(--gg-text-lg);
 		padding: 0 var(--gg-space-2) 0 var(--gg-space-4);
-		border-bottom: 1px solid var(--gg-border);
+		border-bottom: 1px solid var(--gg-seam);
 	}
 	.main {
 		display: flex;
@@ -790,27 +790,14 @@
 	section {
 		display: flex;
 		flex-direction: column;
-		padding: 0;
 	}
-	/* Trails the identity cards: a separator line marks it off from the list above. */
-	section.trail {
-		margin-top: var(--gg-space-2);
-		border-top: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
-	}
-	section.trail .row {
-		border-bottom: none;
-	}
-	/* Label left, every control in one 220px column on the right, a hairline between rows. */
+	/* Label left, every control in one 220px column on the right; the page's block groups the rows. */
 	.row {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) 220px;
 		align-items: center;
 		gap: var(--gg-space-4);
 		padding: var(--gg-space-3) 0;
-		border-bottom: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
-	}
-	section .row:last-child {
-		border-bottom: none;
 	}
 	.row-label {
 		flex: 1;
@@ -934,7 +921,7 @@
 		flex-direction: column;
 		gap: 1px;
 		padding: var(--gg-space-2);
-		border-right: 1px solid var(--gg-border);
+		border-right: 1px solid var(--gg-seam);
 		background: var(--gg-bg-raised);
 		overflow-y: auto;
 	}

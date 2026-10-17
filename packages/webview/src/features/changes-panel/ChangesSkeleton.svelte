@@ -45,7 +45,7 @@
 		flex: none;
 		height: var(--gg-header-h);
 		box-sizing: border-box;
-		border-bottom: 1px solid var(--gg-border);
+		border-bottom: 1px solid var(--gg-seam);
 	}
 	.body {
 		position: relative;

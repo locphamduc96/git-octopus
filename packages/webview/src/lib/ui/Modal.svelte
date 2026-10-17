@@ -72,7 +72,7 @@
 		height: var(--gg-dialog-head-h);
 		box-sizing: border-box;
 		padding: 0 var(--gg-space-4);
-		border-bottom: 1px solid var(--gg-border);
+		border-bottom: 1px solid var(--gg-seam);
 	}
 	.title {
 		flex: none;
@@ -99,6 +99,6 @@
 		gap: var(--gg-space-2);
 		flex: none;
 		padding: var(--gg-space-3) var(--gg-space-4);
-		border-top: 1px solid var(--gg-border);
+		border-top: 1px solid var(--gg-seam);
 	}
 </style>

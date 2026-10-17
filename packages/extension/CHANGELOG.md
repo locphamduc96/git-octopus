@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.27.0
+
+### Changed
+
+- **Areas told apart by tone, not lines.** The control bar, the side panel and the diff header sit on
+  your theme's sidebar colour and the graph on the editor's, so the hairlines between them are gone.
+  A theme that paints both colours the same gets a slightly lifted side panel instead; high-contrast
+  themes keep their borders.
+- **Button groups on soft islands.** The control bar and the Working tree toolbar group their buttons
+  on a faint rounded fill instead of between divider lines. Every button is still there.
+- **Softer lists.** The graph's column header is a soft strip, the working-tree groups lose their
+  border and keep the tint, and Settings, Clean up branches, Rebase and Cherry-pick group their rows
+  in soft blocks without a line under every row.
+
 ## 0.26.1
 
 ### Changed

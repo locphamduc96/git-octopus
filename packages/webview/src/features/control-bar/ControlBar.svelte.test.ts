@@ -89,3 +89,20 @@ describe('ControlBar drift counts', () => {
 		expect(document.querySelectorAll('.drift')).toHaveLength(0);
 	});
 });
+
+describe('ControlBar groups', () => {
+	it('puts every button on one of three islands, with no rule between them', () => {
+		mount();
+		const listIslands = [...document.querySelectorAll('.actions > .gg-island')];
+		const islandOf = (name: RegExp) => screen.getByRole('button', { name }).closest('.gg-island');
+		expect(listIslands).toHaveLength(3);
+		for (const name of [/^Fetch/, /^Pull/, /^Push/, /^Refresh/, /^Undo/, /^Redo/]) {
+			expect(islandOf(name)).toBe(listIslands[0]);
+		}
+		expect(islandOf(/^Git identity/)).toBe(listIslands[1]);
+		for (const name of [/^Find commits/, /^Clean up branches/, /^Open terminal/, /^Settings/]) {
+			expect(islandOf(name)).toBe(listIslands[2]);
+		}
+		expect(document.querySelector('.divider')).toBeNull();
+	});
+});

@@ -63,7 +63,7 @@
 	}
 </script>
 
-<section>
+<section class="gg-block">
 	<div class="row">
 		<span class="row-label">
 			Show signatures on the graph
@@ -81,7 +81,7 @@
 	</div>
 </section>
 
-<section class="config">
+<section class="config gg-block">
 	<p class="note">
 		Git signs each commit itself, through gpg-agent or ssh-agent — they ask for any passphrase.
 		Changes here go to this repository's own config; the global one is never written.
@@ -203,9 +203,7 @@
 	}
 	section.config {
 		gap: var(--gg-space-1);
-		margin-top: var(--gg-space-2);
-		padding-top: var(--gg-space-2);
-		border-top: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
+		padding-block: var(--gg-space-2);
 	}
 	/* The same 220px control column as the rest of Settings. */
 	.row {
@@ -214,7 +212,6 @@
 		align-items: center;
 		gap: var(--gg-space-4);
 		padding: var(--gg-space-3) 0;
-		border-bottom: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
 	}
 	.row > input[type='checkbox'] {
 		justify-self: start;

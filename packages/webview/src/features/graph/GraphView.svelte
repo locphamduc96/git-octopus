@@ -1320,14 +1320,25 @@
 		overflow: hidden;
 	}
 	.headers {
+		position: relative;
+		isolation: isolate;
 		display: grid;
 		gap: var(--gg-space-2);
 		flex: none;
 		height: var(--gg-header-h);
 		box-sizing: border-box;
-		border-bottom: 1px solid var(--gg-border);
+		border-bottom: 1px solid var(--gg-seam);
 		color: var(--gg-fg-muted);
 		font-size: var(--gg-text-sm);
+	}
+	/* The header is a soft strip in from the pane edge, lined up with the inset rows below it. */
+	.headers::before {
+		content: '';
+		position: absolute;
+		inset: 2px var(--gg-row-inset);
+		z-index: -1;
+		border-radius: var(--gg-radius);
+		background: var(--gg-tint);
 	}
 	/* Each label starts where its column's text starts; Date, whose values hang right, ends with them. */
 	.hcell {

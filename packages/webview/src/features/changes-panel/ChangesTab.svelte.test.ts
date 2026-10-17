@@ -150,3 +150,24 @@ describe('ChangesTab group headings', () => {
 		expect(screen.getByRole('heading', { level: 3 }).textContent).toMatch(/^Staged Changes\b/);
 	});
 });
+
+describe('ChangesTab toolbar', () => {
+	it('groups the working-tree actions and the AI actions on their own islands', () => {
+		mount();
+		const islandOf = (name: string) => screen.getByRole('button', { name }).closest('.gg-island');
+		const listIslands = [...document.querySelectorAll('.toolbar > .gg-island')];
+		expect(listIslands).toHaveLength(2);
+		for (const name of [
+			'Undo last commit',
+			'Stash uncommitted changes',
+			'Unstage all',
+			'Stage all',
+		]) {
+			expect(islandOf(name)).toBe(listIslands[0]);
+		}
+		for (const name of ['Explain changes with AI', 'AI commit']) {
+			expect(islandOf(name)).toBe(listIslands[1]);
+		}
+		expect(screen.getByRole('button', { name: 'Commit' }).closest('.gg-island')).toBeNull();
+	});
+});

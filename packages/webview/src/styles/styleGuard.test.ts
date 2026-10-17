@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 /*
  * Keeps the view on its tokens: every colour, font size and corner in a component goes through
  * `tokens.css`, which is the only file that may name a --vscode-* variable or write a colour.
+ * Panes and rows are told apart by tone and spacing, not by rules: a one-sided hairline must be the
+ * `--gg-seam` token, unless it draws content listed below.
  */
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -16,15 +18,32 @@ const mapColourAllowlist: Record<string, string> = {
 	'lib/graphColours.ts': 'lane palette, kept unchanged by the 2026-10-17 review',
 };
 
+// One-sided hairlines that are content rather than a boundary between areas, by file and selector.
+const mapDividerAllowlist: Record<string, Record<string, string>> = {
+	'features/diff/DiffPanel.svelte': {
+		'.hbar': 'hunk bar, part of the diff text',
+		'.ruler': 'overview ruler gutter',
+		'.blame': 'blame gutter beside the code',
+		'.half + .half': 'line between the two sides of a split diff',
+	},
+	'lib/ui/Dropdown.svelte': { '.column + .column': 'columns inside one open menu' },
+	'features/control-bar/ControlBar.svelte': {
+		'.sequencer': 'a rebase or merge in progress has to stand out from the bar',
+	},
+};
+
 const RE_COLOUR = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(|var\(\s*--vscode-/;
 const RE_FONT_SIZE =
 	/^(?:inherit|var\(--gg-(?:text-(?:xs|sm|md|lg|mono)|icon-(?:xs|sm|md|lg)|font-size)\))$/;
 const RE_RADIUS_PART = /^(?:0|50%|999px|inherit|var\(--gg-radius(?:-xs|-sm|-lg|-xl)?\))$/;
 const RE_DECLARATION = /([-\w]+)\s*:\s*([^;{}]+)/g;
+const RE_ONE_SIDE = /^border-(?:top|bottom|left|right)$/;
+const RE_HAIRLINE = /(?:^|\s)(?:1px|thin)(?:\s|$)/;
+const RE_INSET_HAIRLINE = /\binset\s+(?:0\s+-?1px\s+0|-?1px\s+0\s+0)\b/;
 
 interface Violation {
 	at: string;
-	rule: 'colour' | 'font-size' | 'radius';
+	rule: 'colour' | 'font-size' | 'radius' | 'divider';
 	text: string;
 }
 
@@ -35,6 +54,20 @@ function stripComments(text: string): string {
 
 function lineAt(text: string, index: number): number {
 	return text.slice(0, index).split('\n').length;
+}
+
+/** The selector of the rule a declaration at `index` belongs to. */
+function selectorAt(text: string, index: number): string {
+	const open = text.lastIndexOf('{', index);
+	const start = Math.max(text.lastIndexOf('}', open), text.lastIndexOf('{', open - 1)) + 1;
+	return text.slice(start, open).trim().replace(/\s+/g, ' ');
+}
+
+/** A rule drawn along one edge of a box: a one-sided 1px border or a 1px inset shadow. */
+function isDivider(property: string, value: string): boolean {
+	if (value.includes('var(--gg-seam)')) return false;
+	if (RE_ONE_SIDE.test(property)) return RE_HAIRLINE.test(value);
+	return property === 'box-shadow' && RE_INSET_HAIRLINE.test(value);
 }
 
 /** Checks one block of CSS; `lineOffset` places it inside its file. */
@@ -52,6 +85,11 @@ export function checkCss(
 		const at = `${path}:${lineOffset + lineAt(text, match.index)}`;
 		if (!isColourAllowed && RE_COLOUR.test(value))
 			listViolations.push({ at, rule: 'colour', text: `${property}: ${value}` });
+		if (
+			isDivider(property, value) &&
+			!(selectorAt(text, match.index) in (mapDividerAllowlist[path] ?? {}))
+		)
+			listViolations.push({ at, rule: 'divider', text: `${property}: ${value}` });
 		if (property === 'font-size' && !RE_FONT_SIZE.test(value))
 			listViolations.push({ at, rule: 'font-size', text: value });
 		if (property.endsWith('radius') && !property.startsWith('--')) {
@@ -116,7 +154,7 @@ function checkFile(absolute: string): Violation[] {
 }
 
 describe('style guard', () => {
-	it('keeps every colour, font size and corner on the tokens', () => {
+	it('keeps every colour, font size, corner and divider on the tokens', () => {
 		const listViolations = listSourceFiles(ROOT).flatMap(checkFile);
 		expect(
 			listViolations.map((violation) => `${violation.at}  [${violation.rule}] ${violation.text}`)
@@ -135,6 +173,19 @@ describe('style guard', () => {
 			'Fake.svelte:4 colour',
 			'Fake.svelte:1 colour',
 		]);
+	});
+
+	it('catches a hairline between areas but lets the seam and listed content through', () => {
+		const css = [
+			'.bar { border-bottom: 1px solid var(--gg-border); }',
+			'.head { box-shadow: inset 0 -1px 0 var(--gg-border); }',
+			'.pane { border-left: 1px solid var(--gg-seam); }',
+			'.tab.on { border-bottom: 2px solid var(--gg-accent); }',
+			'.ruler { border-left: 1px solid var(--gg-border); }',
+		].join('\n');
+		expect(
+			checkCss('features/diff/DiffPanel.svelte', css).map((violation) => violation.at)
+		).toEqual(['features/diff/DiffPanel.svelte:1', 'features/diff/DiffPanel.svelte:2']);
 	});
 
 	it('sees a theme variable split over two lines', () => {

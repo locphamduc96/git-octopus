@@ -356,7 +356,8 @@
 		height: 100%;
 		min-height: 0;
 		min-width: 0;
-		border-left: 1px solid var(--gg-border);
+		border-left: 1px solid var(--gg-seam);
+		background: var(--gg-bg-raised);
 	}
 	header {
 		display: flex;
@@ -365,7 +366,7 @@
 		height: var(--gg-header-h);
 		box-sizing: border-box;
 		padding: 0 var(--gg-space-2);
-		border-bottom: 1px solid var(--gg-border);
+		border-bottom: 1px solid var(--gg-seam);
 		color: var(--gg-fg-muted);
 		white-space: nowrap;
 		overflow: hidden;

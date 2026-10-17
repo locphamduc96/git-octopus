@@ -23,7 +23,15 @@
 
 	/* Surfaces */
 	--gg-bg: var(--vscode-editor-background);
-	--gg-bg-raised: var(--vscode-sideBar-background, var(--gg-bg));
+	/*
+	 * Panes are told apart by tone, not by rules: the control bar and the side panel sit on the
+	 * sidebar colour, the graph on the editor's. `lib/surfaceContrast.ts` lifts the raised tone
+	 * (`.gg-flat-surfaces` below) when a theme paints the two nearly the same.
+	 */
+	--gg-bg-sidebar: var(--vscode-sideBar-background, var(--gg-bg));
+	--gg-bg-raised: var(--gg-bg-sidebar);
+	/* A soft fill that groups things without a frame: toolbar islands, the column header, file groups. */
+	--gg-tint: color-mix(in srgb, var(--gg-fg) 6%, transparent);
 	--gg-bg-overlay: var(--vscode-editorWidget-background, #252526);
 	--gg-bg-hover: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
 	--gg-bg-tool-hover: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
@@ -51,6 +59,11 @@
 
 	/* Lines */
 	--gg-border: var(--vscode-panel-border);
+	/*
+	 * The edge between two panes or bars. Transparent, since tone already marks it; high-contrast
+	 * themes draw it, as they draw every edge. Keeps its 1px so bar heights do not change per theme.
+	 */
+	--gg-seam: transparent;
 	--gg-focus: var(--vscode-focusBorder, #007fd4);
 
 	/* Controls */
@@ -138,10 +151,6 @@
 	--gg-chip-border: color-mix(in srgb, var(--gg-fg) 28%, transparent);
 	--gg-chip-bg: color-mix(in srgb, var(--gg-fg) 8%, transparent);
 
-	/* A card that groups a list — the working-tree groups. Faint, so the files still lead. */
-	--gg-card-border: color-mix(in srgb, var(--gg-fg) 14%, transparent);
-	--gg-card-bg: color-mix(in srgb, var(--gg-fg) 3%, transparent);
-
 	/*
 	 * Corners, softened to sit with VS Code's own rounded chrome. One scale for the whole view:
 	 * hairline marks, small boxes (checkbox, kbd), anything a pointer lights up (row, button, input,
@@ -185,6 +194,39 @@
 	--gg-motion: 130ms;
 	/* Leaves at speed and eases into place — the shape that reads as "already arrived". */
 	--gg-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/*
+ * A group of toolbar buttons on a soft fill instead of between rules (control bar, Working tree).
+ * Global so both bars draw the same island; the buttons inside keep their own hover.
+ */
+.gg-island {
+	display: inline-flex;
+	align-items: center;
+	gap: 1px;
+	padding: 2px;
+	border-radius: var(--gg-radius-lg);
+	background: var(--gg-tint);
+}
+
+/* A group of rows on a soft fill (a Settings page): rows inside part by spacing, not rules. */
+.gg-block {
+	padding: 0 var(--gg-space-3);
+	border-radius: var(--gg-radius-lg);
+	background: var(--gg-tint);
+}
+.gg-block + .gg-block {
+	margin-top: var(--gg-space-2);
+}
+
+/* After :root, which it overrides on the same element. */
+:root.gg-flat-surfaces {
+	--gg-bg-raised: color-mix(in srgb, var(--gg-bg), var(--gg-fg) 6%);
+}
+
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+	--gg-seam: var(--vscode-contrastBorder, var(--gg-border));
 }
 
 html,

@@ -101,7 +101,6 @@
 		flex-direction: column;
 		gap: var(--gg-space-1);
 		padding: var(--gg-space-2) 0;
-		border-top: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
 	}
 	.note {
 		margin: 0;

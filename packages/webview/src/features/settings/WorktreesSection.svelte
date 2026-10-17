@@ -15,7 +15,7 @@
 	}
 </script>
 
-<section>
+<section class="gg-block">
 	{#if worktrees.list === null}
 		<p class="note">Reading the worktrees…</p>
 	{:else}
@@ -59,7 +59,7 @@
 	{/if}
 </section>
 
-<section class="add">
+<section class="add gg-block">
 	<span class="heading">Add a worktree</span>
 	<span class="note"
 		>An existing branch is checked out there; a new name creates the branch from HEAD. Leave the
@@ -89,7 +89,6 @@
 		align-items: center;
 		gap: var(--gg-space-2);
 		padding: var(--gg-space-2) 0;
-		border-bottom: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
 	}
 	.row-label {
 		flex: 1;

@@ -14,7 +14,7 @@
 	}
 </script>
 
-<section>
+<section class="gg-block">
 	{#if remotes.list === null}
 		<p class="note">Reading the remotes…</p>
 	{:else if remotes.list.length === 0}
@@ -39,7 +39,7 @@
 	{/if}
 </section>
 
-<section class="add">
+<section class="add gg-block">
 	<span class="heading">Add a remote</span>
 	<div class="fields">
 		<input bind:value={name} placeholder="Name, e.g. upstream" aria-label="Remote name" />
@@ -65,7 +65,6 @@
 		align-items: center;
 		gap: var(--gg-space-4);
 		padding: var(--gg-space-2) 0;
-		border-bottom: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
 	}
 	.row-label {
 		flex: 1;

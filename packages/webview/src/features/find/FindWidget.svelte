@@ -100,8 +100,8 @@
 		align-items: center;
 		gap: var(--gg-space-1);
 		padding: var(--gg-space-1) var(--gg-space-2);
-		border-bottom: 1px solid var(--gg-border);
-		background: var(--gg-bg-overlay);
+		border-bottom: 1px solid var(--gg-seam);
+		background: var(--gg-bg-raised);
 	}
 	input {
 		flex: 1;

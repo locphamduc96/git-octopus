@@ -133,13 +133,15 @@
 		color: var(--gg-fg-muted);
 		font-size: var(--gg-text-sm);
 	}
+	/* One soft block for the whole list; the rows inside part by spacing and hover, not rules. */
 	.rows {
 		list-style: none;
 		margin: 0;
-		padding: 0;
+		padding: var(--gg-space-1) 0;
 		max-height: 50vh;
 		overflow: auto;
-		border: 1px solid var(--gg-border);
+		border-radius: var(--gg-radius-lg);
+		background: var(--gg-tint);
 	}
 	.row {
 		display: flex;
@@ -147,7 +149,6 @@
 		gap: var(--gg-space-2);
 		min-width: 0;
 		padding: 2px var(--gg-space-2);
-		border-bottom: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
 		outline: none;
 	}
 	.row.focused {

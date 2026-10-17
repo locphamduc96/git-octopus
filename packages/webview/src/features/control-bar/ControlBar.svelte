@@ -280,106 +280,109 @@
 
 	<span class="spacer"></span>
 
-	<!-- Three groups, read left to right: what the graph holds, what talks to the remote, and what
-	     configures the view. The dividers are the only thing telling them apart. -->
+	<!-- Three groups, read left to right: what talks to the remote and the history, who commits, and
+	     what configures the view. Each sits on its own island; no rule between them. -->
 	<div class="actions">
 		{#if commitCount > 0}
 			<span class="count">{commitCount} commits</span>
-			<span class="divider"></span>
 		{/if}
-		<IconButton
-			name="cloud-download"
-			label="Fetch"
-			title="Fetch — download commits from all remotes and prune deleted branches"
-			onclick={onfetch}
-		/>
-		<!-- Not disabled at zero behind: the right-click strategies (rebase / ff-only) are exactly
+		<span class="gg-island" role="group" aria-label="Remote and history">
+			<IconButton
+				name="cloud-download"
+				label="Fetch"
+				title="Fetch — download commits from all remotes and prune deleted branches"
+				onclick={onfetch}
+			/>
+			<!-- Not disabled at zero behind: the right-click strategies (rebase / ff-only) are exactly
 		     what you reach for regardless of the count shown. -->
-		<button
-			onclick={onpull}
-			oncontextmenu={(event) => {
-				event.preventDefault();
-				pullMenu = { x: event.clientX, y: event.clientY };
-			}}
-			use:tooltip={behind > 0
-				? `Pull — merge ${behind} commit${behind === 1 ? '' : 's'} from the remote into this branch; right-click for rebase / ff-only`
-				: 'Pull — this branch is up to date; right-click for rebase / ff-only'}
-		>
-			<Icon name="arrow-down" label="Pull" />
-			{#if behind > 0}<span class="drift">{behind}</span>{/if}
-		</button>
-		<!-- Never disabled on a zero count: a branch with no upstream yet is exactly the one that
+			<button
+				onclick={onpull}
+				oncontextmenu={(event) => {
+					event.preventDefault();
+					pullMenu = { x: event.clientX, y: event.clientY };
+				}}
+				use:tooltip={behind > 0
+					? `Pull — merge ${behind} commit${behind === 1 ? '' : 's'} from the remote into this branch; right-click for rebase / ff-only`
+					: 'Pull — this branch is up to date; right-click for rebase / ff-only'}
+			>
+				<Icon name="arrow-down" label="Pull" />
+				{#if behind > 0}<span class="drift">{behind}</span>{/if}
+			</button>
+			<!-- Never disabled on a zero count: a branch with no upstream yet is exactly the one that
 		     needs publishing, and it reads as 0 ahead. -->
-		<button
-			onclick={onpush}
-			oncontextmenu={(event) => {
-				event.preventDefault();
-				pushMenu = { x: event.clientX, y: event.clientY };
-			}}
-			use:tooltip={ahead > 0
-				? `Push ${ahead} commit${ahead === 1 ? '' : 's'} to the remote — right-click for force push`
-				: 'Push — publish this branch to the remote; right-click for force push'}
-		>
-			<Icon name="arrow-up" label="Push" />
-			{#if ahead > 0}<span class="drift">{ahead}</span>{/if}
-		</button>
-		<IconButton
-			name="refresh"
-			label="Refresh"
-			title="Refresh — reload the graph and working tree (Ctrl/Cmd + R)"
-			onclick={onrefresh}
-		/>
-		<!-- The tooltip names the action rather than saying "Undo": what one press will change is
+			<button
+				onclick={onpush}
+				oncontextmenu={(event) => {
+					event.preventDefault();
+					pushMenu = { x: event.clientX, y: event.clientY };
+				}}
+				use:tooltip={ahead > 0
+					? `Push ${ahead} commit${ahead === 1 ? '' : 's'} to the remote — right-click for force push`
+					: 'Push — publish this branch to the remote; right-click for force push'}
+			>
+				<Icon name="arrow-up" label="Push" />
+				{#if ahead > 0}<span class="drift">{ahead}</span>{/if}
+			</button>
+			<IconButton
+				name="refresh"
+				label="Refresh"
+				title="Refresh — reload the graph and working tree (Ctrl/Cmd + R)"
+				onclick={onrefresh}
+			/>
+			<!-- The tooltip names the action rather than saying "Undo": what one press will change is
 		     the only thing worth knowing before pressing it. -->
-		<IconButton
-			name="discard"
-			label="Undo"
-			title={undoLabel
-				? `Undo ${undoLabel} — puts the branches back where they were`
-				: 'Undo — nothing to undo yet'}
-			disabled={!undoLabel}
-			onclick={onundo}
-		/>
-		<IconButton
-			name="redo"
-			label="Redo"
-			title={redoLabel
-				? `Redo ${redoLabel} — puts back what Undo took away`
-				: 'Redo — nothing undone to put back'}
-			disabled={!redoLabel}
-			onclick={onredo}
-		/>
-
-		<span class="divider"></span>
+			<IconButton
+				name="discard"
+				label="Undo"
+				title={undoLabel
+					? `Undo ${undoLabel} — puts the branches back where they were`
+					: 'Undo — nothing to undo yet'}
+				disabled={!undoLabel}
+				onclick={onundo}
+			/>
+			<IconButton
+				name="redo"
+				label="Redo"
+				title={redoLabel
+					? `Redo ${redoLabel} — puts back what Undo took away`
+					: 'Redo — nothing undone to put back'}
+				disabled={!redoLabel}
+				onclick={onredo}
+			/>
+		</span>
 
 		{#if identityLabel}
-			<button
-				class="identity"
-				class:warning={identityWarning !== null}
-				aria-label="Git identity: {identityLine}"
-				use:tooltip={identityWarning ?? `${identityLine} — click to switch identity`}
-				onclick={(event) => {
-					const rect = event.currentTarget.getBoundingClientRect();
-					identityMenu = { x: rect.left, y: rect.bottom + 2 };
-				}}
-			>
-				{#if identityInitials}
-					<span class="avatar" aria-hidden="true">{identityInitials}</span>
-				{:else}
-					<Icon name="account" />
-				{/if}
-				<span class="identity-label">{identityLabel}</span>
-			</button>
+			<span class="gg-island">
+				<button
+					class="identity"
+					class:warning={identityWarning !== null}
+					aria-label="Git identity: {identityLine}"
+					use:tooltip={identityWarning ?? `${identityLine} — click to switch identity`}
+					onclick={(event) => {
+						const rect = event.currentTarget.getBoundingClientRect();
+						identityMenu = { x: rect.left, y: rect.bottom + 2 };
+					}}
+				>
+					{#if identityInitials}
+						<span class="avatar" aria-hidden="true">{identityInitials}</span>
+					{:else}
+						<Icon name="account" />
+					{/if}
+					<span class="identity-label">{identityLabel}</span>
+				</button>
+			</span>
 		{/if}
-		<IconButton name="search" label="Find commits" onclick={onfind} />
-		<IconButton
-			name="trash"
-			label="Clean up branches"
-			title="Clean up branches — delete local branches older than a chosen age"
-			onclick={oncleanup}
-		/>
-		<IconButton name="terminal" label="Open terminal" onclick={onterminal} />
-		<IconButton name="settings-gear" label="Settings" onclick={onsettings} />
+		<span class="gg-island" role="group" aria-label="Tools">
+			<IconButton name="search" label="Find commits" onclick={onfind} />
+			<IconButton
+				name="trash"
+				label="Clean up branches"
+				title="Clean up branches — delete local branches older than a chosen age"
+				onclick={oncleanup}
+			/>
+			<IconButton name="terminal" label="Open terminal" onclick={onterminal} />
+			<IconButton name="settings-gear" label="Settings" onclick={onsettings} />
+		</span>
 	</div>
 </div>
 
@@ -466,8 +469,9 @@
 	 * out of line with the panel beside them. So each wrapped line is exactly one header tall and the
 	 * bar is a whole number of them: 30, 60, 90.
 	 *
-	 * The divider is an inset shadow rather than a border because a border would add its pixel on top
-	 * of those lines and put the whole thing back out by one.
+	 * It sits on the raised tone, which is what parts it from the graph below. The seam is an inset
+	 * shadow rather than a border because a border would add its pixel on top of those lines and put
+	 * the whole thing back out by one; it only shows in high-contrast themes.
 	 */
 	.bar {
 		display: flex;
@@ -478,7 +482,8 @@
 		min-height: var(--gg-header-h);
 		box-sizing: border-box;
 		padding: 0 var(--gg-space-2);
-		box-shadow: inset 0 -1px 0 var(--gg-border);
+		background: var(--gg-bg-raised);
+		box-shadow: inset 0 -1px 0 var(--gg-seam);
 		flex: none;
 		min-width: 0;
 	}
@@ -608,17 +613,9 @@
 	.actions {
 		display: flex;
 		align-items: center;
-		gap: 1px;
+		gap: 6px;
 		flex: none;
 		margin-left: auto;
-	}
-	/* Hairline, barely there: it groups the buttons without competing with them. */
-	.divider {
-		width: 1px;
-		height: 14px;
-		margin: 0 var(--gg-space-2);
-		background: var(--gg-fg-muted);
-		opacity: 0.35;
 	}
 	/*
 	 * The buttons that are not plain icons — a badge beside the glyph, or a label after it. Same

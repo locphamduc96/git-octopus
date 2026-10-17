@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- The look from Git Octopus 0.27.0: areas told apart by tone instead of lines, button groups on soft
+  islands, a soft column header and softer lists in Settings and the editors.
+
 ## 0.3.0
 
 - The refreshed look from Git Octopus 0.26.0: theme tokens, softer corners, quieter graph rows,

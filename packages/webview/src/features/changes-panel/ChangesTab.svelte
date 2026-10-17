@@ -144,32 +144,34 @@
 			<Icon name="arrow-up" />
 			Push{ahead > 0 ? ` ${ahead}` : ''}
 		</button>
-		<IconButton
-			name="discard"
-			label="Undo last commit"
-			title="Undo last commit — put its changes back as staged, keeping your work"
-			onclick={() => (dialog = 'undo')}
-		/>
-		<IconButton
-			name="archive"
-			label="Stash uncommitted changes"
-			title="Stash — save all uncommitted changes aside and clean the working tree"
-			disabled={changes.length + untracked.length + staged.length === 0}
-			onclick={() => onaction('stash')}
-		/>
-		<IconButton
-			name="remove"
-			label="Unstage all"
-			title="Unstage all — move every staged file back out of the next commit"
-			onclick={() => onaction('unstageAll')}
-		/>
-		<IconButton
-			name="add"
-			label="Stage all"
-			title="Stage all — include every changed and untracked file in the next commit"
-			onclick={() => onaction('stageAll')}
-		/>
-		<span class="ai">
+		<span class="gg-island" role="group" aria-label="Working tree actions">
+			<IconButton
+				name="discard"
+				label="Undo last commit"
+				title="Undo last commit — put its changes back as staged, keeping your work"
+				onclick={() => (dialog = 'undo')}
+			/>
+			<IconButton
+				name="archive"
+				label="Stash uncommitted changes"
+				title="Stash — save all uncommitted changes aside and clean the working tree"
+				disabled={changes.length + untracked.length + staged.length === 0}
+				onclick={() => onaction('stash')}
+			/>
+			<IconButton
+				name="remove"
+				label="Unstage all"
+				title="Unstage all — move every staged file back out of the next commit"
+				onclick={() => onaction('unstageAll')}
+			/>
+			<IconButton
+				name="add"
+				label="Stage all"
+				title="Stage all — include every changed and untracked file in the next commit"
+				onclick={() => onaction('stageAll')}
+			/>
+		</span>
+		<span class="ai gg-island" role="group" aria-label="AI">
 			<IconButton
 				name="sparkle"
 				label="Explain changes with AI"
@@ -390,12 +392,12 @@
 	.toolbar {
 		display: flex;
 		align-items: center;
-		gap: 1px;
+		gap: 6px;
 		height: var(--gg-header-h);
 		box-sizing: border-box;
 		flex: none;
 		padding: 0 var(--gg-space-2);
-		border-bottom: 1px solid var(--gg-border);
+		border-bottom: 1px solid var(--gg-seam);
 	}
 	/* The labelled buttons; the icon-only ones are `IconButton` and bring their own square. */
 	.toolbar button {
@@ -425,10 +427,9 @@
 		opacity: 0.5;
 		cursor: default;
 	}
-	/* The right-hand cluster: the wand carries the auto margin, Commit rides beside it. */
+	/* The right-hand cluster: the AI island carries the auto margin, Commit rides beside it. */
 	.toolbar .ai {
 		margin-left: auto;
-		display: inline-flex;
 	}
 	.toolbar .primary {
 		background: var(--gg-btn-bg);
@@ -448,13 +449,12 @@
 		gap: var(--gg-space-2);
 		padding: var(--gg-space-2);
 	}
-	/* One card per group: a faint border and tint show where each starts and ends. */
+	/* One block per group on a soft fill, no frame: the gap between fills shows where each ends. */
 	.group {
 		flex: none;
 		padding-bottom: var(--gg-space-1);
-		border: 1px solid var(--gg-card-border);
 		border-radius: var(--gg-radius-lg);
-		background: var(--gg-card-bg);
+		background: var(--gg-tint);
 	}
 	.group.collapsed {
 		padding-bottom: 0;

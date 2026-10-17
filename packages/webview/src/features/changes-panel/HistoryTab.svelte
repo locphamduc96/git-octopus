@@ -92,12 +92,15 @@
 		overflow: auto;
 		min-height: 0;
 	}
+	/* What the list below is about, on a soft fill instead of above a rule. */
 	.meta {
 		display: flex;
 		align-items: center;
 		gap: var(--gg-space-2);
+		margin: var(--gg-space-2) var(--gg-space-2) var(--gg-space-1);
 		padding: var(--gg-space-1) var(--gg-space-2);
-		border-bottom: 1px solid var(--gg-border);
+		border-radius: var(--gg-radius-lg);
+		background: var(--gg-tint);
 		color: var(--gg-fg-muted);
 		font-size: var(--gg-text-sm);
 	}

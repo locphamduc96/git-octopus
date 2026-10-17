@@ -884,7 +884,8 @@
 		height: var(--gg-header-h);
 		box-sizing: border-box;
 		padding: 0 var(--gg-space-2);
-		border-bottom: 1px solid var(--gg-border);
+		border-bottom: 1px solid var(--gg-seam);
+		background: var(--gg-bg-raised);
 	}
 	/* The folder gives up its width first; the file name is never the part that gets cut. */
 	.path {
