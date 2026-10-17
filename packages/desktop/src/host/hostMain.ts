@@ -52,10 +52,10 @@ let current: { view: ViewChannel; port: MessagePortMain; dispose: () => void } |
 
 function start(init: Extract<MainToHost, { kind: 'init' }>): void {
 	focused = init.focused;
-	shell = new DesktopShell({ ...init, rpc });
+	const viewSettings = () =>
+		readHostViewSettings(shell?.globalState.get<unknown>(STATE_VIEW_SETTINGS));
+	shell = new DesktopShell({ ...init, rpc, readViewSettings: viewSettings });
 	const executor = new SerializingGitExecutor(new LockRetryGitExecutor(new GitProcessExecutor()));
-	const store = shell.globalState;
-	const viewSettings = () => readHostViewSettings(store.get<unknown>(STATE_VIEW_SETTINGS));
 	controller = new GitOctopusController(
 		shell,
 		executor,

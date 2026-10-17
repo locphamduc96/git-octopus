@@ -89,12 +89,23 @@ export function pullActionFor(strategy: PullStrategy): RepoActionId {
 	return mapAction[strategy];
 }
 
+/** The terminal the desktop app opens for "open in terminal". */
+export type TerminalApp = 'Terminal' | 'iTerm' | 'Ghostty' | 'Warp';
+export const LIST_TERMINAL_APPS = membersOf<TerminalApp>()([
+	'Terminal',
+	'iTerm',
+	'Ghostty',
+	'Warp',
+]);
+
 /** The member `raw` names, or nothing when it names none. */
 export function pickOption<T extends string>(listValid: readonly T[], raw: string): T | undefined {
 	return listValid.find((option) => option === raw);
 }
 
 export interface ViewSettings {
+	/** Desktop app only: which terminal "open in terminal" launches. */
+	terminalApp: TerminalApp;
 	commitLimit: number;
 	commitOrder: CommitOrder;
 	dateType: DateType;
@@ -206,6 +217,7 @@ export type ColumnKey = keyof ColumnWidths;
  * workspace can never win an argument with it.
  */
 export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
+	terminalApp: 'Terminal',
 	commitLimit: 300,
 	commitOrder: 'date',
 	dateType: 'commit',
@@ -277,7 +289,14 @@ export function mergePreferences(
 ): GlobalPreferences {
 	const next = stored as Partial<GlobalPreferences>;
 	return {
-		settings: next.settings ? { ...current.settings, ...next.settings } : current.settings,
+		settings: next.settings
+			? {
+					...current.settings,
+					...next.settings,
+					terminalApp:
+						pickOption(LIST_TERMINAL_APPS, String(next.settings.terminalApp)) ?? 'Terminal',
+				}
+			: current.settings,
 		columns: next.columns ? { ...current.columns, ...next.columns } : current.columns,
 		fileView: next.fileView ?? current.fileView,
 		metaOpen: typeof next.metaOpen === 'boolean' ? next.metaOpen : current.metaOpen,

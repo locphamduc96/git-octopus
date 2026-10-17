@@ -29,7 +29,19 @@ export interface DesktopShellOptions {
 	theme: ThemeKind;
 	/** Ask the main process — the only one that may touch the clipboard, windows and browsers. */
 	rpc: <K extends keyof MainRpc>(method: K, ...args: Parameters<MainRpc[K]>) => Promise<unknown>;
+	/** The saved view settings, read per use so a changed choice applies at once. */
+	readViewSettings?: () => { terminalApp?: string } | null;
+	/** Runs `open` with these arguments; replaced in tests. */
+	runOpen?: (listArgs: string[]) => Promise<void>;
 }
+
+/** What `open` is given to start each terminal at a directory. */
+const mapTerminalArgs: Record<string, (cwd: string) => string[]> = {
+	Terminal: (cwd) => ['-a', 'Terminal', cwd],
+	iTerm: (cwd) => ['-a', 'iTerm', cwd],
+	Ghostty: (cwd) => ['-na', 'Ghostty', '--args', `--working-directory=${cwd}`],
+	Warp: (cwd) => [`warp://action/new_window?path=${encodeURIComponent(cwd)}`],
+};
 
 /** `open` hands a path or a URL to whatever macOS has registered for it. */
 function macOpen(...listArgs: string[]): Promise<void> {
@@ -140,7 +152,7 @@ export class DesktopShell implements ControllerShell {
 	public readonly open = {
 		openExternal: (url: string) => this.options.rpc('openExternal', url),
 		openFolderWindow: (folder: string) => this.options.rpc('openFolderWindow', folder),
-		openTerminal: (cwd: string): void => void macOpen('-a', 'Terminal', cwd).catch(() => undefined),
+		openTerminal: (cwd: string): void => void this.launchTerminal(cwd),
 		// Until an editor can be chosen (113d): the file as macOS would open it on a double-click.
 		openMergeEditor: (absolutePath: string): Promise<void> =>
 			macOpen(absolutePath).catch((error: unknown) => {
@@ -155,6 +167,20 @@ export class DesktopShell implements ControllerShell {
 			await macOpen(file);
 		},
 	};
+
+	private async launchTerminal(cwd: string): Promise<void> {
+		const run = this.options.runOpen ?? ((listArgs: string[]) => macOpen(...listArgs));
+		const chosen = this.options.readViewSettings?.()?.terminalApp;
+		const app = chosen !== undefined && chosen in mapTerminalArgs ? chosen : 'Terminal';
+		try {
+			await run(mapTerminalArgs[app](cwd));
+			return;
+		} catch {
+			if (app === 'Terminal') return;
+		}
+		void this.notify.warn(`Git Octopus: could not open ${app}, opened Terminal instead.`);
+		await run(mapTerminalArgs.Terminal(cwd)).catch(() => undefined);
+	}
 
 	public readonly log = {
 		line: (text: string): void => {

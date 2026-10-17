@@ -13,6 +13,12 @@ describe('readHostViewSettings', () => {
 		expect(readHostViewSettings(stored)).toEqual({ autoFastForwardOnCheckout: false });
 	});
 
+	it('carries the chosen terminal app through', () => {
+		expect(readHostViewSettings({ settings: { terminalApp: 'Ghostty' } })).toEqual({
+			terminalApp: 'Ghostty',
+		});
+	});
+
 	it('answers null for a blob with nothing saved in it yet', () => {
 		expect(readHostViewSettings(null)).toBeNull();
 		expect(readHostViewSettings({})).toBeNull();

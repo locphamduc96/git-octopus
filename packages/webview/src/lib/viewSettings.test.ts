@@ -26,6 +26,19 @@ function currentPreferences(): GlobalPreferences {
 	};
 }
 
+describe('terminalApp', () => {
+	it('defaults to Terminal and keeps a valid stored choice', () => {
+		expect(DEFAULT_VIEW_SETTINGS.terminalApp).toBe('Terminal');
+		const merged = mergePreferences(currentPreferences(), { settings: { terminalApp: 'Warp' } });
+		expect(merged.settings.terminalApp).toBe('Warp');
+	});
+
+	it.each([['kitty'], [42], [null], [{}], ['']])('reads %j back as Terminal', (bad) => {
+		const merged = mergePreferences(currentPreferences(), { settings: { terminalApp: bad } });
+		expect(merged.settings.terminalApp).toBe('Terminal');
+	});
+});
+
 describe('mergePreferences', () => {
 	it('lays stored values over the defaults', () => {
 		const merged = mergePreferences(currentPreferences(), {

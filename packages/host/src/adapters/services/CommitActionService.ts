@@ -50,6 +50,8 @@ export interface HostViewSettings {
 	autoFastForwardOnCheckout?: boolean;
 	/** Minutes between scheduled fetches; 0 or absent means never. */
 	autoFetchMinutes?: number;
+	/** Desktop app: the terminal "open in terminal" launches; anything unknown means Terminal. */
+	terminalApp?: string;
 }
 
 /** Reads the saved view settings, or null when the user has never saved any. */

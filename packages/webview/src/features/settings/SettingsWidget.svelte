@@ -26,6 +26,7 @@
 		LIST_DIFF_TARGETS,
 		LIST_GRAPH_STYLES,
 		LIST_PULL_STRATEGIES,
+		LIST_TERMINAL_APPS,
 		MAP_PULL_STRATEGY_LABEL,
 		pickOption,
 		type RepoIdentityState,
@@ -379,6 +380,27 @@
 								{/each}
 							</SelectField>
 						</div>
+						{#if capabilities.desktop}
+							<div class="row">
+								<span class="row-label">
+									Terminal app
+									<span class="note">What "Open in terminal" launches.</span>
+								</span>
+								<SelectField
+									aria-label="Terminal app"
+									value={settings.terminalApp}
+									onchange={(event) =>
+										set(
+											'terminalApp',
+											pickOption(LIST_TERMINAL_APPS, event.currentTarget.value) ?? 'Terminal'
+										)}
+								>
+									{#each LIST_TERMINAL_APPS as app (app)}
+										<option value={app}>{app}</option>
+									{/each}
+								</SelectField>
+							</div>
+						{/if}
 					</section>
 				{:else if tab === 'graph'}
 					<section class="gg-block">
