@@ -60,6 +60,8 @@
 		RowDensity,
 	} from '../../lib/viewSettings';
 
+	type DragRef = { ref: string; label: string; local: boolean };
+
 	let {
 		rows,
 		selectedHash,
@@ -99,6 +101,8 @@
 		onworktree = () => {},
 		oninteractiveRebaseOnto = () => {},
 		mapCommitStats = {},
+		externalDrag = null,
+		onexternalDragEnd = () => {},
 		onneedStats = () => {},
 		onjumpPinned = () => {},
 		onselect,
@@ -180,6 +184,10 @@
 		onworktree?: (op: 'open' | 'add', value: string) => void;
 		/** Sizes for the Changes column, by hash; a commit missing here shows an empty cell. */
 		mapCommitStats?: Record<string, CommitStat>;
+		/** A ref dragged in from outside the graph (the branches panel), dropped like a chip. */
+		externalDrag?: DragRef | null;
+		/** The external drag landed on a chip and its menu is open. */
+		onexternalDragEnd?: () => void;
 		/** The Changes column wants sizes for these rows on screen. */
 		onneedStats?: (listHashes: string[]) => void;
 		/** Rebase a local branch onto another ref through the rebase editor. */
@@ -282,7 +290,8 @@
 	let hoveredBranch = $state<number | null>(null);
 
 	/** The ref being dragged: what git is handed, plus the shorter form the menus print. */
-	let dragSource = $state<{ ref: string; label: string; local: boolean } | null>(null);
+	let dragSource = $state<DragRef | null>(null);
+	const activeDrag = $derived(dragSource ?? externalDrag);
 	/** The row under the pointer — only tracked while the ghost label needs it. */
 	let hoveredRow = $state<string | null>(null);
 
@@ -553,7 +562,7 @@
 
 	/** Whether the dragged chip may land here, read against the drag in flight right now. */
 	function canDrop(chip: RefChip): boolean {
-		return isDropTarget(chip, dragSource?.label ?? null);
+		return isDropTarget(chip, activeDrag?.label ?? null);
 	}
 
 	function onChipDragStart(event: DragEvent, chip: RefChip): void {
@@ -577,24 +586,26 @@
 	}
 
 	function onChipDrop(event: DragEvent, chip: RefChip): void {
-		if (!canDrop(chip) || !dragSource) return;
+		const drag = activeDrag;
+		if (!canDrop(chip) || !drag) return;
 		event.preventDefault();
 		event.stopPropagation();
 		dropMenu = {
 			x: event.clientX,
 			y: event.clientY,
-			source: dragSource.ref,
-			sourceLabel: dragSource.label,
-			sourceLocal: dragSource.local,
+			source: drag.ref,
+			sourceLabel: drag.label,
+			sourceLocal: drag.local,
 			target: chip.name,
 			targetLocal: chip.hasLocal,
 			listTargetRemotes: chip.listRemotes,
 		};
 		ffNonce += 1;
 		// The answer decides whether the menu offers a fast-forward; it lands while the menu is open.
-		if (chip.hasLocal) oncheckFastForward(dragSource.ref, chip.name, ffNonce);
+		if (chip.hasLocal) oncheckFastForward(drag.ref, chip.name, ffNonce);
 		dragSource = null;
 		dropTarget = null;
+		onexternalDragEnd();
 	}
 
 	function endDrag(): void {

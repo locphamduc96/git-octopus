@@ -74,6 +74,10 @@ export interface PersistedState {
 	version: number;
 	widths: { ref: number; author: number; commit: number; date: number };
 	panelRatio: number;
+	/** Width of the branches panel in this window, in pixels. */
+	refPanelWidth?: number;
+	/** Keys of the branches-panel sections and folders folded in this window. */
+	listRefPanelCollapsed?: string[];
 	/** The AI commit plan being edited, so a destroyed webview hands it back — see `stores/aiCommit`. */
 	aiCommit?: PersistedAiCommit;
 	/** Repository path → the branch pinned to the graph's left edge there. */

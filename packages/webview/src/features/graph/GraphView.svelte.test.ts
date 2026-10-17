@@ -55,6 +55,9 @@ function mount(
 		mapCommitStats?: Record<string, CommitStat>;
 		onneedStats?: (listHashes: string[]) => void;
 		signature?: SignatureStatus;
+		externalDrag?: { ref: string; label: string; local: boolean } | null;
+		onexternalDragEnd?: () => void;
+		oncheckFastForward?: (source: string, target: string, nonce: number) => void;
 	} = {}
 ) {
 	const only = row(over.refs ?? [{ kind: 'branch', name: 'main' }]);
@@ -96,7 +99,9 @@ function mount(
 		onloadMore: vi.fn(),
 		onbranchAction: vi.fn(),
 		onfilterBranch: vi.fn(),
-		oncheckFastForward: vi.fn(),
+		oncheckFastForward: over.oncheckFastForward ?? vi.fn(),
+		externalDrag: over.externalDrag,
+		onexternalDragEnd: over.onexternalDragEnd,
 		ontoggleColumn: vi.fn(),
 		onresizeColumn: vi.fn(),
 		mapCommitStats: over.mapCommitStats,
@@ -268,6 +273,33 @@ describe('GraphView column order', () => {
 		await fireEvent.dragStart(listLabels[0]);
 		await fireEvent.drop(listLabels[2].closest('.hcell') as HTMLElement);
 		expect(onreorderColumn).toHaveBeenCalledWith('author', 'date');
+	});
+});
+
+describe('GraphView drop of a ref dragged in from outside', () => {
+	it('takes the drop on a branch chip and reports the drag as consumed', async () => {
+		const oncheckFastForward = vi.fn();
+		const onexternalDragEnd = vi.fn();
+		mount(
+			{},
+			{
+				oncheckFastForward,
+				onexternalDragEnd,
+				externalDrag: { ref: 'refs/remotes/origin/dev', label: 'origin/dev', local: false },
+			}
+		);
+		const chip = screen.getByText('main').closest('.ref') as HTMLElement;
+		await fireEvent.dragOver(chip);
+		await fireEvent.drop(chip);
+		expect(oncheckFastForward).toHaveBeenCalledWith('refs/remotes/origin/dev', 'main', 1);
+		expect(onexternalDragEnd).toHaveBeenCalledOnce();
+	});
+
+	it('ignores a drop while nothing is being dragged', async () => {
+		const oncheckFastForward = vi.fn();
+		mount({}, { oncheckFastForward });
+		await fireEvent.drop(screen.getByText('main').closest('.ref') as HTMLElement);
+		expect(oncheckFastForward).not.toHaveBeenCalled();
 	});
 });
 

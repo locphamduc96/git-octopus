@@ -307,7 +307,12 @@
 
 	// Only what belongs to this window: the rest lives in the host's global state.
 	$effect(() => {
-		updateState({ widths: prefs.widths, panelRatio });
+		updateState({
+			widths: prefs.widths,
+			panelRatio,
+			refPanelWidth,
+			listRefPanelCollapsed,
+		});
 	});
 
 	const stacked = $derived(shellWidth < STACK_BREAKPOINT);
@@ -1286,11 +1291,23 @@
 	const refPanelOn = $derived(branchesPanelShown(prefs.settings, capabilities.desktop) && !stacked);
 	const refPanelData = $derived(refPanel.repoPath === session.repoPath ? refPanel.data : null);
 	const listSubmodules = $derived(repos.filter((repo) => repo.parent === session.repoPath));
-	/** Dragged width, held here until the drag settles so a drag is not a stream of saves. */
-	let refPanelDrag = $state<number | null>(null);
-	let refPanelDragTimer: ReturnType<typeof setTimeout> | undefined;
-	const refPanelWidth = $derived(refPanelDrag ?? prefs.refPanelWidth);
-	let refMenu = $state<{ x: number; y: number; chip: RefChip; commit: Commit } | null>(null);
+	let refPanelWidth = $state(clampRefPanelWidth(saved.refPanelWidth));
+	let listRefPanelCollapsed = $state<string[]>(
+		Array.isArray(saved.listRefPanelCollapsed)
+			? saved.listRefPanelCollapsed.filter((key) => typeof key === 'string')
+			: []
+	);
+	let refMenu = $state<{
+		x: number;
+		y: number;
+		chip: RefChip;
+		commit: Commit;
+		repoPath: string;
+	} | null>(null);
+
+	$effect(() => {
+		if (refMenu && refMenu.repoPath !== session.repoPath) refMenu = null;
+	});
 
 	// The host answers once a repository is active, and again after every graph reload.
 	$effect(() => {
@@ -1299,12 +1316,7 @@
 
 	function resizeRefPanel(clientX: number): void {
 		if (!shell) return;
-		refPanelDrag = clampRefPanelWidth(clientX - shell.getBoundingClientRect().left);
-		clearTimeout(refPanelDragTimer);
-		refPanelDragTimer = setTimeout(() => {
-			if (refPanelDrag !== null) prefs.setRefPanelWidth(refPanelDrag);
-			refPanelDrag = null;
-		}, 200);
+		refPanelWidth = clampRefPanelWidth(clientX - shell.getBoundingClientRect().left);
 	}
 
 	function loadedCommit(item: RefPanelItem): Commit | undefined {
@@ -1321,8 +1333,7 @@
 		} else if (item.kind === 'remote' && refPanelData) {
 			const chip = chipForItem(item, refPanelData, {});
 			if (!chip) return;
-			const hasLocal = refPanelData.listLocal.some((ref) => ref.name === chip.name);
-			checkoutBranch(hasLocal ? chip.name : null, chipRemote(chip));
+			checkoutBranch(null, chipRemote(chip));
 		} else if (item.kind === 'worktree') {
 			if (!item.current) worktrees.open(item.name);
 		} else if (item.kind === 'submodule') {
@@ -1340,6 +1351,7 @@
 			y: event.clientY,
 			chip,
 			commit: commitForItem(item, loadedCommit(item)),
+			repoPath: session.repoPath,
 		};
 	}
 
@@ -1396,7 +1408,7 @@
 		refMenu = null;
 		const selected = resolveMenuSelection(build.items, id);
 		const entry = build.mapEntries[id];
-		if (!open || !selected || !entry) return;
+		if (!open || open.repoPath !== session.repoPath || !selected || !entry) return;
 		runRefMenuEntry(entry, open.commit);
 	}
 
@@ -1405,6 +1417,8 @@
 	 * drag of the row beside it, which would end the resize after one step.
 	 */
 	let edgeGrab = false;
+	/** The ref dragged out of the panel; the graph reads it to take the drop on a chip. */
+	let panelDrag = $state<{ ref: string; label: string; local: boolean } | null>(null);
 
 	function dragRefItem(item: RefPanelItem, event: DragEvent): void {
 		const chip = refPanelData ? chipForItem(item, refPanelData, mapTracking) : null;
@@ -1413,10 +1427,16 @@
 			event.preventDefault();
 			return;
 		}
+		panelDrag = { ...source, local: chip.hasLocal };
+		window.addEventListener('dragend', endPanelDrag, { once: true });
 		if (event.dataTransfer) {
 			event.dataTransfer.effectAllowed = 'copy';
 			event.dataTransfer.setData('text/plain', source.label);
 		}
+	}
+
+	function endPanelDrag(): void {
+		panelDrag = null;
 	}
 
 	function resizePanel(clientPos: number): void {
@@ -1578,8 +1598,8 @@
 						listWorktrees={worktrees.list ?? []}
 						{listSubmodules}
 						hidden={hiddenRefs}
-						listCollapsed={prefs.listRefPanelCollapsed}
-						oncollapsechange={prefs.setRefPanelCollapsed}
+						listCollapsed={listRefPanelCollapsed}
+						oncollapsechange={(next) => (listRefPanelCollapsed = next)}
 						onselect={selectRefItem}
 						onactivate={activateRefItem}
 						oncontextmenu={openRefItemMenu}
@@ -1735,6 +1755,8 @@
 									op === 'open' ? worktrees.open(value) : worktrees.add(value)}
 								oninteractiveRebaseOnto={rebaseEditor.openOnto}
 								mapCommitStats={commitStats.map}
+								externalDrag={panelDrag}
+								onexternalDragEnd={endPanelDrag}
 								onneedStats={commitStats.request}
 								onjumpPinned={jumpToPinned}
 								{findCurrent}

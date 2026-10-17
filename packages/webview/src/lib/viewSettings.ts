@@ -293,10 +293,6 @@ export interface GlobalPreferences {
 	metaOpen: boolean;
 	/** Working-tree groups the user folded; the rest are open. */
 	listCollapsedSections: WorkingSection[];
-	/** Width of the branches panel, in pixels. */
-	refPanelWidth: number;
-	/** Keys of the branches-panel sections and folders the user folded. */
-	listRefPanelCollapsed: string[];
 }
 
 /**
@@ -324,13 +320,6 @@ export function mergePreferences(
 		listCollapsedSections: Array.isArray(next.listCollapsedSections)
 			? next.listCollapsedSections.filter(isWorkingSection)
 			: current.listCollapsedSections,
-		refPanelWidth:
-			next.refPanelWidth === undefined
-				? current.refPanelWidth
-				: clampRefPanelWidth(next.refPanelWidth),
-		listRefPanelCollapsed: Array.isArray(next.listRefPanelCollapsed)
-			? next.listRefPanelCollapsed.filter((key): key is string => typeof key === 'string')
-			: current.listRefPanelCollapsed,
 	};
 }
 

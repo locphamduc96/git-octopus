@@ -88,9 +88,19 @@ describe('chipForItem', () => {
 			listRemotes: ['origin'],
 			tracking,
 		});
-		expect(chipForItem(item({ name: 'feature/x' }), WIDE, {})?.listRemotes).toEqual([
-			'team/origin',
-		]);
+		expect(
+			chipForItem(item({ name: 'feature/x', hash: 'b'.repeat(40) }), WIDE, {})?.listRemotes
+		).toEqual(['team/origin']);
+	});
+
+	it('leaves out a same-name remote that sits on another commit than the local branch', async () => {
+		vi.stubGlobal('acquireVsCodeApi', () => ({ postMessage() {}, getState() {}, setState() {} }));
+		const { chipForItem } = await import('./refPanel.svelte');
+		const diverged: RefPanelData = {
+			...WIDE,
+			listRemote: [{ name: 'origin/main', hash: 'e'.repeat(40), remote: 'origin' }],
+		};
+		expect(chipForItem(item({ name: 'main' }), diverged, {})?.listRemotes).toEqual([]);
 	});
 
 	it('gives a remote row that remote ref alone, cutting a remote name that holds a slash', async () => {

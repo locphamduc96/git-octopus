@@ -3,8 +3,6 @@ import { onHostType } from '../hostRouter';
 import type { FileViewMode } from '../fileTree';
 import {
 	DEFAULT_VIEW_SETTINGS,
-	REF_PANEL_DEFAULT_WIDTH,
-	clampRefPanelWidth,
 	mergePreferences,
 	type ColumnKey,
 	type ColumnVisibility,
@@ -46,8 +44,6 @@ let widths = $state<ColumnWidths>({
 let fileView = $state<FileViewMode>('tree');
 let metaOpen = $state(false);
 let listCollapsedSections = $state<WorkingSection[]>([]);
-let refPanelWidth = $state(REF_PANEL_DEFAULT_WIDTH);
-let listRefPanelCollapsed = $state<string[]>([]);
 
 /**
  * Nothing is saved before the host has said what it holds.
@@ -69,15 +65,7 @@ let syncedPreferences = '';
 const listLoadedHooks: (() => void)[] = [];
 
 function preferencesJson(): string {
-	return JSON.stringify({
-		settings,
-		columns,
-		fileView,
-		metaOpen,
-		listCollapsedSections,
-		refPanelWidth,
-		listRefPanelCollapsed,
-	});
+	return JSON.stringify({ settings, columns, fileView, metaOpen, listCollapsedSections });
 }
 
 function savePreferences(): void {
@@ -93,8 +81,6 @@ function savePreferences(): void {
 			fileView,
 			metaOpen,
 			listCollapsedSections,
-			refPanelWidth,
-			listRefPanelCollapsed,
 		} satisfies GlobalPreferences,
 	});
 }
@@ -107,15 +93,7 @@ function applyPreferences(incoming: Record<string, unknown> | null): void {
 		return;
 	}
 	const merged = mergePreferences(
-		{
-			settings,
-			columns,
-			fileView,
-			metaOpen,
-			listCollapsedSections,
-			refPanelWidth,
-			listRefPanelCollapsed,
-		},
+		{ settings, columns, fileView, metaOpen, listCollapsedSections },
 		incoming
 	);
 	settings = merged.settings;
@@ -123,8 +101,6 @@ function applyPreferences(incoming: Record<string, unknown> | null): void {
 	fileView = merged.fileView;
 	metaOpen = merged.metaOpen;
 	listCollapsedSections = merged.listCollapsedSections;
-	refPanelWidth = merged.refPanelWidth;
-	listRefPanelCollapsed = merged.listRefPanelCollapsed;
 	syncedPreferences = preferencesJson();
 	for (const hook of listLoadedHooks) hook();
 }
@@ -149,18 +125,6 @@ export const prefs = {
 	},
 	get listCollapsedSections(): WorkingSection[] {
 		return listCollapsedSections;
-	},
-	get refPanelWidth(): number {
-		return refPanelWidth;
-	},
-	get listRefPanelCollapsed(): string[] {
-		return listRefPanelCollapsed;
-	},
-	setRefPanelWidth(next: number): void {
-		refPanelWidth = clampRefPanelWidth(next);
-	},
-	setRefPanelCollapsed(next: string[]): void {
-		listRefPanelCollapsed = next;
 	},
 	setSettings(next: ViewSettings): void {
 		settings = next;

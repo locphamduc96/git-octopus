@@ -38,7 +38,7 @@ export function chipForItem(
 			checkedOut: item.current,
 			hasLocal: true,
 			listRemotes: data.listRemote
-				.filter((ref) => ref.name === `${ref.remote}/${item.name}`)
+				.filter((ref) => ref.name === `${ref.remote}/${item.name}` && ref.hash === item.hash)
 				.map((ref) => ref.remote),
 			title: item.name,
 			tracking: mapTracking[item.name] ?? null,

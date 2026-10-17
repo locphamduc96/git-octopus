@@ -12,6 +12,7 @@ import {
 	REF_PANEL_MAX_WIDTH,
 	REF_PANEL_MIN_WIDTH,
 	branchesPanelShown,
+	clampRefPanelWidth,
 	mergePreferences,
 	pickOption,
 	pullActionFor,
@@ -27,8 +28,6 @@ function currentPreferences(): GlobalPreferences {
 		fileView: 'tree',
 		metaOpen: false,
 		listCollapsedSections: [],
-		refPanelWidth: REF_PANEL_DEFAULT_WIDTH,
-		listRefPanelCollapsed: [],
 	};
 }
 
@@ -69,25 +68,13 @@ describe('showBranchesPanel', () => {
 	});
 });
 
-describe('ref panel layout preferences', () => {
-	it('clamps a stored width into the allowed range and ignores garbage', () => {
-		const wide = mergePreferences(currentPreferences(), { refPanelWidth: 9000 });
-		expect(wide.refPanelWidth).toBe(REF_PANEL_MAX_WIDTH);
-		const narrow = mergePreferences(currentPreferences(), { refPanelWidth: 3 });
-		expect(narrow.refPanelWidth).toBe(REF_PANEL_MIN_WIDTH);
-		const bad = mergePreferences(currentPreferences(), { refPanelWidth: 'wide' });
-		expect(bad.refPanelWidth).toBe(REF_PANEL_DEFAULT_WIDTH);
-		const kept = mergePreferences(currentPreferences(), {});
-		expect(kept.refPanelWidth).toBe(REF_PANEL_DEFAULT_WIDTH);
-	});
-
-	it('keeps the folded keys that are strings', () => {
-		const merged = mergePreferences(currentPreferences(), {
-			listRefPanelCollapsed: ['tags', 3, 'local:folder:feature'],
-		});
-		expect(merged.listRefPanelCollapsed).toEqual(['tags', 'local:folder:feature']);
-		const kept = mergePreferences(currentPreferences(), { listRefPanelCollapsed: 'tags' });
-		expect(kept.listRefPanelCollapsed).toEqual([]);
+describe('clampRefPanelWidth', () => {
+	it('clamps a width into the allowed range and ignores garbage', () => {
+		expect(clampRefPanelWidth(9000)).toBe(REF_PANEL_MAX_WIDTH);
+		expect(clampRefPanelWidth(3)).toBe(REF_PANEL_MIN_WIDTH);
+		expect(clampRefPanelWidth('wide')).toBe(REF_PANEL_DEFAULT_WIDTH);
+		expect(clampRefPanelWidth(undefined)).toBe(REF_PANEL_DEFAULT_WIDTH);
+		expect(clampRefPanelWidth(300.4)).toBe(300);
 	});
 });
 
