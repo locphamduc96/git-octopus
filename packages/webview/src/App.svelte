@@ -42,6 +42,7 @@
 		type RoutedByStore,
 	} from './lib/hostRouter';
 	import { buildRefPayload, commitRefPayload, commitStashName } from './lib/refPayload';
+	import { dragForRepo, type PanelDrag } from './lib/panelDrag';
 	import type { MultiAction, RefTarget } from './lib/graphMenu';
 	import { nextRowIndex, stepAcrossLanes, stepAlongLane } from './lib/keyNav';
 	import { buildPanelFiles, stepPath, type PanelMode } from './lib/panelFiles';
@@ -1418,7 +1419,12 @@
 	 */
 	let edgeGrab = false;
 	/** The ref dragged out of the panel; the graph reads it to take the drop on a chip. */
-	let panelDrag = $state<{ ref: string; label: string; local: boolean } | null>(null);
+	let panelDrag = $state<PanelDrag | null>(null);
+	const activePanelDrag = $derived(dragForRepo(panelDrag, session.repoPath));
+
+	$effect(() => {
+		if (panelDrag && panelDrag.repoPath !== session.repoPath) panelDrag = null;
+	});
 
 	function dragRefItem(item: RefPanelItem, event: DragEvent): void {
 		const chip = refPanelData ? chipForItem(item, refPanelData, mapTracking) : null;
@@ -1427,7 +1433,7 @@
 			event.preventDefault();
 			return;
 		}
-		panelDrag = { ...source, local: chip.hasLocal };
+		panelDrag = { ...source, local: chip.hasLocal, repoPath: session.repoPath };
 		window.addEventListener('dragend', endPanelDrag, { once: true });
 		if (event.dataTransfer) {
 			event.dataTransfer.effectAllowed = 'copy';
@@ -1755,7 +1761,7 @@
 									op === 'open' ? worktrees.open(value) : worktrees.add(value)}
 								oninteractiveRebaseOnto={rebaseEditor.openOnto}
 								mapCommitStats={commitStats.map}
-								externalDrag={panelDrag}
+								externalDrag={activePanelDrag}
 								onexternalDragEnd={endPanelDrag}
 								onneedStats={commitStats.request}
 								onjumpPinned={jumpToPinned}
