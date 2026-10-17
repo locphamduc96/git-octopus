@@ -16,7 +16,11 @@ const PREFIX_TAGS = 'refs/tags/';
  * `:short` ones, so a branch and a tag sharing a name stay apart and `<remote>/HEAD` is spotted by
  * its path, whatever git version prints it.
  */
-export function parseRefs(output: string): Omit<RefPanelData, 'listStashes'> {
+export function parseRefs(
+	output: string,
+	listRemoteNames: string[] = []
+): Omit<RefPanelData, 'listStashes'> {
+	const listLongestFirst = [...listRemoteNames].sort((a, b) => b.length - a.length);
 	const listLocal: RefPanelRef[] = [];
 	const listRemote: RefPanelRemoteRef[] = [];
 	const listTags: RefPanelRef[] = [];
@@ -30,7 +34,8 @@ export function parseRefs(output: string): Omit<RefPanelData, 'listStashes'> {
 			if (head === '*') current = name;
 		} else if (refname.startsWith(PREFIX_REMOTES)) {
 			const name = refname.slice(PREFIX_REMOTES.length);
-			const slash = name.indexOf('/');
+			const known = listLongestFirst.find((candidate) => name.startsWith(`${candidate}/`));
+			const slash = known === undefined ? name.indexOf('/') : known.length;
 			if (slash <= 0 || name.slice(slash + 1) === 'HEAD') continue;
 			listRemote.push({ name, hash: objectName, remote: name.slice(0, slash) });
 		} else if (refname.startsWith(PREFIX_TAGS)) {
@@ -38,6 +43,11 @@ export function parseRefs(output: string): Omit<RefPanelData, 'listStashes'> {
 		}
 	}
 	return { listLocal, listRemote, listTags, current };
+}
+
+/** Parse `git remote`: one name per line. */
+export function parseRemoteNames(output: string): string[] {
+	return output.split('\n').filter((line) => line !== '');
 }
 
 /** Parse `git stash list --format=%gd%x00%H%x00%s`. */
@@ -54,7 +64,7 @@ export function parseStashes(output: string): RefPanelStash[] {
 
 /** Every ref the side panel lists, from one `for-each-ref` and one `stash list`. */
 export async function getRefPanelData(executor: GitExecutor, cwd: string): Promise<RefPanelData> {
-	const [refsOutput, stashOutput] = await Promise.all([
+	const [refsOutput, stashOutput, remoteOutput] = await Promise.all([
 		executor
 			.run(
 				[
@@ -68,6 +78,10 @@ export async function getRefPanelData(executor: GitExecutor, cwd: string): Promi
 			)
 			.catch(() => ''),
 		executor.run(['stash', 'list', '--format=%gd%x00%H%x00%s'], cwd).catch(() => ''),
+		executor.run(['remote'], cwd).catch(() => ''),
 	]);
-	return { ...parseRefs(refsOutput), listStashes: parseStashes(stashOutput) };
+	return {
+		...parseRefs(refsOutput, parseRemoteNames(remoteOutput)),
+		listStashes: parseStashes(stashOutput),
+	};
 }

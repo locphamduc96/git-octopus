@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommitActionMessage } from '@git-octopus/shared';
 import type { GitExecutor } from '../../core/git/GitExecutor.js';
 import { STATE_VIEW_SETTINGS } from './GitOctopusController.js';
@@ -503,6 +503,51 @@ describe('the side panel’s refs', () => {
 		expect(asking.webview.postedOfType('refPanel')).toHaveLength(2);
 		expect(silent.webview.postedOfType('refPanel')).toEqual([]);
 		expect(refReads).toBe(2);
+	});
+
+	it('sends the refs again when the view itself reloads the graph with loadCommits', async () => {
+		const controller = makeController({ listRoots: [repoDir], executor });
+		const view = await attachView(controller);
+		await view.webview.receive({ type: 'loadCommits', limit: 300 });
+		await view.webview.receive({ type: 'loadRefPanel' });
+		expect(view.webview.postedOfType('refPanel')).toHaveLength(1);
+
+		await view.webview.receive({ type: 'loadCommits', limit: 300 });
+
+		expect(view.webview.postedOfType('refPanel')).toHaveLength(2);
+		expect(refReads).toBe(2);
+	});
+
+	it('lets only the newest read post when two finish out of order', async () => {
+		const listRelease: (() => void)[] = [];
+		const stale = `refs/heads/old\0${HASH_A}\0\0*`;
+		const fresh = `refs/heads/fresh\0${HASH_A}\0\0*`;
+		let reads = 0;
+		const slowFirst: GitExecutor = {
+			run: (args) => {
+				if (args[0] === 'for-each-ref' && args.includes('refs/remotes/')) {
+					reads += 1;
+					if (reads === 1) {
+						return new Promise((resolve) => listRelease.push(() => resolve(stale)));
+					}
+					return Promise.resolve(fresh);
+				}
+				return Promise.resolve('');
+			},
+		};
+		const controller = makeController({ listRoots: [repoDir], executor: slowFirst });
+		const view = await attachView(controller);
+		await view.webview.receive({ type: 'loadCommits', limit: 300 });
+		const first = view.webview.receive({ type: 'loadRefPanel' });
+		await vi.waitFor(() => expect(listRelease).toHaveLength(1));
+
+		await view.webview.receive({ type: 'loadCommits', limit: 300 });
+		listRelease[0]?.();
+		await first;
+
+		const listPosted = view.webview.postedOfType('refPanel');
+		expect(listPosted).toHaveLength(1);
+		expect(listPosted[0]?.data.current).toBe('fresh');
 	});
 
 	it('stops sending once the view that asked is gone', async () => {

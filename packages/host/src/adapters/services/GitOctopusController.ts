@@ -79,6 +79,8 @@ export class GitOctopusController {
 	private readonly mapWebviewLimit = new Map<ViewChannel, number>();
 	/** Views that asked for the side panel's refs — only these pay for the extra git call on a reload. */
 	private readonly setRefPanelViews = new Set<ViewChannel>();
+	/** Orders overlapping ref-panel reads: only the one holding the latest ticket may post. */
+	private refPanelSeq = 0;
 	/** Working-tree state as last reported, so a row appearing or vanishing can be detected. */
 	private lastChangeCount = 0;
 	/**
@@ -300,21 +302,22 @@ export class GitOctopusController {
 		// history the user has already pulled in.
 		await this.send({ type: 'loadCommits', limit: this.broadcastLimit, filters: this.filters });
 		this.sendUndoState();
-		await this.sendRefPanel();
 	}
 
 	/**
-	 * Read the side panel's refs once and post them to the views that asked, or to `only` when a
-	 * single view just asked. Never fails: a panel that cannot refresh must not break the reload.
+	 * Read the side panel's refs once and post them to every view that asked. Runs whenever the
+	 * graph is reloaded (see `send`) and when a view first asks. Never fails: a panel that cannot
+	 * refresh must not break the reload. Reads overlap, so each takes a ticket and only the newest
+	 * posts — an older snapshot finishing late must not replace a newer one.
 	 */
-	private async sendRefPanel(only?: ViewChannel): Promise<void> {
-		const listTargets = only ? [only] : [...this.setRefPanelViews];
+	private async sendRefPanel(): Promise<void> {
 		const cwd = this.activeRepo;
-		if (listTargets.length === 0 || !cwd) return;
+		if (this.setRefPanelViews.size === 0 || !cwd) return;
+		const ticket = ++this.refPanelSeq;
 		try {
 			const data = await getRefPanelData(this.executor, cwd);
-			if (!this.stillCurrent(cwd)) return;
-			for (const target of listTargets) {
+			if (ticket !== this.refPanelSeq || !this.stillCurrent(cwd)) return;
+			for (const target of this.setRefPanelViews) {
 				this.reply(target, { type: 'refPanel', repoPath: cwd, data });
 			}
 		} catch (error) {
@@ -795,7 +798,7 @@ export class GitOctopusController {
 			}
 			case 'loadRefPanel':
 				this.setRefPanelViews.add(webview);
-				await this.sendRefPanel(webview);
+				await this.sendRefPanel();
 				return;
 			case 'worktreeAction': {
 				if (!cwd || this.repoMismatch(message)) return;
@@ -1041,6 +1044,9 @@ export class GitOctopusController {
 			this.onRepoState?.({ repoName: reply.repoName, branch: reply.currentBranch });
 		}
 		this.broadcast(reply);
+		// Every path that reloads the graph — refresh(), the toolbar and the desktop keyboard's
+		// own `loadCommits` — ends here, so the side panel follows the graph from one place.
+		if (reply.type === 'commits') await this.sendRefPanel();
 	}
 
 	/** Re-scan the workspace, keeping the active repository when it still exists. */

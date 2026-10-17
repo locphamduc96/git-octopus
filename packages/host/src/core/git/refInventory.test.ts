@@ -46,6 +46,18 @@ describe('parseRefs', () => {
 		]);
 	});
 
+	it('splits at the real remote name, the longest one when two share a prefix', () => {
+		const output = [
+			record('refs/remotes/team/origin/main', A),
+			record('refs/remotes/team/origin/HEAD', A),
+			record('refs/remotes/team/other', B),
+		].join('\n');
+		expect(parseRefs(output, ['team', 'team/origin']).listRemote).toEqual([
+			{ name: 'team/origin/main', hash: A, remote: 'team/origin' },
+			{ name: 'team/other', hash: B, remote: 'team' },
+		]);
+	});
+
 	it('resolves an annotated tag to the commit it peels to, a lightweight one to itself', () => {
 		const output = [record('refs/tags/v1.0', B, A), record('refs/tags/release/light', C)].join(
 			'\n'
@@ -83,18 +95,19 @@ describe('parseStashes', () => {
 });
 
 describe('getRefPanelData', () => {
-	it('asks git once for refs and once for stashes', async () => {
+	it('asks git once for refs, once for stashes and once for the remote names', async () => {
 		const listCalls: string[][] = [];
 		const executor: GitExecutor = {
 			run: (args) => {
 				listCalls.push(args);
+				if (args[0] === 'remote') return Promise.resolve('');
 				return Promise.resolve(
 					args[0] === 'stash' ? `stash@{0}\0${A}\0WIP` : record('refs/heads/main', A, '', '*')
 				);
 			},
 		};
 		const data = await getRefPanelData(executor, '/repo');
-		expect(listCalls.map((args) => args[0])).toEqual(['for-each-ref', 'stash']);
+		expect(listCalls.map((args) => args[0])).toEqual(['for-each-ref', 'stash', 'remote']);
 		expect(data.current).toBe('main');
 		expect(data.listStashes).toEqual([{ selector: 'stash@{0}', hash: A, message: 'WIP' }]);
 	});
@@ -152,6 +165,20 @@ describe('getRefPanelData against real git', () => {
 		expect(data.listStashes[0]).toMatchObject({
 			selector: 'stash@{0}',
 			message: 'On main: parked',
+		});
+	});
+
+	it('attributes a branch to a remote whose own name holds a slash', async () => {
+		const head = await repo.git('rev-parse', 'HEAD');
+		const hash = head.trim();
+		await repo.git('remote', 'add', 'team/origin', 'https://example.invalid/team.git');
+		await repo.git('update-ref', 'refs/remotes/team/origin/main', hash);
+
+		const data = await getRefPanelData(executor, repo.cwd);
+		expect(data.listRemote).toContainEqual({
+			name: 'team/origin/main',
+			hash,
+			remote: 'team/origin',
 		});
 	});
 });
