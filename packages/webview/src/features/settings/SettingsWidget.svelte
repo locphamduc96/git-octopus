@@ -2,6 +2,7 @@
 	import RemotesSection from './RemotesSection.svelte';
 	import SigningSection from './SigningSection.svelte';
 	import { signing } from '../../lib/stores/signing.svelte';
+	import { capabilities } from '../../lib/stores/capabilities.svelte';
 	import WorktreesSection from './WorktreesSection.svelte';
 	import { worktrees } from '../../lib/stores/worktrees.svelte';
 	import { remotes } from '../../lib/stores/remotes.svelte';
@@ -254,25 +255,27 @@
 								onchange={(event) => set('fetchAvatars', event.currentTarget.checked)}
 							/>
 						</div>
-						<div class="row">
-							<span class="row-label">
-								Open diffs in
-								<span class="note">
-									The panel keeps the review inside this view, without opening tabs. Changes-only or
-									whole-file is chosen in the panel's own header.
+						{#if capabilities.editorDiff}
+							<div class="row">
+								<span class="row-label">
+									Open diffs in
+									<span class="note">
+										The panel keeps the review inside this view, without opening tabs. Changes-only
+										or whole-file is chosen in the panel's own header.
+									</span>
 								</span>
-							</span>
-							<select
-								value={settings.diffTarget}
-								onchange={(event) => {
-									const picked = pickOption(LIST_DIFF_TARGETS, event.currentTarget.value);
-									if (picked) set('diffTarget', picked);
-								}}
-							>
-								<option value="editor">VS Code editor</option>
-								<option value="panel">Git Octopus panel</option>
-							</select>
-						</div>
+								<select
+									value={settings.diffTarget}
+									onchange={(event) => {
+										const picked = pickOption(LIST_DIFF_TARGETS, event.currentTarget.value);
+										if (picked) set('diffTarget', picked);
+									}}
+								>
+									<option value="editor">VS Code editor</option>
+									<option value="panel">Git Octopus panel</option>
+								</select>
+							</div>
+						{/if}
 						<div class="row">
 							<span class="row-label">
 								Highlight changed words

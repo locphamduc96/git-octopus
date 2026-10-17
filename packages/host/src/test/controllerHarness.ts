@@ -5,7 +5,7 @@ import type { CommitActionService } from '../adapters/services/CommitActionServi
 import type { CommitAgentService } from '../adapters/services/CommitAgentService.js';
 import type { RepoActionService } from '../adapters/services/RepoActionService.js';
 import type { WorkingTreeService } from '../adapters/services/WorkingTreeService.js';
-import type { EditorDiff } from '../app/ports/shell.js';
+import type { ControllerShell, EditorDiff } from '../app/ports/shell.js';
 import { controllerShell, IDLE_DIFF, memento, type FakeMemento } from './fakeShell.js';
 
 export { memento, type FakeMemento };
@@ -155,6 +155,8 @@ export interface ControllerFakes {
 	globalState?: FakeMemento;
 	/** The folders searched for repositories — the workspace folders, in VS Code. */
 	listRoots?: string[];
+	/** Anything else the shell should answer differently. */
+	shell?: Partial<ControllerShell>;
 }
 
 export function makeController(fakes: ControllerFakes = {}): GitOctopusController {
@@ -164,6 +166,7 @@ export function makeController(fakes: ControllerFakes = {}): GitOctopusControlle
 			workspaceState: fakes.workspaceState ?? memento(),
 			globalState: fakes.globalState ?? memento(),
 			listRoots: () => fakes.listRoots ?? [],
+			...fakes.shell,
 		}),
 		fakes.executor ?? SILENT_GIT,
 		{ ...IDLE_ACTIONS, ...fakes.actions } as unknown as CommitActionService,

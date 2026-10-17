@@ -134,9 +134,11 @@ export async function confirm(s: Session): Promise<void> {
 	await dialog(s).locator('button.confirm').click();
 }
 
-/** A VS Code notification whose text contains `text`. */
+/** A notification whose text contains `text`: VS Code's own, or the one the desktop app draws. */
 export function toast(s: Session, text: string | RegExp): Locator {
-	return s.page.locator('.notification-toast', { hasText: text });
+	return s.desktop
+		? s.graph.locator('.stack .toast', { hasText: text })
+		: s.page.locator('.notification-toast', { hasText: text });
 }
 
 /** The checked-out branch, straight from git. */

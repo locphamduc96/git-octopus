@@ -69,7 +69,10 @@ export function buildExecuteGroups(
 		if (plan.single.subject.trim() === '') return { error: 'The commit needs a subject.' };
 		return {
 			listGroups: [
-				{ listFiles: listPlanFiles(plan), message: joinMessage(plan.single.subject, plan.single.body) },
+				{
+					listFiles: listPlanFiles(plan),
+					message: joinMessage(plan.single.subject, plan.single.body),
+				},
 			],
 		};
 	}

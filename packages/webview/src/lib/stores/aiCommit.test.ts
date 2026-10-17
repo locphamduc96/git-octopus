@@ -11,7 +11,11 @@ const readyInventory = {
 	language: '',
 } as const satisfies HostToWebview;
 
-const idleState = { type: 'commitPlanState', repoPath: '', status: 'idle' } as const satisfies HostToWebview;
+const idleState = {
+	type: 'commitPlanState',
+	repoPath: '',
+	status: 'idle',
+} as const satisfies HostToWebview;
 
 const draft = {
 	listGroups: [
@@ -49,7 +53,10 @@ describe('aiCommit', () => {
 	it('asks for agents and for the host plan state on every opening', async () => {
 		const { aiCommit, listSent } = await loadAiCommit();
 		aiCommit.openDialog();
-		expect(listSent.map((message) => message.type)).toEqual(['detectAgents', 'loadCommitPlanState']);
+		expect(listSent.map((message) => message.type)).toEqual([
+			'detectAgents',
+			'loadCommitPlanState',
+		]);
 	});
 
 	it('generates only after the host has said idle AND an agent is ready and consented', async () => {
@@ -84,12 +91,17 @@ describe('aiCommit', () => {
 		expect(storedState()?.aiCommit).toMatchObject({ repoPath: '', generationId: 7 });
 	});
 
-	it('ignores a cancelled result — cancellations are always this side\'s own doing', async () => {
+	it("ignores a cancelled result — cancellations are always this side's own doing", async () => {
 		const { aiCommit, dispatchHostMessage } = await loadAiCommit();
 		aiCommit.openDialog();
 		dispatchHostMessage(readyInventory);
 		dispatchHostMessage(idleState);
-		dispatchHostMessage({ type: 'commitPlanResult', repoPath: '', generationId: 6, error: 'Cancelled.' });
+		dispatchHostMessage({
+			type: 'commitPlanResult',
+			repoPath: '',
+			generationId: 6,
+			error: 'Cancelled.',
+		});
 		expect(aiCommit.phase).toBe('generating');
 
 		dispatchHostMessage({ type: 'commitPlanResult', repoPath: '', generationId: 7, plan: draft });
@@ -99,7 +111,12 @@ describe('aiCommit', () => {
 	it('rehydrates a run still in flight as the generating screen', async () => {
 		const { aiCommit, dispatchHostMessage, listSent } = await loadAiCommit();
 		aiCommit.openDialog();
-		dispatchHostMessage({ type: 'commitPlanState', repoPath: '', status: 'running', generationId: 5 });
+		dispatchHostMessage({
+			type: 'commitPlanState',
+			repoPath: '',
+			status: 'running',
+			generationId: 5,
+		});
 		dispatchHostMessage(readyInventory);
 
 		expect(aiCommit.phase).toBe('generating');
@@ -111,7 +128,11 @@ describe('aiCommit', () => {
 		const { aiCommit, dispatchHostMessage } = await loadAiCommit();
 		aiCommit.openDialog(['a.ts', 'b.ts']);
 		dispatchHostMessage({
-			type: 'commitPlanState', repoPath: '', status: 'done', generationId: 5, plan: draft,
+			type: 'commitPlanState',
+			repoPath: '',
+			status: 'done',
+			generationId: 5,
+			plan: draft,
 		});
 		expect(aiCommit.phase).toBe('result');
 		expect(aiCommit.plan?.listGroups).toHaveLength(2);
@@ -125,7 +146,11 @@ describe('aiCommit', () => {
 		aiCommit.openDialog(['a.ts', 'new.ts']);
 		dispatchHostMessage(readyInventory);
 		dispatchHostMessage({
-			type: 'commitPlanState', repoPath: '', status: 'done', generationId: 5, plan: draft,
+			type: 'commitPlanState',
+			repoPath: '',
+			status: 'done',
+			generationId: 5,
+			plan: draft,
 		});
 		// The stale plan is not shown; a fresh generation starts instead.
 		expect(aiCommit.phase).toBe('generating');
@@ -144,7 +169,11 @@ describe('aiCommit', () => {
 		});
 		aiCommit.openDialog(['a.ts', 'b.ts']);
 		dispatchHostMessage({
-			type: 'commitPlanState', repoPath: '', status: 'done', generationId: 5, plan: draft,
+			type: 'commitPlanState',
+			repoPath: '',
+			status: 'done',
+			generationId: 5,
+			plan: draft,
 		});
 		expect(aiCommit.plan?.listGroups[0].subject).toBe('my own words');
 		expect(aiCommit.mode).toBe('single');
@@ -179,7 +208,12 @@ describe('aiCommit', () => {
 		expect(listSent.filter((message) => message.type === 'cancelCommitPlan')).toHaveLength(0);
 
 		aiCommit.openDialog();
-		dispatchHostMessage({ type: 'commitPlanState', repoPath: '', status: 'running', generationId: 5 });
+		dispatchHostMessage({
+			type: 'commitPlanState',
+			repoPath: '',
+			status: 'running',
+			generationId: 5,
+		});
 		aiCommit.cancelGenerate();
 		expect(listSent.at(-1)?.type).toBe('cancelCommitPlan');
 	});
@@ -197,7 +231,12 @@ describe('aiCommit', () => {
 		expect(request.type).toBe('executeCommitPlan');
 		expect(request.listGroups).toHaveLength(2);
 
-		dispatchHostMessage({ type: 'commitPlanExecuted', nonce: request.nonce, committed: 2, total: 2 });
+		dispatchHostMessage({
+			type: 'commitPlanExecuted',
+			nonce: request.nonce,
+			committed: 2,
+			total: 2,
+		});
 		expect(aiCommit.phase).toBe('done');
 		expect(aiCommit.executed).toEqual({ committed: 2, total: 2, error: undefined });
 		expect(storedState()?.aiCommit).toBeUndefined();

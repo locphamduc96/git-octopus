@@ -28,6 +28,8 @@ beforeAll(async () => {
 	await import('./rebaseEditor.svelte');
 	await import('./identity.svelte');
 	await import('./prefs.svelte');
+	await import('./capabilities.svelte');
+	await import('./hostNotices.svelte');
 });
 
 describe('store ownership', () => {

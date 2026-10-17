@@ -456,6 +456,10 @@ export class GitOctopusController {
 			case 'viewFocus':
 				this.setViewFocus(webview, message.focused);
 				return;
+			case 'hostNoticeReply':
+			case 'hostProgressCancel':
+				this.shell.receiveViewReply?.(message);
+				return;
 			case 'loadCommits':
 				if (message.filters) {
 					this.filters = message.filters;
@@ -467,6 +471,9 @@ export class GitOctopusController {
 				// settings ride along: a message posted before then would be dropped. Neither is
 				// allowed to stand between the view and its commits, hence the guard.
 				try {
+					if (this.shell.capabilities) {
+						this.reply(webview, { type: 'capabilities', ...this.shell.capabilities });
+					}
 					this.sendIconTheme(webview);
 					this.sendColorTheme(webview);
 					this.sendViewSettings(webview);

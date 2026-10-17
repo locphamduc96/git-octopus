@@ -1,4 +1,11 @@
-import type { FileIconTheme, HostToWebview, WebviewToHost } from '@git-octopus/shared';
+import type {
+	FileIconTheme,
+	HostCapabilities,
+	HostNoticeReplyMessage,
+	HostProgressCancelMessage,
+	HostToWebview,
+	WebviewToHost,
+} from '@git-octopus/shared';
 import type { UserPrompt } from './userPrompt.js';
 
 /**
@@ -118,4 +125,11 @@ export interface ControllerShell extends HostShell {
 	focusGraph(): PromiseLike<unknown>;
 	/** Tell the shell whether a graph has keyboard focus — what its shortcuts are scoped to. */
 	setGraphFocused(focused: boolean): void;
+	/** Sent to each view once it listens; a shell that leaves it out gets the view's defaults. */
+	capabilities?: HostCapabilities;
+	/**
+	 * A view answering a notice or cancelling a task that the shell showed inside it — for a shell
+	 * with no notifications of its own, which shows them in the view.
+	 */
+	receiveViewReply?(message: HostNoticeReplyMessage | HostProgressCancelMessage): void;
 }

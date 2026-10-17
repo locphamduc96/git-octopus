@@ -7,6 +7,7 @@ export const VSCODE_VERSION = '1.140.0';
 export const E2E_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPO_ROOT = path.resolve(E2E_ROOT, '../..');
 export const EXTENSION_ROOT = path.join(REPO_ROOT, 'packages/extension');
+export const DESKTOP_ROOT = path.join(REPO_ROOT, 'packages/desktop');
 export const VSCODE_CACHE = path.join(E2E_ROOT, '.vscode-test');
 /** Reused between runs and wiped at the start of each session — never a fresh folder per run. */
 export const STATE_DIR = path.join(E2E_ROOT, '.cache');

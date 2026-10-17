@@ -22,6 +22,7 @@
 		UpstreamTracking,
 		WorkingTreeAction,
 		WorkingTreeStatus,
+		HostCommand,
 	} from '@git-octopus/shared';
 	import { UNCOMMITTED_HASH } from '@git-octopus/shared';
 	import { layoutCommits } from '@git-octopus/graph-layout';
@@ -66,6 +67,9 @@
 	import { aiCommit } from './lib/stores/aiCommit.svelte';
 	import { worktrees } from './lib/stores/worktrees.svelte';
 	import { lfs } from './lib/stores/lfs.svelte';
+	import { capabilities } from './lib/stores/capabilities.svelte';
+	import './lib/stores/hostNotices.svelte';
+	import HostNotices from './lib/ui/HostNotices.svelte';
 	import { rebaseEditor } from './lib/stores/rebaseEditor.svelte';
 	import GraphView from './features/graph/GraphView.svelte';
 	import GraphSkeleton from './features/graph/GraphSkeleton.svelte';
@@ -803,6 +807,11 @@
 		postToHost({ type: 'loadComparison', fromHash, toHash });
 	}
 
+	/** Where a diff opens: the panel, unless the user chose the editor and there is one to open. */
+	function diffInPanel(): boolean {
+		return !capabilities.editorDiff || prefs.settings.diffTarget === 'panel';
+	}
+
 	function comparisonTitle(fromHash: string, toHash: string): string {
 		return `${fromHash.slice(0, 8)} ↔ ${toHash === UNCOMMITTED_HASH ? 'working tree' : toHash.slice(0, 8)}`;
 	}
@@ -810,7 +819,7 @@
 	function openCompareDiff(path: string): void {
 		if (comparison.fromHash && comparison.toHash) {
 			const oldPath = comparison.files.find((file) => file.path === path)?.oldPath;
-			if (prefs.settings.diffTarget === 'panel') {
+			if (diffInPanel()) {
 				diffView.show({
 					path,
 					oldPath,
@@ -1026,7 +1035,7 @@
 		const entry = details?.files.find((file) => file.path === path);
 		// A stash's untracked file is diffed in the parent that holds it.
 		const hash = entry?.revision ?? selectedHash;
-		if (prefs.settings.diffTarget === 'panel') {
+		if (diffInPanel()) {
 			diffView.show({ path, oldPath: entry?.oldPath, hash, title: selectedHash.slice(0, 8) });
 			return;
 		}
@@ -1040,7 +1049,7 @@
 	 * under, unstaged first.
 	 */
 	function openWorkingFile(path: string, side?: WorkingDiffSide): void {
-		if (prefs.settings.diffTarget === 'panel') {
+		if (diffInPanel()) {
 			const unstagedFile = working?.unstaged.find((item) => item.path === path);
 			const stagedFile = working?.staged.find((item) => item.path === path);
 			const resolved: WorkingDiffSide = side ?? (unstagedFile ? 'unstaged' : 'staged');
@@ -1238,9 +1247,17 @@
 	 * A graph keybinding VS Code resolved for this view: Mod+B branches from the selected commit
 	 * (HEAD when nothing real is selected), Mod+L fetches.
 	 */
-	function runHostCommand(command: 'createBranch' | 'fetch'): void {
+	function runHostCommand(command: HostCommand): void {
 		if (command === 'fetch') {
 			postToHost({ type: 'repoAction', repoPath: session.repoPath, action: 'fetch' });
+			return;
+		}
+		if (command === 'refresh') {
+			load();
+			return;
+		}
+		if (command === 'openSettings') {
+			settingsOpen = true;
 			return;
 		}
 		const selected = rows.find((row) => row.commit.hash === selectedHash)?.commit;
@@ -1684,6 +1701,8 @@
 		</div>
 	</div>
 </div>
+
+<HostNotices />
 
 <style>
 	.app {

@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
@@ -9,7 +10,7 @@ import {
 	type FrameLocator,
 	type Page,
 } from '@playwright/test';
-import { EXTENSION_ROOT, FAKE_BIN, FIXTURE_SCRIPT, STATE_DIR } from './paths.js';
+import { DESKTOP_ROOT, EXTENSION_ROOT, FAKE_BIN, FIXTURE_SCRIPT, STATE_DIR } from './paths.js';
 import { vscodeExecutable } from './vscodeBinary.js';
 
 /** Settings that keep VS Code's own furniture out of the way and make every dialog a DOM one. */
@@ -28,16 +29,20 @@ export const SETTINGS = {
 	'telemetry.telemetryLevel': 'off',
 	'git.openRepositoryInParentFolders': 'never',
 	'gitOctopus.defaultLocation': 'editor',
-	// One step smaller, so a laptop screen (1512 points wide) has room for every optional column
-	// beside the details panel — the width the drag and compare tests need, on any display.
+	// One step smaller, so a laptop screen shows as many rows as the tests reach without scrolling.
+	// How the graph fits a narrow window is `layout.spec.ts`'s job, at a fixed window size.
 	'window.zoomLevel': -1,
 };
 
 export interface Session {
 	app: ElectronApplication;
 	page: Page;
-	/** The graph's webview: VS Code wraps it in two iframes. */
-	graph: FrameLocator;
+	/** The graph's view: VS Code wraps it in two iframes; the desktop app's window is the view. */
+	graph: FrameLocator | Page;
+	/** The desktop app rather than VS Code. */
+	desktop: boolean;
+	/** The desktop app's tab strip, across the top of its window. */
+	tabs?: Page;
 	/** The repository under test (`<root>/review` from the fixture). */
 	repo: string;
 	root: string;
@@ -65,9 +70,47 @@ export interface SessionOptions {
 	 * it: one bad `gpg.format` there is fatal to every signature git reads.
 	 */
 	isolateGlobalConfig?: boolean;
+	/** VS Code settings over the suite's own — e.g. `window.zoomLevel: 0` for a laptop-width window. */
+	settings?: Record<string, unknown>;
+	/**
+	 * Desktop only: start the app with nothing on its command line and these tabs remembered from
+	 * last time, as if it had quit with them open.
+	 */
+	reopenTabs?: (root: string) => { listOpen: string[]; activeIndex?: number };
 }
 
-export async function openSession(options: SessionOptions = {}): Promise<Session> {
+interface Fixture {
+	root: string;
+	repo: string;
+	agentLog: string;
+	git: (...listArgs: string[]) => string;
+	/** What git — and the app under test — run with: the isolated global config, when asked for. */
+	mapGitEnv: Record<string, string>;
+}
+
+/** The review repository in a fresh temporary folder, shaped by `prepare`. */
+function makeFixture(root: string, options: SessionOptions): Fixture {
+	const mapGitEnv: Record<string, string> = {};
+	if (options.isolateGlobalConfig) {
+		mapGitEnv.GIT_CONFIG_GLOBAL = path.join(root, 'global.gitconfig');
+		writeFileSync(mapGitEnv.GIT_CONFIG_GLOBAL, '');
+	}
+	const gitEnv = { ...process.env, ...mapGitEnv };
+	execFileSync('sh', [FIXTURE_SCRIPT, root], { stdio: 'pipe', env: gitEnv });
+	const repo = path.join(root, 'review');
+	const git = (...listArgs: string[]): string =>
+		execFileSync('git', ['-C', repo, ...listArgs], { encoding: 'utf8', env: gitEnv });
+	options.prepare?.(git, root);
+	return { root, repo, agentLog: path.join(root, 'agent-prompt.txt'), git, mapGitEnv };
+}
+
+/** Run `launch` over a fresh fixture; whatever happens, the app closes and the folder goes. */
+async function withFixture(
+	options: SessionOptions,
+	launch: (
+		fixture: Fixture
+	) => Promise<Pick<Session, 'app' | 'page' | 'graph' | 'desktop' | 'tabs'>>
+): Promise<Session> {
 	const root = mkdtempSync(path.join(os.tmpdir(), 'git-octopus-e2e-'));
 	let app: ElectronApplication | null = null;
 	const close = async (): Promise<void> => {
@@ -78,28 +121,29 @@ export async function openSession(options: SessionOptions = {}): Promise<Session
 		}
 	};
 	try {
-		const mapGitEnv: Record<string, string> = {};
-		if (options.isolateGlobalConfig) {
-			mapGitEnv.GIT_CONFIG_GLOBAL = path.join(root, 'global.gitconfig');
-			writeFileSync(mapGitEnv.GIT_CONFIG_GLOBAL, '');
-		}
-		const gitEnv = { ...process.env, ...mapGitEnv };
-		execFileSync('sh', [FIXTURE_SCRIPT, root], { stdio: 'pipe', env: gitEnv });
-		const repo = path.join(root, 'review');
-		const agentLog = path.join(root, 'agent-prompt.txt');
-		const git = (...listArgs: string[]): string =>
-			execFileSync('git', ['-C', repo, ...listArgs], { encoding: 'utf8', env: gitEnv });
-		options.prepare?.(git, root);
+		const fixture = makeFixture(root, options);
+		const launched = await launch(fixture);
+		app = launched.app;
+		await launched.graph.locator('button.ref').first().waitFor({ timeout: 60_000 });
+		const { repo, agentLog, git } = fixture;
+		return { ...launched, repo, root, agentLog, git, close };
+	} catch (err) {
+		await close();
+		throw err;
+	}
+}
+
+export function openSession(options: SessionOptions = {}): Promise<Session> {
+	return withFixture(options, async ({ repo, agentLog, mapGitEnv }) => {
 		const userData = path.join(STATE_DIR, 'user-data');
 		rmSync(userData, { recursive: true, force: true });
 		mkdirSync(path.join(userData, 'User'), { recursive: true });
 		writeFileSync(
 			path.join(userData, 'User', 'settings.json'),
-			JSON.stringify(SETTINGS, null, '\t')
+			JSON.stringify({ ...SETTINGS, ...options.settings }, null, '\t')
 		);
-
 		const executablePath = process.env.GIT_OCTOPUS_E2E_VSCODE ?? (await vscodeExecutable());
-		app = await electron.launch({
+		const app = await electron.launch({
 			executablePath,
 			args: [
 				repo,
@@ -125,12 +169,67 @@ export async function openSession(options: SessionOptions = {}): Promise<Session
 		await page.waitForSelector('.monaco-workbench', { timeout: 60_000 });
 		await runCommand(page, 'Git Octopus: Open Git Octopus in Editor Tab');
 		const graph = page.frameLocator('iframe.webview.ready').first().frameLocator('#active-frame');
-		await graph.locator('button.ref').first().waitFor({ timeout: 60_000 });
-		return { app, page, graph, repo, root, agentLog, git, close };
-	} catch (err) {
-		await close();
-		throw err;
+		return { app, page, graph, desktop: false };
+	});
+}
+
+/**
+ * The same fresh repository, opened in the desktop app built from source (`packages/desktop`,
+ * `pnpm --filter @git-octopus/desktop build`). Its window is the view itself — no iframes.
+ */
+export function openDesktopSession(options: SessionOptions = {}): Promise<Session> {
+	return withFixture(options, async ({ repo, agentLog, mapGitEnv }) => {
+		// The packed app, when asked for: `GIT_OCTOPUS_E2E_DESKTOP_APP=<…>/Git Octopus.app`.
+		const packed = process.env.GIT_OCTOPUS_E2E_DESKTOP_APP;
+		if (!packed && !existsSync(path.join(DESKTOP_ROOT, 'dist/main.js'))) {
+			throw new Error(
+				'packages/desktop/dist is missing — run `pnpm e2e:desktop` from the repo root.'
+			);
+		}
+		const userData = path.join(STATE_DIR, 'desktop-user-data');
+		rmSync(userData, { recursive: true, force: true });
+		const remembered = options.reopenTabs?.(path.dirname(repo));
+		if (remembered) {
+			mkdirSync(userData, { recursive: true });
+			writeFileSync(
+				path.join(userData, 'app.json'),
+				JSON.stringify({ listRecent: [], ...remembered })
+			);
+		}
+		const app = await electron.launch({
+			executablePath: packed
+				? path.join(packed, 'Contents/MacOS/Git Octopus')
+				: (createRequire(path.join(DESKTOP_ROOT, 'package.json'))('electron') as string),
+			args: [
+				...(packed ? [] : [DESKTOP_ROOT]),
+				...(remembered ? [] : ['--folder', repo]),
+				`--user-data-dir=${userData}`,
+			],
+			env: { ...launchEnv(agentLog), ...mapGitEnv },
+		});
+		// The window shows two pages: the tab strip, and below it the tab's view of the repository.
+		const tabs = await pageAt(app, '/tabs.html');
+		const page = await pageAt(app, '/index.html');
+		return { app, page, graph: page, desktop: true, tabs };
+	});
+}
+
+/** The page at `pathname` — waited for, since the app opens its pages one after another. */
+export async function pageAt(
+	app: ElectronApplication,
+	pathname: string,
+	query?: string
+): Promise<Page> {
+	const matches = (page: Page): boolean => {
+		const url = new URL(page.url());
+		return url.pathname === pathname && (query === undefined || url.search.includes(query));
+	};
+	for (let attempt = 0; attempt < 300; attempt++) {
+		const found = app.windows().find(matches);
+		if (found) return found;
+		await new Promise((resolve) => setTimeout(resolve, 100));
 	}
+	throw new Error(`No page at ${pathname}${query ? ` with ${query}` : ''}.`);
 }
 
 /**
@@ -154,11 +253,15 @@ export function launchEnv(agentLog: string): Record<string, string> {
  * One session per spec file, run in order like a checklist phase: opened before the first test,
  * closed after the last, and a picture of the window attached to every test's report.
  */
-export function useSession(assign: (session: Session) => void, options: SessionOptions = {}): void {
+export function useSession(
+	assign: (session: Session) => void,
+	options: SessionOptions = {},
+	open: (options: SessionOptions) => Promise<Session> = openSession
+): void {
 	let session: Session | undefined;
 	test.describe.configure({ mode: 'serial' });
 	test.beforeAll(async () => {
-		session = await openSession(options);
+		session = await open(options);
 		assign(session);
 	});
 	test.afterEach(async ({}, testInfo) => {
@@ -171,6 +274,14 @@ export function useSession(assign: (session: Session) => void, options: SessionO
 	test.afterAll(async () => {
 		await session?.close();
 	});
+}
+
+/** `useSession`, in the desktop app. */
+export function useDesktopSession(
+	assign: (session: Session) => void,
+	options: SessionOptions = {}
+): void {
+	useSession(assign, options, openDesktopSession);
 }
 
 /** Run a command from the palette by its full title. */

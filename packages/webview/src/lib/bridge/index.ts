@@ -9,7 +9,32 @@ interface VsCodeApi {
 
 declare function acquireVsCodeApi(): VsCodeApi;
 
-const vscode = acquireVsCodeApi();
+/**
+ * What the desktop app's preload hands the page: the same three calls, with every value crossing as
+ * JSON text — the context bridge structured-clones what it is given, and `$state` proxies cannot be.
+ */
+interface DesktopHost {
+	post(json: string): void;
+	getState(): string | null;
+	setState(json: string): void;
+}
+
+/** VS Code's API inside VS Code; the desktop app's preload, shaped the same, everywhere else. */
+function connect(): VsCodeApi {
+	if (typeof acquireVsCodeApi === 'function') return acquireVsCodeApi();
+	const host = (globalThis as { gitOctopusHost?: DesktopHost }).gitOctopusHost;
+	if (!host) throw new Error('Git Octopus: no host to talk to.');
+	return {
+		postMessage: (message) => host.post(JSON.stringify(message)),
+		getState: <T>() => {
+			const json = host.getState();
+			return json === null ? undefined : (JSON.parse(json) as T);
+		},
+		setState: (state) => host.setState(JSON.stringify(state)),
+	};
+}
+
+const vscode = connect();
 
 /**
  * Send a typed message to the extension host.

@@ -407,7 +407,61 @@ export interface ViewFocusMessage {
 /** A keybinding VS Code resolved while the graph had focus, handed to the view to act on. */
 export interface HostCommandMessage {
 	type: 'hostCommand';
-	command: 'createBranch' | 'fetch';
+	command: HostCommand;
+}
+
+/** A keybinding or a menu item the shell resolved, for the view to act on. */
+export type HostCommand = 'createBranch' | 'fetch' | 'refresh' | 'openSettings';
+
+/**
+ * What the shell can do, sent once a view is listening. VS Code does not send it: everything here
+ * defaults to what VS Code offers, so only the desktop app says anything.
+ */
+export interface HostCapabilities {
+	/** The desktop app rather than an editor — no editor to open a diff in, no editor chrome. */
+	desktop: boolean;
+	/** Diffs can open in an editor of their own; without one they always open in the view. */
+	editorDiff: boolean;
+}
+
+export interface CapabilitiesMessage extends HostCapabilities {
+	type: 'capabilities';
+}
+
+/**
+ * A notice from the host, where the shell has no notifications of its own to show it in (the
+ * desktop app). Answered with `hostNoticeReply` when it offers actions.
+ */
+export interface HostNoticeMessage {
+	type: 'hostNotice';
+	id: number;
+	level: 'info' | 'warning' | 'error';
+	message: string;
+	listActions: string[];
+}
+
+export interface HostNoticeReplyMessage {
+	type: 'hostNoticeReply';
+	id: number;
+	/** The action chosen; absent when the notice was dismissed. */
+	action?: string;
+}
+
+/** A task the host is running, for the view to show while it lasts — the desktop app only. */
+export interface HostProgressMessage {
+	type: 'hostProgress';
+	id: number;
+	title: string;
+	/** The line under the title, replacing the previous one. */
+	message?: string;
+	cancellable: boolean;
+	/** The task finished; the indicator goes. */
+	done: boolean;
+}
+
+export interface HostProgressCancelMessage {
+	type: 'hostProgressCancel';
+	id: number;
 }
 
 /** Cherry-pick commits in the order the cherry-pick editor left them. */
@@ -1217,6 +1271,8 @@ export type WebviewToHost =
 	| MultiCommitActionMessage
 	| CherryPickCommitsMessage
 	| ViewFocusMessage
+	| HostNoticeReplyMessage
+	| HostProgressCancelMessage
 	| SequencerActionMessage
 	| BranchActionMessage
 	| CheckFastForwardMessage
@@ -1421,6 +1477,9 @@ export interface WorkspaceIdentitiesMessage {
 export type HostToWebview =
 	| CommitsMessage
 	| HostCommandMessage
+	| CapabilitiesMessage
+	| HostNoticeMessage
+	| HostProgressMessage
 	| CommitOutcomeMessage
 	| CommitStatsMessage
 	| StatusUpdateMessage

@@ -408,3 +408,38 @@ describe('graph keybindings', () => {
 		expect(recorded.listGraphFocused.at(-1)).toBe(false);
 	});
 });
+
+describe('a shell that draws its own notices (the desktop app)', () => {
+	beforeEach(() => resetRecorded());
+
+	it('tells each view what the shell can do, once it is listening', async () => {
+		const controller = makeController({
+			shell: { capabilities: { desktop: true, editorDiff: false } },
+		});
+		const view = await attachView(controller);
+		await view.webview.receive({ type: 'loadCommits', limit: 300 });
+		expect(view.webview.postedOfType('capabilities')).toEqual([
+			{ type: 'capabilities', desktop: true, editorDiff: false },
+		]);
+	});
+
+	it('says nothing about capabilities in VS Code, whose are the view’s defaults', async () => {
+		const view = await attachView(makeController());
+		await view.webview.receive({ type: 'loadCommits', limit: 300 });
+		expect(view.webview.postedOfType('capabilities')).toEqual([]);
+	});
+
+	it('hands the answer to a notice, and a cancelled task, back to the shell', async () => {
+		const listReplies: unknown[] = [];
+		const controller = makeController({
+			shell: { receiveViewReply: (message) => void listReplies.push(message) },
+		});
+		const view = await attachView(controller);
+		await view.webview.receive({ type: 'hostNoticeReply', id: 4, action: 'Remove' });
+		await view.webview.receive({ type: 'hostProgressCancel', id: 5 });
+		expect(listReplies).toEqual([
+			{ type: 'hostNoticeReply', id: 4, action: 'Remove' },
+			{ type: 'hostProgressCancel', id: 5 },
+		]);
+	});
+});

@@ -40,9 +40,9 @@ export default tseslint.config(
 		},
 	},
 	{
-		// Browser-side webview code. TypeScript + svelte-check already resolve DOM types,
+		// Browser-side code: the webview, and the desktop app's tab strip. TypeScript + svelte-check already resolve DOM types,
 		// so `no-undef` (which doesn't know the DOM lib) only produces false positives here.
-		files: ['packages/webview/**/*.{ts,svelte}'],
+		files: ['packages/webview/**/*.{ts,svelte}', 'packages/desktop/src/tabs/**/*.{ts,svelte}'],
 		languageOptions: {
 			globals: {
 				window: 'readonly',

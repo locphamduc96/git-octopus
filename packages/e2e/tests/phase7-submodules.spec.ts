@@ -61,3 +61,25 @@ test('7.7 the repo picker goes back to the superproject', async () => {
 	await expect(row(s, 'add the engine')).toBeVisible();
 	await expect(row(s, 'engine v2')).toHaveCount(0);
 });
+
+test('7.8 Refresh picks up a submodule checked out after the graph opened', async () => {
+	const picker = () => s.graph.locator('.dropdown .trigger').first();
+	const pickerHas = async (label: RegExp) => {
+		await picker().click();
+		const found = await s.graph.locator('.dropdown .menu button', { hasText: label }).count();
+		await s.page.keyboard.press('Escape');
+		await s.graph
+			.locator('.dropdown .backdrop')
+			.click()
+			.catch(() => undefined);
+		return found;
+	};
+	s.git('submodule', 'deinit', '-q', '-f', 'libs/engine');
+	await button(s, 'Refresh').click();
+	// One repository left: the picker gives way to the plain repository name.
+	await expect(s.graph.locator('.dropdown .trigger')).toHaveCount(0);
+	s.git('-c', 'protocol.file.allow=always', 'submodule', 'update', '-q', '--init', 'libs/engine');
+	await button(s, 'Refresh').click();
+	await expect(picker()).toBeVisible();
+	expect(await pickerHas(/review › libs\/engine/)).toBe(1);
+});

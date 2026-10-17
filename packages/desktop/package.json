@@ -1,20 +1,32 @@
 {
 	"name": "@git-octopus/desktop",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"private": true,
 	"description": "Git Octopus as a standalone macOS app (Electron)",
 	"license": "MIT",
-	"main": "spike/dist/main.js",
+	"main": "dist/main.js",
 	"scripts": {
+		"build": "node build.mjs",
+		"start": "node build.mjs && env -u ELECTRON_RUN_AS_NODE electron .",
 		"spike:build": "node spike/build.mjs",
 		"spike": "node spike/build.mjs && electron spike/dist/main.js",
-		"typecheck": "tsc -p tsconfig.json --noEmit"
+		"typecheck": "tsc -p tsconfig.json --noEmit && svelte-check --tsconfig ./tsconfig.tabs.json --threshold error",
+		"test": "vitest run",
+		"dist": "node build.mjs && electron-builder --mac --arm64 --publish never",
+		"install-app": "node scripts/install-app.mjs",
+		"icon": "env -u ELECTRON_RUN_AS_NODE electron scripts/render-icon.mjs"
 	},
 	"devDependencies": {
 		"@git-octopus/host": "workspace:*",
 		"@git-octopus/shared": "workspace:*",
+		"@sveltejs/vite-plugin-svelte": "^5.0.3",
 		"@types/node": "^20.17.10",
 		"electron": "44.5.1",
-		"esbuild": "^0.24.2"
-	}
+		"electron-builder": "26.17.0",
+		"esbuild": "^0.24.2",
+		"svelte": "^5.16.0",
+		"svelte-check": "^4.1.1",
+		"vite": "^6.0.7"
+	},
+	"author": "Loc Pham"
 }

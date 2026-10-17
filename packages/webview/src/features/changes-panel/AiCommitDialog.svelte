@@ -19,7 +19,9 @@
 	);
 	const agentTag = $derived.by(() => {
 		if (!savedAgent) return '';
-		const model = inventory?.savedAgentId ? (inventory.mapModels[inventory.savedAgentId] ?? '') : '';
+		const model = inventory?.savedAgentId
+			? (inventory.mapModels[inventory.savedAgentId] ?? '')
+			: '';
 		return model ? `${savedAgent.label} · ${model}` : savedAgent.label;
 	});
 
@@ -33,35 +35,37 @@
 	});
 
 	type StepState = 'done' | 'running' | 'pending';
-	const listSteps = $derived.by((): { key: string; state: StepState; label: string; detail?: string }[] => {
-		const p = aiCommit.progress;
-		const stage = p?.stage ?? null;
-		const counts =
-			p && p.additions !== undefined ? `+${p.additions} −${p.deletions ?? 0}` : undefined;
-		const writer = savedAgent ? `${savedAgent.label} is writing the plan…` : 'Writing the plan…';
-		return [
-			stage === null
-				? { key: 'collect', state: 'running', label: 'Collecting changed files…' }
-				: {
-						key: 'collect',
-						state: 'done',
-						label: `Collected ${p?.fileCount} staged file${p?.fileCount === 1 ? '' : 's'}`,
-						detail: counts,
-					},
-			{
-				key: 'prompt',
-				state: stage === 'prompted' ? 'done' : stage === 'collected' ? 'running' : 'pending',
-				label:
-					stage === 'prompted'
-						? 'Diffs prepared & secrets redacted'
-						: 'Preparing diffs & redacting secrets…',
-			},
-			stage === 'prompted'
-				? { key: 'agent', state: 'running', label: writer, detail: `${elapsed}s` }
-				: { key: 'agent', state: 'pending', label: writer },
-			{ key: 'review', state: 'pending', label: 'Review & create commits' },
-		];
-	});
+	const listSteps = $derived.by(
+		(): { key: string; state: StepState; label: string; detail?: string }[] => {
+			const p = aiCommit.progress;
+			const stage = p?.stage ?? null;
+			const counts =
+				p && p.additions !== undefined ? `+${p.additions} −${p.deletions ?? 0}` : undefined;
+			const writer = savedAgent ? `${savedAgent.label} is writing the plan…` : 'Writing the plan…';
+			return [
+				stage === null
+					? { key: 'collect', state: 'running', label: 'Collecting changed files…' }
+					: {
+							key: 'collect',
+							state: 'done',
+							label: `Collected ${p?.fileCount} staged file${p?.fileCount === 1 ? '' : 's'}`,
+							detail: counts,
+						},
+				{
+					key: 'prompt',
+					state: stage === 'prompted' ? 'done' : stage === 'collected' ? 'running' : 'pending',
+					label:
+						stage === 'prompted'
+							? 'Diffs prepared & secrets redacted'
+							: 'Preparing diffs & redacting secrets…',
+				},
+				stage === 'prompted'
+					? { key: 'agent', state: 'running', label: writer, detail: `${elapsed}s` }
+					: { key: 'agent', state: 'pending', label: writer },
+				{ key: 'review', state: 'pending', label: 'Review & create commits' },
+			];
+		}
+	);
 </script>
 
 <Modal title="AI commit" wide={aiCommit.phase === 'result'} onclose={() => aiCommit.close()}>
@@ -149,8 +153,8 @@
 					{/each}
 				</div>
 				<p class="hint">
-					You can hide this dialog — the agent keeps running, and the result will be here when
-					you reopen it.
+					You can hide this dialog — the agent keeps running, and the result will be here when you
+					reopen it.
 				</p>
 			</div>
 		{:else if aiCommit.phase === 'result' && plan}
@@ -244,7 +248,9 @@
 						oninput={(event) => aiCommit.setSingleBody(event.currentTarget.value)}
 					></textarea>
 				</label>
-				<p class="hint">All {fileCount} changed file{fileCount === 1 ? '' : 's'} go into this commit.</p>
+				<p class="hint">
+					All {fileCount} changed file{fileCount === 1 ? '' : 's'} go into this commit.
+				</p>
 			{/if}
 		{:else if aiCommit.phase === 'executing'}
 			<p class="muted">Creating commits…</p>
@@ -258,7 +264,9 @@
 			{:else}
 				<p class="ok">
 					<Icon name="check" />
-					Created {aiCommit.executed.committed} commit{aiCommit.executed.committed === 1 ? '' : 's'}.
+					Created {aiCommit.executed.committed} commit{aiCommit.executed.committed === 1
+						? ''
+						: 's'}.
 				</p>
 			{/if}
 		{/if}
@@ -276,7 +284,9 @@
 		{:else if aiCommit.phase === 'result'}
 			<span class="lead">
 				<button class="confirm" onclick={() => aiCommit.execute()}>
-					{aiCommit.mode === 'split' && plan ? `Create ${plan.listGroups.length} commits` : 'Commit'}
+					{aiCommit.mode === 'split' && plan
+						? `Create ${plan.listGroups.length} commits`
+						: 'Commit'}
 				</button>
 				<button class="cancel" onclick={() => aiCommit.regenerate()}>Regenerate</button>
 			</span>

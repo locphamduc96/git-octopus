@@ -45,3 +45,23 @@ describe('postToHost', () => {
 		expect(listSent).toEqual([{ type: 'loadCommits', limit: 300 }]);
 	});
 });
+
+describe('the desktop app host', () => {
+	beforeEach(() => vi.unstubAllGlobals());
+
+	it('talks to the preload in JSON text when there is no VS Code API', async () => {
+		const listPosted: string[] = [];
+		let stored: string | null = null;
+		vi.stubGlobal('gitOctopusHost', {
+			post: (json: string) => listPosted.push(json),
+			getState: () => stored,
+			setState: (json: string) => {
+				stored = json;
+			},
+		});
+		vi.resetModules();
+		const { postToHost } = await import('./index');
+		postToHost({ type: 'loadIdentity' });
+		expect(listPosted).toEqual(['{"type":"loadIdentity"}']);
+	});
+});

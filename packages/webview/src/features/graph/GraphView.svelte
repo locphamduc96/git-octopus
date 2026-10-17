@@ -271,8 +271,17 @@
 
 	/** Breathing room so the overlay scrollbar never sits on top of the Date column. */
 	const SCROLL_GUTTER = 8;
+	/**
+	 * What Description keeps however many columns are on: below this the messages turn into "De…".
+	 * Past it the graph scrolls sideways instead, header and rows together.
+	 */
+	const DESCRIPTION_MIN_W = 200;
+	/** `--gg-space-2`, the gap between columns — the minimum width below adds one per gap. */
+	const COLUMN_GAP = 8;
 
 	let viewport = $state<HTMLDivElement | null>(null);
+	/** Clips the header strip and scrolls it sideways with the rows below. */
+	let headersClip = $state<HTMLDivElement | null>(null);
 	let scrollTop = $state(0);
 	let viewportH = $state(600);
 	let viewportW = $state(0);
@@ -351,12 +360,26 @@
 		[
 			`${widths.ref}px`,
 			`${graphPx}px`,
-			'1fr',
+			`minmax(${DESCRIPTION_MIN_W}px, 1fr)`,
 			...listOrderedColumns
 				.filter((column) => columns[column.key])
 				.map((column) => `${widths[column.key]}px`),
 		].join(' ')
 	);
+
+	/** The narrowest the columns fit in; a narrower view scrolls sideways rather than squeeze them. */
+	const minGridW = $derived.by(() => {
+		const listTracks = [
+			widths.ref,
+			graphPx,
+			DESCRIPTION_MIN_W,
+			...listOrderedColumns
+				.filter((column) => columns[column.key])
+				.map((column) => widths[column.key]),
+		];
+		const total = listTracks.reduce((sum, width) => sum + width, 0);
+		return total + COLUMN_GAP * (listTracks.length - 1) + SCROLL_GUTTER;
+	});
 
 	const headerMenuItems = $derived(buildHeaderMenuItems(columns));
 
@@ -686,6 +709,7 @@
 	function onScroll(): void {
 		if (!viewport) return;
 		scrollTop = viewport.scrollTop;
+		if (headersClip) headersClip.scrollLeft = viewport.scrollLeft;
 		// Anchored to a screen position, so any scroll leaves it floating over the wrong row.
 		refExpand = null;
 		const ask = shouldAskLoadMore({
@@ -823,85 +847,88 @@
 {/snippet}
 
 <div class="graph-view">
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="headers"
-		style="grid-template-columns:{gridTemplate}; padding-right:{SCROLL_GUTTER + scrollbarW}px"
-		oncontextmenu={(event) => {
-			event.preventDefault();
-			headerMenu = { x: event.clientX, y: event.clientY };
-		}}
-		title="Right-click to show or hide columns"
-	>
-		<span class="hcell">
-			<span class="hlabel">Branch / Tag</span>
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<span
-				class="grip resizable"
-				class:active={resizing?.key === 'ref'}
-				title="Drag to resize the Branch / Tag column"
-				onmousedown={(event) => startResize('ref', event)}
-			></span>
-		</span>
-		<span class="hcell">
-			<span class="hlabel">Graph</span>
-			{#if pinnedRef}
-				<IconButton
-					name="pinned"
-					label="Jump to the pinned branch"
-					title="{pinnedRef} is pinned to the left — click to jump to it"
-					onclick={onjumpPinned}
-				/>
-			{/if}
-			<span class="grip"></span>
-		</span>
-		<span class="hcell">
-			<span class="hlabel">Description</span>
-		</span>
-		<!--
+	<div class="headers-clip" bind:this={headersClip}>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="headers"
+			style="grid-template-columns:{gridTemplate}; padding-right:{SCROLL_GUTTER + scrollbarW}px;
+			min-width:{minGridW + scrollbarW}px"
+			oncontextmenu={(event) => {
+				event.preventDefault();
+				headerMenu = { x: event.clientX, y: event.clientY };
+			}}
+			title="Right-click to show or hide columns"
+		>
+			<span class="hcell">
+				<span class="hlabel">Branch / Tag</span>
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<span
+					class="grip resizable"
+					class:active={resizing?.key === 'ref'}
+					title="Drag to resize the Branch / Tag column"
+					onmousedown={(event) => startResize('ref', event)}
+				></span>
+			</span>
+			<span class="hcell">
+				<span class="hlabel">Graph</span>
+				{#if pinnedRef}
+					<IconButton
+						name="pinned"
+						label="Jump to the pinned branch"
+						title="{pinnedRef} is pinned to the left — click to jump to it"
+						onclick={onjumpPinned}
+					/>
+				{/if}
+				<span class="grip"></span>
+			</span>
+			<span class="hcell">
+				<span class="hlabel">Description</span>
+			</span>
+			<!--
 			Description takes the leftover width, so Author, Commit and Date are pinned to the right
 			edge: the divider left of a column is the only one its own width can move. Each of them
 			therefore carries its handle on its left edge, and the decorative divider that used to
 			close the Description cell would now sit in the same gap as that handle.
 		-->
-		{#each listOrderedColumns as column (column.key)}
-			{#if columns[column.key]}
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<span
-					class="hcell"
-					class:drop-column={draggedColumn !== null && draggedColumn !== column.key}
-					ondragover={(event) => {
-						if (draggedColumn === null || draggedColumn === column.key) return;
-						event.preventDefault();
-					}}
-					ondrop={(event) => {
-						event.preventDefault();
-						if (draggedColumn !== null && draggedColumn !== column.key)
-							onreorderColumn(draggedColumn, column.key);
-						draggedColumn = null;
-					}}
-				>
+			{#each listOrderedColumns as column (column.key)}
+				{#if columns[column.key]}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<span
-						class="grip left resizable"
-						class:active={resizing?.key === column.key}
-						title="Drag to resize the {column.label} column"
-						onmousedown={(event) => startResize(column.key, event)}
-					></span>
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<span
-						class="hlabel movable"
-						draggable="true"
-						title="Drag onto another column to move it there"
-						ondragstart={(event) => {
-							draggedColumn = column.key;
-							event.dataTransfer?.setData('text/plain', column.label);
+						class="hcell"
+						class:drop-column={draggedColumn !== null && draggedColumn !== column.key}
+						ondragover={(event) => {
+							if (draggedColumn === null || draggedColumn === column.key) return;
+							event.preventDefault();
 						}}
-						ondragend={() => (draggedColumn = null)}>{column.label}</span
+						ondrop={(event) => {
+							event.preventDefault();
+							if (draggedColumn !== null && draggedColumn !== column.key)
+								onreorderColumn(draggedColumn, column.key);
+							draggedColumn = null;
+						}}
 					>
-				</span>
-			{/if}
-		{/each}
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<span
+							class="grip left resizable"
+							class:active={resizing?.key === column.key}
+							title="Drag to resize the {column.label} column"
+							onmousedown={(event) => startResize(column.key, event)}
+						></span>
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<span
+							class="hlabel movable"
+							draggable="true"
+							title="Drag onto another column to move it there"
+							ondragstart={(event) => {
+								draggedColumn = column.key;
+								event.dataTransfer?.setData('text/plain', column.label);
+							}}
+							ondragend={() => (draggedColumn = null)}>{column.label}</span
+						>
+					</span>
+				{/if}
+			{/each}
+		</div>
 	</div>
 
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -913,7 +940,7 @@
 		onscroll={onScroll}
 		onmouseleave={() => (hoveredBranch = null)}
 	>
-		<div class="inner" style="height:{totalH}px">
+		<div class="inner" style="height:{totalH}px; min-width:{minGridW}px">
 			<svg
 				class="lines"
 				width={graphPx}
@@ -1036,7 +1063,7 @@
 					class:find-match={setFindMatches.has(v.row.commit.hash)}
 					class:find-current={v.row.commit.hash === findCurrent}
 					style="top:{v.index * ROW_H}px; height:{ROW_H}px; grid-template-columns:{gridTemplate};
-						padding-right:{SCROLL_GUTTER}px"
+						padding-right:{SCROLL_GUTTER}px; min-width:{minGridW}px"
 					role="button"
 					tabindex="0"
 					onclick={(event) => {
@@ -1269,6 +1296,12 @@
 		height: 100%;
 		min-height: 0;
 	}
+	/* The strip never spills past the graph — onto the details panel, where it could neither be
+	   seen nor dragged. Scrolled from script, in step with the rows. */
+	.headers-clip {
+		flex: none;
+		overflow: hidden;
+	}
 	.headers {
 		display: grid;
 		gap: var(--gg-space-2);
@@ -1365,6 +1398,7 @@
 		position: absolute;
 		left: 0;
 		right: 0;
+		box-sizing: border-box;
 		display: grid;
 		align-items: center;
 		gap: var(--gg-space-2);

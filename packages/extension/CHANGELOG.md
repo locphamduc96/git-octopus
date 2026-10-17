@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.25.2
+
+### Fixed
+
+- On a narrow window — a laptop screen with the details panel open — Description no longer shrinks
+  to a few letters when Author, Date and Changes are on: it keeps room for the message, and the graph
+  scrolls sideways instead, its header moving with the rows. Column headers no longer slide under
+  the details panel, where they could not be seen or dragged.
+
 ## 0.25.1
 
 ### Fixed

@@ -1,0 +1,35 @@
+# Packs dist/ (main, preload, host, renderer — all bundled already) into Git Octopus.app.
+appId: io.github.locphamduc96.git-octopus
+productName: Git Octopus
+copyright: Copyright © 2026 Loc Pham
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - '!dist/**/*.map'
+  - package.json
+asar: true
+# Everything is bundled by esbuild: nothing from node_modules ships, and nothing native to rebuild.
+npmRebuild: false
+mac:
+  target:
+    - target: dmg
+      arch: arm64
+    - target: zip
+      arch: arm64
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  # Ad-hoc: Apple Silicon runs nothing unsigned, and personal use needs no Developer ID.
+  identity: '-'
+  hardenedRuntime: false
+  # A folder dropped on the Dock icon opens in a window.
+  extendInfo:
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: Folder
+        CFBundleTypeRole: Viewer
+        LSHandlerRank: Alternate
+        LSItemContentTypes:
+          - public.folder
+dmg:
+  title: Git Octopus ${version}

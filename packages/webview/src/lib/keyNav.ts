@@ -32,11 +32,7 @@ export function nextRowIndex(key: string, current: number, last: number, pageJum
  * Returns `current` when there is nothing further on the lane — the selection stays put rather than
  * jumping to an unrelated commit, which is the one outcome that would make the key untrustworthy.
  */
-export function stepAlongLane(
-	listBranches: number[],
-	current: number,
-	step: 1 | -1
-): number {
+export function stepAlongLane(listBranches: number[], current: number, step: 1 | -1): number {
 	if (current < 0 || current >= listBranches.length) return current;
 	const lane = listBranches[current];
 	for (let index = current + step; index >= 0 && index < listBranches.length; index += step) {
@@ -52,11 +48,7 @@ export function stepAlongLane(
  * chosen on that column is the one nearest in display order, searching outward from `current` so a
  * press lands next to where the eye already is.
  */
-export function stepAcrossLanes(
-	listColumns: number[],
-	current: number,
-	direction: 1 | -1
-): number {
+export function stepAcrossLanes(listColumns: number[], current: number, direction: 1 | -1): number {
 	if (current < 0 || current >= listColumns.length) return current;
 	const column = listColumns[current];
 	let best = current;
@@ -70,8 +62,7 @@ export function stepAcrossLanes(
 		// skipping a whole lane because one of its commits happens to be closer reads as a jump.
 		if (direction === 1 ? candidate <= column : candidate >= column) continue;
 		const distance = Math.abs(index - current);
-		const nearerColumn =
-			direction === 1 ? candidate < bestColumn : candidate > bestColumn;
+		const nearerColumn = direction === 1 ? candidate < bestColumn : candidate > bestColumn;
 		if (nearerColumn || (candidate === bestColumn && distance < bestDistance)) {
 			best = index;
 			bestDistance = distance;

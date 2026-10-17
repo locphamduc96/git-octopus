@@ -57,6 +57,9 @@ export const LIST_ROUTED_BY_STORE = [
 	'commitPlanResult',
 	'commitPlanState',
 	'commitPlanExecuted',
+	'capabilities',
+	'hostNotice',
+	'hostProgress',
 ] as const satisfies readonly HostToWebview['type'][];
 
 export type RoutedByStore = (typeof LIST_ROUTED_BY_STORE)[number];
