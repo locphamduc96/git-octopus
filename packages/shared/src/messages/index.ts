@@ -1449,6 +1449,15 @@ export interface ColorThemeMessage {
 	kind: 'dark' | 'light';
 }
 
+/**
+ * How the editor draws code, so the diff panel draws it the same way: the columns one tab spans.
+ * Sent on webview startup and again whenever the user changes the setting.
+ */
+export interface EditorPrefsMessage {
+	type: 'editorPrefs';
+	tabSize: number;
+}
+
 /** Ask the webview to select a commit and scroll it into view (sent by the sidebar tree). */
 export interface RevealCommitMessage {
 	type: 'revealCommit';
@@ -1496,6 +1505,7 @@ export type HostToWebview =
 	| ViewSettingsMessage
 	| FileIconsMessage
 	| ColorThemeMessage
+	| EditorPrefsMessage
 	| IdentityMessage
 	| WorkspaceIdentitiesMessage
 	| FastForwardCheckMessage

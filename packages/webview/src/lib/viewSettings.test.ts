@@ -22,6 +22,7 @@ function currentPreferences(): GlobalPreferences {
 		columns: { author: false, commit: false, date: true, changes: false },
 		fileView: 'tree',
 		metaOpen: false,
+		listCollapsedSections: [],
 	};
 }
 
@@ -53,6 +54,18 @@ describe('mergePreferences', () => {
 	it('ignores sections the blob does not carry', () => {
 		const merged = mergePreferences(currentPreferences(), {});
 		expect(merged).toEqual(currentPreferences());
+	});
+
+	it('keeps the folded working-tree groups it knows, and drops anything else', () => {
+		const merged = mergePreferences(currentPreferences(), {
+			listCollapsedSections: ['staged', 'nonsense', 3, 'untracked'],
+		});
+		expect(merged.listCollapsedSections).toEqual(['staged', 'untracked']);
+	});
+
+	it('keeps the current folds when the blob has no list there', () => {
+		const merged = mergePreferences(currentPreferences(), { listCollapsedSections: 'staged' });
+		expect(merged.listCollapsedSections).toEqual([]);
 	});
 
 	it('does not read metaOpen from a non-boolean value', () => {

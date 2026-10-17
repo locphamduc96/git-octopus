@@ -74,3 +74,22 @@ export function identityMismatch(
 	if (!suggested) return null;
 	return suggested.email === email ? null : suggested;
 }
+
+/**
+ * Up to two letters for the identity avatar: the first of the first and last words of the name, or
+ * of the email's local part when git has no name. Empty when there is neither.
+ */
+export function identityInitials(name: string | null, email: string | null): string {
+	const source = name?.trim() || email?.split('@')[0] || '';
+	const listWords = source.split(/[\s._-]+/).filter(Boolean);
+	if (listWords.length === 0) return '';
+	const first = listWords[0][0];
+	const last = listWords.length > 1 ? listWords[listWords.length - 1][0] : '';
+	return (first + last).toUpperCase();
+}
+
+/** "Name <email>", or whichever half git has. */
+export function identityLine(name: string | null, email: string | null): string {
+	if (name && email) return `${name} <${email}>`;
+	return name || email || '';
+}

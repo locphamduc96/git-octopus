@@ -74,10 +74,10 @@
 		padding: var(--gg-space-1) var(--gg-space-2);
 		border-bottom: 1px solid var(--gg-border);
 		color: var(--gg-fg-muted);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	.mono {
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 	}
 	.count {
 		margin-left: auto;

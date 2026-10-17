@@ -54,6 +54,8 @@ const mapDiffCache = new Map<string, { listHunks: DiffHunk[]; notice?: string }>
 
 /** Dark or light, told by the host; guessed from the body classes until that message arrives. */
 let themeKind = $state<ColorThemeKind>('dark');
+/** The editor's tab width, until the host says otherwise. */
+let tabSize = $state(4);
 /** Per-line syntax tokens for the open diff, or null while Shiki is not ready for it. */
 let listTokens = $state<HighlightToken[][] | null>(null);
 /** Tokens per diff and theme, so revisiting a file or flipping the theme back is instant. */
@@ -170,6 +172,10 @@ onHostType('colorTheme', (message) => {
 	themeKind = message.kind;
 });
 
+onHostType('editorPrefs', (message) => {
+	tabSize = message.tabSize;
+});
+
 onRepoReset(() => {
 	target = null;
 });
@@ -210,6 +216,9 @@ export const diffView = {
 	},
 	get themeKind(): ColorThemeKind {
 		return themeKind;
+	},
+	get tabSize(): number {
+		return tabSize;
 	},
 	/** The body classes are the only guess available before the host says which theme is on. */
 	setThemeKind(kind: ColorThemeKind): void {

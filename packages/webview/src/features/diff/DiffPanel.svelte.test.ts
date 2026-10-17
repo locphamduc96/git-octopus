@@ -334,3 +334,19 @@ describe('DiffPanel picking lines', () => {
 		expect(off.container.querySelectorAll('.emph')).toHaveLength(0);
 	});
 });
+
+describe('DiffPanel tab size', () => {
+	it('draws tabs as wide as the editor does', () => {
+		const { container } = mount({ tabSize: 2 });
+		expect(
+			(container.querySelector('.diff') as HTMLElement).style.getPropertyValue('--tab-size')
+		).toBe('2');
+	});
+
+	it('falls back to four columns before the host says', () => {
+		const { container } = mount();
+		expect(
+			(container.querySelector('.diff') as HTMLElement).style.getPropertyValue('--tab-size')
+		).toBe('4');
+	});
+});

@@ -175,10 +175,10 @@
 		align-items: center;
 		gap: var(--gg-space-2);
 		max-width: 220px;
-		background: var(--vscode-dropdown-background, var(--gg-bg));
-		color: var(--vscode-dropdown-foreground, var(--gg-fg));
-		border: 1px solid var(--vscode-dropdown-border, var(--gg-border));
-		border-radius: 3px;
+		background: var(--gg-dropdown-bg);
+		color: var(--gg-dropdown-fg);
+		border: 1px solid var(--gg-dropdown-border);
+		border-radius: var(--gg-radius);
 		font: inherit;
 		cursor: pointer;
 		padding: 1px var(--gg-space-2);
@@ -192,7 +192,7 @@
 	.trigger :global(.codicon) {
 		flex: none;
 		color: var(--gg-fg-muted);
-		font-size: 12px;
+		font-size: var(--gg-icon-xs);
 	}
 	.backdrop {
 		position: fixed;
@@ -210,20 +210,20 @@
 		left: 0;
 		min-width: 200px;
 		max-width: 320px;
-		background: var(--vscode-dropdown-background, var(--gg-bg));
-		border: 1px solid var(--vscode-dropdown-border, var(--gg-border));
-		border-radius: 4px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+		background: var(--gg-dropdown-bg);
+		border: 1px solid var(--gg-dropdown-border);
+		border-radius: var(--gg-radius-lg);
+		box-shadow: var(--gg-shadow);
 		padding: var(--gg-space-1);
 	}
 	.filter {
 		width: 100%;
 		box-sizing: border-box;
 		margin-bottom: var(--gg-space-1);
-		background: var(--vscode-input-background);
-		color: var(--vscode-input-foreground);
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 3px;
+		background: var(--gg-input-bg);
+		color: var(--gg-input-fg);
+		border: 1px solid var(--gg-input-border);
+		border-radius: var(--gg-radius);
 		font: inherit;
 		padding: 1px var(--gg-space-2);
 	}
@@ -244,17 +244,17 @@
 		font: inherit;
 		cursor: pointer;
 		padding: 2px var(--gg-space-2);
-		border-radius: var(--gg-radius-item);
+		border-radius: var(--gg-radius);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 	ul button:hover {
-		background: var(--vscode-list-hoverBackground);
+		background: var(--gg-bg-hover);
 	}
 	ul button.selected {
-		background: var(--vscode-list-activeSelectionBackground);
-		color: var(--vscode-list-activeSelectionForeground);
+		background: var(--gg-bg-selected);
+		color: var(--gg-fg-selected);
 	}
 	.empty {
 		padding: 2px var(--gg-space-2);
@@ -266,7 +266,7 @@
 		gap: var(--gg-space-1);
 		padding: var(--gg-space-1) var(--gg-space-2) 0;
 		color: var(--gg-fg-muted);
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 	}

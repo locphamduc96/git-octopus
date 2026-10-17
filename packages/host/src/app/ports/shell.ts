@@ -115,6 +115,8 @@ export interface ControllerShell extends HostShell {
 	/** Folders to look for repositories in. */
 	listRoots(): string[];
 	colorThemeKind(): 'light' | 'dark';
+	/** Columns one tab spans in the editor — the diff panel draws code with the same width. */
+	editorTabSize(): number;
 	/** Ready a view before it is driven: its content, and what it may load. */
 	prepareView(view: ViewChannel): Promise<void>;
 	/** File icons as this view can load them; null when there is no icon theme. */

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import SelectField from '../../lib/ui/SelectField.svelte';
 	import type { WritableSigningKey } from '@git-octopus/shared';
 	import { LIST_WRITABLE_SIGNING_KEYS } from '@git-octopus/shared';
 	import { signing } from '../../lib/stores/signing.svelte';
@@ -124,7 +125,7 @@
 				Format
 				<span class="note">gpg.format — {originLabel(mapValues['gpg.format'])}</span>
 			</span>
-			<select
+			<SelectField
 				aria-label="Signing format"
 				value={format ?? ''}
 				{disabled}
@@ -134,7 +135,7 @@
 				{#each LIST_SIGNING_FORMATS as option (option)}
 					<option value={option}>{option === 'openpgp' ? 'openpgp (gpg)' : option}</option>
 				{/each}
-			</select>
+			</SelectField>
 		</div>
 		<div class="row stacked">
 			<span class="row-label">
@@ -206,14 +207,20 @@
 		padding-top: var(--gg-space-2);
 		border-top: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
 	}
+	/* The same 220px control column as the rest of Settings. */
 	.row {
-		display: flex;
-		align-items: flex-start;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 220px;
+		align-items: center;
 		gap: var(--gg-space-4);
-		padding: var(--gg-space-2) 0;
+		padding: var(--gg-space-3) 0;
 		border-bottom: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
 	}
+	.row > input[type='checkbox'] {
+		justify-self: start;
+	}
 	.row.stacked {
+		display: flex;
 		flex-direction: column;
 		gap: var(--gg-space-1);
 	}
@@ -226,11 +233,11 @@
 	}
 	.note {
 		margin: 0;
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
 	}
 	.warn {
-		color: var(--vscode-editorWarning-foreground, #cca700);
+		color: var(--gg-warning);
 	}
 	.field {
 		display: flex;
@@ -242,26 +249,19 @@
 		min-width: 0;
 		padding: 2px var(--gg-space-2);
 		font: inherit;
-		color: var(--vscode-input-foreground);
-		background: var(--vscode-input-background);
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 2px;
-	}
-	select {
-		font: inherit;
-		color: var(--vscode-dropdown-foreground, var(--gg-fg));
-		background: var(--vscode-dropdown-background, var(--gg-bg));
-		border: 1px solid var(--vscode-dropdown-border, var(--gg-border));
-		border-radius: 2px;
+		color: var(--gg-input-fg);
+		background: var(--gg-input-bg);
+		border: 1px solid var(--gg-input-border);
+		border-radius: var(--gg-radius);
 	}
 	.mini {
 		flex: none;
-		background: var(--vscode-button-secondaryBackground, transparent);
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
+		background: var(--gg-btn2-bg);
+		color: var(--gg-btn2-fg);
 		border: 1px solid var(--gg-border);
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		font: inherit;
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		padding: 1px var(--gg-space-2);
 		cursor: pointer;
 	}
@@ -276,7 +276,7 @@
 		border: none;
 		padding: 0;
 		font: inherit;
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-accent);
 		cursor: pointer;
 	}

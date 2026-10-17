@@ -2,7 +2,13 @@ import type { GitIdentity, WorkingTreeAction, WorkspaceIdentityEntry } from '@gi
 import { postToHost } from '../bridge';
 import { onHostType, onRepoReset } from '../hostRouter';
 import { planCommitGuard } from '../commitGuard';
-import { identityMismatch, listMatchedIdentities, matchIdentity } from '../identity';
+import {
+	identityInitials,
+	identityLine,
+	identityMismatch,
+	listMatchedIdentities,
+	matchIdentity,
+} from '../identity';
 import { planAutoApply } from '../identityAutoApply';
 import type { RepoIdentityState } from '../viewSettings';
 import { prefs } from './prefs.svelte';
@@ -62,7 +68,10 @@ const warning = $derived(
 		? `This repository's remote suggests the "${warningFor.label}" identity (${warningFor.email}), but commits will use ${repoIdentity?.email ?? 'no email'}. Open settings to switch.`
 		: null
 );
-const label = $derived(activeIdentity ? activeIdentity.label : (repoIdentity?.email ?? null));
+/** A saved identity's label, else the name git commits as, else its email. */
+const label = $derived(
+	activeIdentity ? activeIdentity.label : repoIdentity?.name || repoIdentity?.email || null
+);
 
 /** Which repository an identity action is stamped with — see `identityRepo`. */
 function stampRepo(): string {
@@ -163,6 +172,14 @@ export const identity = {
 	},
 	get label(): string | null {
 		return label;
+	},
+	/** Letters for the avatar beside the label — from the person, not the saved identity's label. */
+	get initials(): string {
+		return identityInitials(repoIdentity?.name ?? null, repoIdentity?.email ?? null);
+	},
+	/** "Name <email>" exactly as commits will be stamped. */
+	get line(): string {
+		return identityLine(repoIdentity?.name ?? null, repoIdentity?.email ?? null);
 	},
 	get overridden(): boolean {
 		return repoIdentity?.hasLocalName === true || repoIdentity?.hasLocalEmail === true;

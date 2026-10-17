@@ -13,6 +13,12 @@ describe('displayColumns', () => {
 		expect(displayColumns('ab\tx', 4)).toBe(5);
 	});
 
+	it('follows the editor tab size it is given', () => {
+		expect(displayColumns('\t\tx', 2)).toBe(5);
+		expect(displayColumns('\t\tx', 4)).toBe(9);
+		expect(displayColumns('a\tb', 2)).toBe(3);
+	});
+
 	it('counts precomposed Vietnamese as one column each, and bare combining marks as none', () => {
 		expect(displayColumns('Ngày điều tra', 8)).toBe(13);
 		expect(displayColumns('é', 8)).toBe(1);

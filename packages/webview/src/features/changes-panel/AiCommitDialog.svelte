@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Modal from '../../lib/ui/Modal.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
+	import SelectField from '../../lib/ui/SelectField.svelte';
 	import { aiCommit } from '../../lib/stores/aiCommit.svelte';
 	import { listPlanFiles } from '../../lib/aiCommitPlan';
 
@@ -215,7 +216,8 @@
 								<li>
 									<Icon name="file" />
 									<span class="path" title={file}>{file}</span>
-									<select
+									<SelectField
+										small
 										aria-label="Move {file} to another commit"
 										value={String(current)}
 										onchange={(event) =>
@@ -224,7 +226,7 @@
 										{#each plan.listGroups as _, target (target)}
 											<option value={String(target)}>Commit {target + 1}</option>
 										{/each}
-									</select>
+									</SelectField>
 								</li>
 							{/each}
 						</ul>
@@ -274,23 +276,25 @@
 	{#snippet actions()}
 		{#if aiCommit.phase === 'setup' && aiCommit.error}
 			{#if aiCommit.error.needsLogin}
-				<button class="confirm" onclick={() => aiCommit.openLoginTerminal()}>Open terminal</button>
+				<span class="lead">
+					<button class="cancel" onclick={() => aiCommit.openLoginTerminal()}>Open terminal</button>
+				</span>
 			{/if}
-			<button class="confirm" onclick={() => aiCommit.regenerate()}>Try again</button>
 			<button class="cancel" onclick={() => aiCommit.close()}>Close</button>
+			<button class="confirm" onclick={() => aiCommit.regenerate()}>Try again</button>
 		{:else if aiCommit.phase === 'generating'}
-			<button class="cancel" onclick={() => aiCommit.close()}>Hide</button>
 			<button class="quiet" onclick={() => aiCommit.cancelGenerate()}>Cancel</button>
+			<button class="cancel" onclick={() => aiCommit.close()}>Hide</button>
 		{:else if aiCommit.phase === 'result'}
 			<span class="lead">
-				<button class="confirm" onclick={() => aiCommit.execute()}>
-					{aiCommit.mode === 'split' && plan
-						? `Create ${plan.listGroups.length} commits`
-						: 'Commit'}
-				</button>
-				<button class="cancel" onclick={() => aiCommit.regenerate()}>Regenerate</button>
+				<button class="cancel" onclick={() => aiCommit.regenerate()}
+					><Icon name="sparkle" />Regenerate</button
+				>
 			</span>
-			<button class="quiet" onclick={() => aiCommit.close()}>Cancel</button>
+			<button class="cancel" onclick={() => aiCommit.close()}>Cancel</button>
+			<button class="confirm" onclick={() => aiCommit.execute()}>
+				{aiCommit.mode === 'split' && plan ? `Create ${plan.listGroups.length} commits` : 'Commit'}
+			</button>
 		{:else if aiCommit.phase === 'done'}
 			<button class="confirm" onclick={() => aiCommit.close()}>Close</button>
 		{:else}
@@ -311,7 +315,7 @@
 	}
 	.error {
 		margin: 0;
-		color: var(--vscode-errorForeground, #f48771);
+		color: var(--gg-danger);
 	}
 	.ok {
 		display: flex;
@@ -322,10 +326,10 @@
 	.hint {
 		margin: 0;
 		color: var(--gg-fg-muted);
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 	}
 	code {
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 	}
 	.count {
 		color: var(--gg-fg-muted);
@@ -338,9 +342,9 @@
 		display: flex;
 		gap: 2px;
 		padding: 2px;
-		background: var(--vscode-input-background);
+		background: var(--gg-input-bg);
 		border: 1px solid var(--gg-border);
-		border-radius: var(--gg-radius-item);
+		border-radius: var(--gg-radius);
 	}
 	.seg {
 		display: inline-flex;
@@ -348,16 +352,16 @@
 		gap: var(--gg-space-1);
 		padding: 1px 10px;
 		border: none;
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		background: transparent;
 		color: var(--gg-fg-muted);
 		font: inherit;
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 		cursor: pointer;
 		white-space: nowrap;
 	}
 	.seg:hover:not(.on) {
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 	}
 	.seg.on {
 		background: color-mix(in srgb, var(--gg-fg) 16%, transparent);
@@ -369,10 +373,10 @@
 		gap: var(--gg-space-2);
 		margin: 0;
 		padding: var(--gg-space-1) var(--gg-space-2);
-		border-radius: var(--gg-radius-item);
+		border-radius: var(--gg-radius);
 		background: color-mix(in srgb, var(--gg-accent) 8%, transparent);
 		color: var(--gg-fg-muted);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 	}
 	.strip :global(.codicon) {
 		color: var(--gg-accent);
@@ -401,7 +405,7 @@
 		gap: var(--gg-space-2);
 		padding: var(--gg-space-2) var(--gg-space-3);
 		border: 1px solid var(--gg-border);
-		border-radius: 4px;
+		border-radius: var(--gg-radius-lg);
 		background: transparent;
 		color: var(--gg-fg);
 		font: inherit;
@@ -409,7 +413,7 @@
 		text-align: left;
 	}
 	.agent:hover:not(:disabled) {
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 	}
 	.agent:disabled {
 		opacity: 0.5;
@@ -420,7 +424,7 @@
 	}
 	.agent-detail {
 		color: var(--gg-fg-muted);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 	}
 	.steps {
 		display: flex;
@@ -448,7 +452,7 @@
 		justify-content: center;
 	}
 	.step-done :global(.codicon) {
-		color: var(--vscode-testing-iconPassed, #3fb950);
+		color: var(--gg-success);
 	}
 	.step-spin :global(.codicon) {
 		color: var(--gg-accent);
@@ -476,14 +480,14 @@
 	.step-detail {
 		margin-left: auto;
 		color: var(--gg-fg-muted);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 	}
 	/* Master–detail: the rail keeps the whole plan in view while one commit is edited. */
 	.plan {
 		display: flex;
 		min-height: 280px;
 		border: 1px solid var(--gg-border);
-		border-radius: 4px;
+		border-radius: var(--gg-radius);
 		overflow: hidden;
 	}
 	.rail {
@@ -493,13 +497,13 @@
 		flex-direction: column;
 		padding: var(--gg-space-2) 0;
 		border-right: 1px solid var(--gg-border);
-		background: rgba(0, 0, 0, 0.12);
+		background: var(--gg-bg-raised);
 		overflow-y: auto;
 	}
 	.rail-head {
 		padding: 0 var(--gg-space-3) var(--gg-space-2);
 		color: var(--gg-fg-muted);
-		font-size: 0.75em;
+		font-size: var(--gg-text-xs);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 	}
@@ -516,11 +520,11 @@
 		text-align: left;
 	}
 	.rail-row:hover:not(.on) {
-		background: var(--vscode-list-hoverBackground);
+		background: var(--gg-bg-hover);
 	}
 	.rail-row.on {
-		background: var(--vscode-list-activeSelectionBackground);
-		color: var(--vscode-list-activeSelectionForeground);
+		background: var(--gg-bg-selected);
+		color: var(--gg-fg-selected);
 	}
 	.badge {
 		flex: none;
@@ -532,7 +536,7 @@
 		justify-content: center;
 		border-radius: 50%;
 		background: color-mix(in srgb, currentColor 16%, transparent);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 	}
 	.rail-meta {
 		min-width: 0;
@@ -546,7 +550,7 @@
 		white-space: nowrap;
 	}
 	.rail-count {
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		opacity: 0.75;
 	}
 	.detail {
@@ -563,13 +567,13 @@
 		gap: var(--gg-space-2);
 		margin-top: var(--gg-space-1);
 		color: var(--gg-fg-muted);
-		font-size: 0.75em;
+		font-size: var(--gg-text-xs);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 	}
 	.pill {
 		padding: 0 6px;
-		border-radius: 8px;
+		border-radius: 999px;
 		background: color-mix(in srgb, var(--gg-fg) 12%, transparent);
 		text-transform: none;
 		letter-spacing: 0;
@@ -589,11 +593,11 @@
 		align-items: center;
 		gap: var(--gg-space-2);
 		padding: 3px var(--gg-space-2);
-		border-radius: var(--gg-radius-item);
-		font-size: 0.9em;
+		border-radius: var(--gg-radius);
+		font-size: var(--gg-text-sm);
 	}
 	.files li:hover {
-		background: var(--vscode-list-hoverBackground);
+		background: var(--gg-bg-hover);
 	}
 	.files li :global(.codicon) {
 		color: var(--gg-fg-muted);
@@ -606,70 +610,67 @@
 		white-space: nowrap;
 		direction: rtl;
 		text-align: left;
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: 0.95em;
-	}
-	select {
-		background: var(--vscode-dropdown-background, var(--vscode-input-background));
-		color: var(--gg-fg-muted);
-		border: 1px solid var(--vscode-dropdown-border, var(--gg-border));
-		border-radius: 3px;
-		font: inherit;
-		font-size: 0.85em;
+		font-family: var(--gg-font-mono);
+		font-size: var(--gg-text-sm);
 	}
 	label {
 		display: flex;
 		flex-direction: column;
 		gap: var(--gg-space-1);
 		color: var(--gg-fg-muted);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	.optional {
 		opacity: 0.7;
 	}
 	input,
 	textarea {
-		background: var(--vscode-input-background);
-		color: var(--vscode-input-foreground);
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 3px;
+		background: var(--gg-input-bg);
+		color: var(--gg-input-fg);
+		border: 1px solid var(--gg-input-border);
+		border-radius: var(--gg-radius);
 		font: inherit;
 		padding: var(--gg-space-1) var(--gg-space-2);
 		resize: vertical;
 	}
 	input:focus,
 	textarea:focus {
-		outline: 1px solid var(--vscode-focusBorder);
+		outline: 1px solid var(--gg-focus);
 	}
 	/* Primary and Regenerate travel together; Cancel sits alone at the far edge. */
+	/* Regenerate, or the terminal for a login: a step aside, kept apart from Cancel and the main button. */
 	.lead {
 		display: flex;
 		align-items: center;
 		gap: var(--gg-space-2);
+		margin-right: auto;
 	}
 	.confirm,
 	.cancel {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--gg-space-1);
 		border: none;
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		font: inherit;
 		cursor: pointer;
 		padding: var(--gg-space-1) var(--gg-space-4);
 	}
 	.confirm {
-		background: var(--vscode-button-background);
-		color: var(--vscode-button-foreground);
+		background: var(--gg-btn-bg);
+		color: var(--gg-btn-fg);
 	}
 	.confirm:hover {
-		background: var(--vscode-button-hoverBackground);
+		background: var(--gg-btn-hover);
 	}
 	.cancel {
-		background: var(--vscode-button-secondaryBackground, transparent);
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
+		background: var(--gg-btn2-bg);
+		color: var(--gg-btn2-fg);
 		border: 1px solid var(--gg-border);
 	}
 	.quiet {
 		border: none;
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		background: transparent;
 		color: var(--gg-fg-muted);
 		font: inherit;
@@ -678,6 +679,6 @@
 	}
 	.quiet:hover {
 		color: var(--gg-fg);
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 	}
 </style>

@@ -185,11 +185,11 @@
 	.note {
 		margin: 0;
 		color: var(--gg-fg-muted);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	.error {
 		margin: 0;
-		color: var(--vscode-errorForeground);
+		color: var(--gg-danger);
 	}
 	.rows {
 		list-style: none;
@@ -205,7 +205,7 @@
 		outline: none;
 	}
 	.row.focused {
-		box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
+		box-shadow: inset 2px 0 0 var(--gg-focus);
 	}
 	.row.step-drop .subject,
 	.row.step-drop .hash {
@@ -231,13 +231,13 @@
 		display: inline-flex;
 		flex: none;
 		border: 1px solid var(--gg-border);
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		overflow: hidden;
 	}
 	.actions button {
 		padding: 0 6px;
 		font: inherit;
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		line-height: 18px;
 		color: var(--gg-fg-muted);
 		background: transparent;
@@ -245,11 +245,11 @@
 		cursor: pointer;
 	}
 	.actions button.on {
-		color: var(--vscode-button-foreground);
-		background: var(--vscode-button-background);
+		color: var(--gg-btn-fg);
+		background: var(--gg-btn-bg);
 	}
 	.mono {
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 	}
 	.hash {
 		flex: none;
@@ -266,24 +266,24 @@
 		width: 100%;
 		margin: 4px 0 2px;
 		font: inherit;
-		font-family: var(--vscode-editor-font-family, monospace);
-		color: var(--vscode-input-foreground);
-		background: var(--vscode-input-background);
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
+		font-family: var(--gg-font-mono);
+		color: var(--gg-input-fg);
+		background: var(--gg-input-bg);
+		border: 1px solid var(--gg-input-border);
 	}
 	/* Footer buttons, in VS Code's own button colours. */
 	.btn {
 		padding: 3px var(--gg-space-3);
 		font: inherit;
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
-		background: var(--vscode-button-secondaryBackground, transparent);
+		color: var(--gg-btn2-fg);
+		background: var(--gg-btn2-bg);
 		border: 1px solid var(--gg-border);
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		cursor: pointer;
 	}
 	.btn.primary {
-		color: var(--vscode-button-foreground);
-		background: var(--vscode-button-background);
+		color: var(--gg-btn-fg);
+		background: var(--gg-btn-bg);
 		border-color: transparent;
 	}
 	.btn:disabled {

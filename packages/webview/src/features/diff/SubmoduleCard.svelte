@@ -69,7 +69,7 @@
 		margin: 0;
 	}
 	code {
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 	}
 	.note {
 		margin: 0;
@@ -78,10 +78,10 @@
 	.primary {
 		padding: 2px var(--gg-space-3);
 		font: inherit;
-		color: var(--vscode-button-foreground);
-		background: var(--vscode-button-background);
+		color: var(--gg-btn-fg);
+		background: var(--gg-btn-bg);
 		border: none;
-		border-radius: 2px;
+		border-radius: var(--gg-radius);
 		cursor: pointer;
 	}
 </style>

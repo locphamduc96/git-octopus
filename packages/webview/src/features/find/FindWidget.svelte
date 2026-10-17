@@ -101,16 +101,16 @@
 		gap: var(--gg-space-1);
 		padding: var(--gg-space-1) var(--gg-space-2);
 		border-bottom: 1px solid var(--gg-border);
-		background: var(--vscode-editorWidget-background, var(--gg-bg));
+		background: var(--gg-bg-overlay);
 	}
 	input {
 		flex: 1;
 		min-width: 0;
 		margin-right: var(--gg-space-1);
-		background: var(--vscode-input-background);
-		color: var(--vscode-input-foreground);
-		border: 1px solid var(--vscode-focusBorder, var(--gg-border));
-		border-radius: 3px;
+		background: var(--gg-input-bg);
+		color: var(--gg-input-fg);
+		border: 1px solid var(--gg-focus);
+		border-radius: var(--gg-radius);
 		font: inherit;
 		padding: 1px var(--gg-space-2);
 	}
@@ -119,10 +119,10 @@
 		min-width: 6em;
 		text-align: center;
 		color: var(--gg-fg-muted);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		white-space: nowrap;
 	}
 	.count.error {
-		color: var(--vscode-errorForeground);
+		color: var(--gg-danger);
 	}
 </style>

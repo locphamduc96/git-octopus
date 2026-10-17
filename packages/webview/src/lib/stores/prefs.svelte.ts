@@ -9,6 +9,7 @@ import {
 	type ColumnWidths,
 	type GlobalPreferences,
 	type ViewSettings,
+	type WorkingSection,
 } from '../viewSettings';
 
 /**
@@ -42,6 +43,7 @@ let widths = $state<ColumnWidths>({
 });
 let fileView = $state<FileViewMode>('tree');
 let metaOpen = $state(false);
+let listCollapsedSections = $state<WorkingSection[]>([]);
 
 /**
  * Nothing is saved before the host has said what it holds.
@@ -63,7 +65,7 @@ let syncedPreferences = '';
 const listLoadedHooks: (() => void)[] = [];
 
 function preferencesJson(): string {
-	return JSON.stringify({ settings, columns, fileView, metaOpen });
+	return JSON.stringify({ settings, columns, fileView, metaOpen, listCollapsedSections });
 }
 
 function savePreferences(): void {
@@ -73,7 +75,13 @@ function savePreferences(): void {
 	syncedPreferences = json;
 	postToHost({
 		type: 'saveViewSettings',
-		settings: { settings, columns, fileView, metaOpen } satisfies GlobalPreferences,
+		settings: {
+			settings,
+			columns,
+			fileView,
+			metaOpen,
+			listCollapsedSections,
+		} satisfies GlobalPreferences,
 	});
 }
 
@@ -84,11 +92,15 @@ function applyPreferences(incoming: Record<string, unknown> | null): void {
 		savePreferences();
 		return;
 	}
-	const merged = mergePreferences({ settings, columns, fileView, metaOpen }, incoming);
+	const merged = mergePreferences(
+		{ settings, columns, fileView, metaOpen, listCollapsedSections },
+		incoming
+	);
 	settings = merged.settings;
 	columns = merged.columns;
 	fileView = merged.fileView;
 	metaOpen = merged.metaOpen;
+	listCollapsedSections = merged.listCollapsedSections;
 	syncedPreferences = preferencesJson();
 	for (const hook of listLoadedHooks) hook();
 }
@@ -111,6 +123,9 @@ export const prefs = {
 	get metaOpen(): boolean {
 		return metaOpen;
 	},
+	get listCollapsedSections(): WorkingSection[] {
+		return listCollapsedSections;
+	},
 	setSettings(next: ViewSettings): void {
 		settings = next;
 	},
@@ -119,6 +134,11 @@ export const prefs = {
 	},
 	setMetaOpen(open: boolean): void {
 		metaOpen = open;
+	},
+	toggleSection(section: WorkingSection): void {
+		listCollapsedSections = listCollapsedSections.includes(section)
+			? listCollapsedSections.filter((each) => each !== section)
+			: [...listCollapsedSections, section];
 	},
 	toggleColumn(column: keyof ColumnVisibility): void {
 		columns = { ...columns, [column]: !columns[column] };

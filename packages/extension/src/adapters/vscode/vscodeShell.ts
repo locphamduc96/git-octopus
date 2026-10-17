@@ -116,6 +116,10 @@ export function vscodeControllerShell(
 				? 'light'
 				: 'dark';
 		},
+		editorTabSize: () => {
+			const size = vscode.workspace.getConfiguration('editor').get<unknown>('tabSize', 4);
+			return typeof size === 'number' && size > 0 ? size : 4;
+		},
 		prepareView: async (view) => {
 			// A theme that cannot be read costs the file icons and nothing else — it must never stop
 			// the view from being wired up.

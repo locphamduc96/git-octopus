@@ -1,5 +1,10 @@
 <script lang="ts">
-	import type { ColumnVisibility, ColumnWidths, RowDensity } from '../../lib/viewSettings';
+	import {
+		mapRowHeight,
+		type ColumnVisibility,
+		type ColumnWidths,
+		type RowDensity,
+	} from '../../lib/viewSettings';
 
 	let {
 		columns,
@@ -11,12 +16,6 @@
 		rowDensity: RowDensity;
 	} = $props();
 
-	/** Kept in step with `GraphView`: the skeleton is only useful if the real graph lands on it. */
-	const mapRowHeight: Record<RowDensity, number> = {
-		compact: 26,
-		comfortable: 34,
-		spacious: 44,
-	};
 	const ROW_H = $derived(mapRowHeight[rowDensity]);
 	const COL_W = 20;
 	const PAD = 12;
@@ -154,7 +153,7 @@
 		min-height: 0;
 		overflow: hidden;
 		/* Faded tail: unlike real rows, the placeholder has no end, so it should not look like one. */
-		mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
+		mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
 	}
 	.lines {
 		position: absolute;
@@ -187,6 +186,6 @@
 	}
 	.chip {
 		height: 14px;
-		border-radius: var(--gg-chip-radius);
+		border-radius: var(--gg-radius);
 	}
 </style>

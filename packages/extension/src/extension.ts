@@ -286,6 +286,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		vscode.window.registerWebviewPanelSerializer(GitOctopusTab.viewType, tab),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if (event.affectsConfiguration('workbench.iconTheme')) void controller.refreshIconTheme();
+			if (event.affectsConfiguration('editor.tabSize')) controller.refreshEditorPrefs();
 		}),
 		// A theme can ship a second set of icons for light backgrounds, and the refresh also
 		// resends the colour kind that drives the diff panel's syntax colours.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- The refreshed look from Git Octopus 0.26.0: theme tokens, softer corners, quieter graph rows,
+  the Working tree panel, compact commit details, themed Settings controls and one footer order for
+  every dialog.
+
 ## 0.2.0
 
 - **Tabs**, one repository each, across the top of the window — the strip is also the title bar

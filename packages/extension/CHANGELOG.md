@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.26.1
+
+### Changed
+
+- **The working-tree groups are cards.** Staged Changes, Changes, Untracked and Conflicts each sit in
+  a card of their own, and fold away from their header — handy for a long staged list. Folds are
+  remembered with your other view preferences.
+
+## 0.26.0
+
+### Changed
+
+- **A refreshed look, drawn from your theme.** Every colour, text size and corner now comes from one
+  set of tokens mapped to VS Code's theme colours, so a light theme gets its own hues — commit-type
+  chips included — instead of the dark theme's on white. Corners are softer to sit with VS Code's
+  own chrome, and a hovered or selected row is inset with rounded ends.
+- **Quieter graph rows.** The commit-type chip is a soft tint instead of an outline, and a ticket
+  like `GAME-421` is plain muted text, so a row carries one coloured block at most. Branch and tag
+  chips share one neutral look: a tag or stash is told apart by its icon's colour, and the
+  checked-out branch by an accent ring. Ahead and behind read `↑2 ↓1` in the accent colour on the
+  chips and on Pull and Push alike.
+- **Working tree and HEAD on the graph.** The line from the uncommitted changes down to HEAD is
+  dashed, and the checked-out commit has a halo.
+- **Identity** shows as initials and a name; the full `name <email>` is in its tooltip.
+- **The changes panel** is titled Working tree with a count, and lists Staged Changes first, as
+  Source Control does.
+- **Commit details** keep the author, date, hash (click to copy), parents and signature on a couple
+  of compact lines, shown whether the message is folded or not.
+- **Diffs** draw tabs as wide as the editor's `editor.tabSize`.
+- **Settings** controls follow the theme, sit in one column, and a long explanation moved behind
+  an ⓘ.
+- **Dialogs** end the same way: Cancel, then the main action, in the bottom-right corner. Cleaning up
+  branches has a select-all box that shows a partial pick, and marks unmerged work with a warning
+  icon as well as colour.
+
 ## 0.25.2
 
 ### Fixed

@@ -99,7 +99,7 @@
 		padding: var(--gg-space-1) var(--gg-space-2);
 		border-bottom: 1px solid var(--gg-border);
 		color: var(--gg-fg-muted);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	.path {
 		min-width: 0;
@@ -124,11 +124,11 @@
 		padding-right: var(--gg-space-1);
 	}
 	li:hover {
-		background: var(--vscode-list-hoverBackground);
+		background: var(--gg-bg-hover);
 	}
 	li.active {
-		background: var(--vscode-list-activeSelectionBackground);
-		color: var(--vscode-list-activeSelectionForeground);
+		background: var(--gg-bg-selected);
+		color: var(--gg-fg-selected);
 	}
 	.open {
 		display: flex;
@@ -157,14 +157,14 @@
 	}
 	.sub {
 		color: var(--gg-fg-muted);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	li.active .sub {
 		color: inherit;
 		opacity: 0.8;
 	}
 	.mono {
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 	}
 	.st {
 		flex: none;
@@ -173,22 +173,22 @@
 		font-weight: 600;
 	}
 	.st-A {
-		color: var(--vscode-gitDecoration-addedResourceForeground, #4caf50);
+		color: var(--gg-added);
 	}
 	.st-M,
 	.st-R,
 	.st-C,
 	.st-T {
-		color: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+		color: var(--gg-modified);
 	}
 	.st-D {
-		color: var(--vscode-gitDecoration-deletedResourceForeground, #f44336);
+		color: var(--gg-deleted);
 	}
 	.hint {
 		padding: var(--gg-space-3);
 		color: var(--gg-fg-muted);
 	}
 	.hint.error {
-		color: var(--vscode-errorForeground);
+		color: var(--gg-danger);
 	}
 </style>

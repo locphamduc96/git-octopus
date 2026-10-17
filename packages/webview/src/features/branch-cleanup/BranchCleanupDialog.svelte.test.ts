@@ -94,3 +94,28 @@ describe('BranchCleanupDialog', () => {
 		expect(screen.getByRole('button', { name: /Delete 1 branch/ })).toBeTruthy();
 	});
 });
+
+describe('BranchCleanupDialog select all and presets', () => {
+	it('shows a partly ticked list as a mixed box, and ticks the rest when clicked', async () => {
+		const user = userEvent.setup();
+		mount([OLD_MERGED, OLD_UNMERGED]);
+		const all = screen.getByRole('checkbox', { name: 'Select all 2' }) as HTMLInputElement;
+		expect(all.checked).toBe(false);
+		expect(all.indeterminate).toBe(true);
+		await user.click(all);
+		expect(box('old-unmerged').checked).toBe(true);
+		expect(all.checked).toBe(true);
+		expect(all.indeterminate).toBe(false);
+	});
+
+	it('marks the preset in use as pressed', () => {
+		mount([OLD_MERGED]);
+		expect(screen.getByRole('button', { name: '6mo' }).getAttribute('aria-pressed')).toBe('true');
+		expect(screen.getByRole('button', { name: '3mo' }).getAttribute('aria-pressed')).toBe('false');
+	});
+
+	it('marks an unmerged branch with a warning icon as well as colour', () => {
+		mount([OLD_MERGED, OLD_UNMERGED]);
+		expect(document.querySelectorAll('.reason.danger .codicon-warning')).toHaveLength(1);
+	});
+});

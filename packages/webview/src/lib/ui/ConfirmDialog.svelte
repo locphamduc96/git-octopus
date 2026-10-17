@@ -25,8 +25,8 @@
 		<p>{message}</p>
 	{/snippet}
 	{#snippet actions()}
-		<button class="confirm" class:danger onclick={onconfirm}>{confirmLabel}</button>
 		<button class="cancel" onclick={oncancel}>{cancelLabel}</button>
+		<button class="confirm" class:danger onclick={onconfirm}>{confirmLabel}</button>
 	{/snippet}
 </Modal>
 
@@ -37,31 +37,28 @@
 	}
 	button {
 		border: none;
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		font: inherit;
 		cursor: pointer;
 		padding: var(--gg-space-1) var(--gg-space-4);
 	}
 	.confirm {
-		background: var(--vscode-button-background);
-		color: var(--vscode-button-foreground);
+		background: var(--gg-btn-bg);
+		color: var(--gg-btn-fg);
 	}
 	.confirm:hover {
-		background: var(--vscode-button-hoverBackground);
+		background: var(--gg-btn-hover);
 	}
 	.confirm.danger {
-		background: var(--vscode-inputValidation-errorBorder, #c74e39);
-		color: #fff;
+		background: var(--gg-btn-danger-bg);
+		color: var(--gg-btn-danger-fg);
 	}
 	.cancel {
-		background: var(--vscode-button-secondaryBackground, transparent);
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
+		background: var(--gg-btn2-bg);
+		color: var(--gg-btn2-fg);
 		border: 1px solid var(--gg-border);
 	}
 	.cancel:hover {
-		background: var(
-			--vscode-button-secondaryHoverBackground,
-			var(--vscode-toolbar-hoverBackground)
-		);
+		background: var(--gg-btn2-hover);
 	}
 </style>

@@ -70,6 +70,16 @@
 		setSelected = setNext;
 	}
 
+	/** `indeterminate` is a property with no attribute, so it has to be set on the element itself. */
+	function mixed(node: HTMLInputElement, on: boolean) {
+		node.indeterminate = on;
+		return {
+			update(next: boolean) {
+				node.indeterminate = next;
+			},
+		};
+	}
+
 	function toggleAll(): void {
 		setSelected = allPicked ? new Set() : new Set(listSelectable.map((row) => row.entry.name));
 	}
@@ -116,11 +126,18 @@
 		{:else}
 			<div class="threshold">
 				<span class="label">Older than</span>
-				{#each LIST_MONTH_PRESETS as preset (preset)}
-					<button class="preset" class:active={months === preset} onclick={() => (months = preset)}>
-						{preset}mo
-					</button>
-				{/each}
+				<div class="seg" role="group" aria-label="Age presets">
+					{#each LIST_MONTH_PRESETS as preset (preset)}
+						<button
+							class="preset"
+							class:active={months === preset}
+							aria-pressed={months === preset}
+							onclick={() => (months = preset)}
+						>
+							{preset}mo
+						</button>
+					{/each}
+				</div>
 				<input
 					type="number"
 					min="0"
@@ -139,9 +156,19 @@
 			{#if listRows.length === 0}
 				<p class="hint">Nothing to clean up at this threshold.</p>
 			{:else}
-				<button class="select-all" onclick={toggleAll}>
-					{allPicked ? 'Clear selection' : `Select all ${listSelectable.length}`}
-				</button>
+				<!-- One box for the whole list, the way a column of checkboxes is ticked everywhere else:
+				     it shows the state (none, some, all) as well as changing it. -->
+				<label class="select-all">
+					<input
+						type="checkbox"
+						checked={allPicked}
+						use:mixed={listPicked.length > 0 && !allPicked}
+						disabled={listSelectable.length === 0}
+						onchange={toggleAll}
+						aria-label="Select all {listSelectable.length}"
+					/>
+					<span>{listPicked.length} of {listSelectable.length} selected</span>
+				</label>
 				<ul class="branches">
 					{#each listRows as row (row.entry.name)}
 						<li class:locked={!row.selectable}>
@@ -159,6 +186,7 @@
 								<span class="subject">{row.entry.subject}</span>
 								{#if row.reason}
 									<span class="reason" class:danger={!row.entry.merged && row.selectable}>
+										{#if !row.entry.merged && row.selectable}<Icon name="warning" />{/if}
 										{row.reason}
 									</span>
 								{/if}
@@ -172,7 +200,6 @@
 
 	{#snippet actions()}
 		{#if listResults}
-			<span></span>
 			<button class="primary" onclick={onclose}>Close</button>
 		{:else if confirming}
 			<span class="confirm-text">
@@ -204,25 +231,25 @@
 	}
 	.label {
 		color: var(--gg-fg-muted);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	.summary {
 		margin: 0;
 		color: var(--gg-fg-muted);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	.hint {
 		margin: 0;
 		color: var(--gg-fg-muted);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		line-height: 1.5;
 	}
 	input[type='number'] {
 		width: 4em;
-		background: var(--vscode-input-background, var(--gg-bg));
-		color: var(--vscode-input-foreground, var(--gg-fg));
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 3px;
+		background: var(--gg-input-bg);
+		color: var(--gg-input-fg);
+		border: 1px solid var(--gg-input-border);
+		border-radius: var(--gg-radius);
 		font: inherit;
 		padding: 2px var(--gg-space-1);
 	}
@@ -263,7 +290,7 @@
 	.age {
 		flex: none;
 		color: var(--gg-fg-muted);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 	}
 	.detail {
 		display: flex;
@@ -271,7 +298,7 @@
 		gap: var(--gg-space-2);
 		/* Lines up under the branch name, past the checkbox. */
 		padding-left: calc(var(--gg-space-2) + 16px);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
 	}
 	.subject {
@@ -284,8 +311,15 @@
 	.reason {
 		flex: none;
 	}
+	/* A word and a mark, not only a colour: the warning has to read without red. */
 	.reason.danger {
-		color: var(--vscode-inputValidation-errorBorder, #c74e39);
+		display: inline-flex;
+		align-items: center;
+		gap: var(--gg-space-1);
+		color: var(--gg-danger);
+	}
+	.reason.danger :global(.codicon) {
+		font-size: var(--gg-icon-xs);
 	}
 	.results li {
 		display: flex;
@@ -294,55 +328,75 @@
 		padding: 2px 0;
 	}
 	.results li.failed .why {
-		color: var(--vscode-inputValidation-errorBorder, #c74e39);
-		font-size: 0.85em;
+		color: var(--gg-danger-border);
+		font-size: var(--gg-text-xs);
 	}
 	.hash {
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: 0.85em;
+		font-family: var(--gg-font-mono);
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
 	}
 	.confirm-text {
-		font-size: 0.9em;
+		margin-right: auto;
+		font-size: var(--gg-text-sm);
 	}
 	.pair {
 		display: flex;
 		gap: var(--gg-space-2);
 	}
 	button {
-		background: var(--vscode-button-secondaryBackground, transparent);
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
+		background: var(--gg-btn2-bg);
+		color: var(--gg-btn2-fg);
 		border: 1px solid var(--gg-border);
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		font: inherit;
 		padding: 3px var(--gg-space-3);
 		cursor: pointer;
 	}
 	button.primary {
-		background: var(--vscode-button-background);
-		color: var(--vscode-button-foreground);
+		background: var(--gg-btn-bg);
+		color: var(--gg-btn-fg);
 		border-color: transparent;
 	}
 	button.danger {
-		background: var(--vscode-inputValidation-errorBorder, #c74e39);
-		color: #fff;
+		background: var(--gg-btn-danger-bg);
+		color: var(--gg-btn-danger-fg);
 		border-color: transparent;
 	}
 	button:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}
+	/* The presets as one segmented control, the shape every either-or switch in the view takes. */
+	.seg {
+		display: inline-flex;
+		gap: 2px;
+		padding: 2px;
+		border: 1px solid var(--gg-dropdown-border);
+		border-radius: var(--gg-radius);
+		background: var(--gg-dropdown-bg);
+	}
 	button.preset {
 		padding: 2px var(--gg-space-2);
+		border: none;
+		border-radius: var(--gg-radius-sm);
+		background: transparent;
+		color: var(--gg-fg-muted);
+	}
+	button.preset:hover {
+		color: var(--gg-fg);
 	}
 	button.preset.active {
-		background: var(--vscode-button-background);
-		color: var(--vscode-button-foreground);
-		border-color: transparent;
+		background: var(--gg-bg-tool-active);
+		color: var(--gg-fg);
 	}
-	button.select-all {
+	.select-all {
+		display: flex;
+		align-items: center;
+		gap: var(--gg-space-2);
 		align-self: flex-start;
-		padding: 2px var(--gg-space-2);
-		font-size: 0.85em;
+		font-size: var(--gg-text-sm);
+		font-weight: 600;
+		cursor: pointer;
 	}
 </style>

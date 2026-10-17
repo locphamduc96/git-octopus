@@ -16,7 +16,7 @@
 	import { graphColour } from '../../lib/graphColours';
 	import { laneX, type LaneMetrics } from '../../lib/graphPath';
 	import { rowWindow, shouldAskLoadMore } from '../../lib/virtualWindow';
-	import { laneSegments } from '../../lib/graphSegments';
+	import { laneSegments, type LaneSegment } from '../../lib/graphSegments';
 	import type { ParsedSubject } from '../../lib/commitSubject';
 	import { formatSubject, parseSubject, typeColour } from '../../lib/commitSubject';
 	import type { RefChip } from '../../lib/graphChips';
@@ -47,6 +47,7 @@
 	import RefIcon from '../../lib/ui/RefIcon.svelte';
 	import {
 		LIST_DEFAULT_COLUMN_ORDER,
+		mapRowHeight,
 		normalizeColumnOrder,
 		type OptionalColumn,
 	} from '../../lib/viewSettings';
@@ -232,15 +233,6 @@
 		return false;
 	}
 
-	/**
-	 * Row heights per density. Every step stays taller than the text needs, so the lane curves keep
-	 * room to read as smooth transitions rather than corners.
-	 */
-	const mapRowHeight: Record<RowDensity, number> = {
-		compact: 26,
-		comfortable: 34,
-		spacious: 44,
-	};
 	const ROW_H = $derived(mapRowHeight[rowDensity]);
 	const COL_W = 20;
 	const PAD = 12;
@@ -258,7 +250,7 @@
 	const CURVE = 8;
 	/** Codicon glyph for `archive`, drawn inside the stash node. */
 	const STASH_GLYPH = '';
-	/** Glyph in the square at the head of a chip that is not a branch. */
+	/** Icon at the head of a chip that is not a branch. */
 	const mapChipGlyph: Record<'tag' | 'stash' | 'head', string> = {
 		tag: 'tag',
 		stash: 'archive',
@@ -390,6 +382,22 @@
 		curve: CURVE,
 		style: graphStyle,
 	});
+
+	/*
+	 * The line from the working tree down to HEAD is drawn dashed: what it joins is not a commit yet.
+	 * It is the working-tree row's lane, from that row's node to HEAD's, through any rows between.
+	 */
+	const headIndex = $derived(rows.findIndex((row) => row.commit.hash === headHash));
+	const wtBranch = $derived(
+		rows[0]?.commit.isUncommitted
+			? (laneSegments(rows[0], metrics).find((segment) => segment.fromNode)?.branch ?? null)
+			: null
+	);
+	function isWorkingLine(segment: LaneSegment, index: number, row: GraphRow): boolean {
+		if (wtBranch === null) return false;
+		if (row.commit.isUncommitted) return segment.fromNode;
+		return index <= headIndex && !segment.fromNode && segment.branch === wtBranch;
+	}
 
 	/** Chips of one commit, ordered and collapsed by the pure helper in `lib/graphChips`. */
 	const chipsFor = (refs: Ref[]): RefChip[] =>
@@ -812,23 +820,21 @@
 
 <svelte:window onmousemove={onResizeMove} onmouseup={() => (resizing = null)} />
 
-{#snippet chipBody(chip: RefChip, colour: string)}
+{#snippet chipBody(chip: RefChip)}
 	{#if chip.kind !== 'branch'}
-		<span class="glyph" style={chip.kind === 'head' ? undefined : `background:${colour}`}>
+		<span class="glyph">
 			<Icon name={mapChipGlyph[chip.kind]} />
 		</span>
 	{/if}
 	<span class="seg">
-		{#if chip.checkedOut}<RefIcon name="check" size={12} />{/if}
+		{#if chip.checkedOut}<span class="check"><RefIcon name="check" size={12} /></span>{/if}
 		<span class="ref-name">{chip.name}</span>
 	</span>
 	{#if chip.hasLocal}
 		<span class="seg indicator"><RefIcon name="device-desktop" /></span>
 	{/if}
 	{#if chip.listRemotes.length > 0}
-		<!-- The divider marks where the local half of a combined chip ends, so a remote-only chip
-		     carries none. -->
-		<span class="seg indicator" class:divided={chip.hasLocal}><RefIcon name="cloud" /></span>
+		<span class="seg indicator"><RefIcon name="cloud" /></span>
 	{/if}
 	{#if showTracking && chip.tracking && !isLevel(chip.tracking)}
 		<!-- Nothing is drawn while a branch is level: the column is narrow, and a badge that appears
@@ -895,6 +901,7 @@
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<span
 						class="hcell"
+						class:end={column.key === 'date'}
 						class:drop-column={draggedColumn !== null && draggedColumn !== column.key}
 						ondragover={(event) => {
 							if (draggedColumn === null || draggedColumn === column.key) return;
@@ -966,7 +973,10 @@
 								stroke={graphColour(segment.colour)}
 								stroke-width={EDGE_W}
 								stroke-linecap="round"
-								stroke-dasharray={isStash && segment.fromNode ? '3 3' : undefined}
+								stroke-dasharray={(isStash && segment.fromNode) ||
+								isWorkingLine(segment, v.index, v.row)
+									? '3 3'
+									: undefined}
 								fill="none"
 							/>
 						{/each}
@@ -982,6 +992,18 @@
 						/>
 
 						<g class:dim={hoveredBranch !== null && v.row.nodeBranch !== hoveredBranch}>
+							{#if commit.hash === headHash && !commit.isUncommitted}
+								<!-- A halo marks the checked-out commit on the graph itself, not only on its chip. -->
+								<circle
+									class="head-halo"
+									cx={nodeX}
+									cy={ROW_H / 2}
+									r={(avatar ? AVATAR_R : NODE_R) + 4}
+									fill="none"
+									stroke={colour}
+									stroke-width="2"
+								/>
+							{/if}
 							{#if isStash}
 								<text
 									x={nodeX}
@@ -1000,6 +1022,7 @@
 									fill="none"
 									stroke={colour}
 									stroke-width="2"
+									stroke-dasharray="2.5 2"
 								/>
 							{:else if isMerge}
 								<!-- A ring with a dot in it: a merge has no single author worth showing, and the
@@ -1100,10 +1123,6 @@
 						onmouseleave={scheduleExpandClose}
 					>
 						{#each chipGroups.listVisible as chip (chip.kind + chip.name)}
-							{@const chipColour = graphColour(v.row.nodeColour)}
-							<!-- Only the checked-out chip takes the branch colour: it is the one fact worth
-							     spending colour on in a column of otherwise identical grey chips. -->
-							{@const border = chip.checkedOut ? `border-color:${chipColour}` : undefined}
 							{#if chip.kind === 'branch'}
 								<button
 									class="ref branch"
@@ -1130,19 +1149,17 @@
 										event.stopPropagation();
 										oncheckoutBranch(chip.hasLocal ? chip.name : null, chipRemote(chip));
 									}}
-									style={border}
 								>
-									{@render chipBody(chip, chipColour)}
+									{@render chipBody(chip)}
 								</button>
 							{:else}
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<span
 									class="ref {chip.kind}"
 									use:tooltip={chip.title}
-									style={border}
 									oncontextmenu={(event) => openRefMenu(event, v.row.commit, chip)}
 								>
-									{@render chipBody(chip, chipColour)}
+									{@render chipBody(chip)}
 								</span>
 							{/if}
 						{/each}
@@ -1179,12 +1196,12 @@
 								use:tooltip={look.label}><Icon name={look.icon} label={look.label} /></span
 							>{/if}{#if showTypeBadge && v.row.commit.parents.length > 1}<span
 								class="type"
-								style="color:{typeColour('merge')}; border-color:{typeColour('merge')}"
+								style="color:{typeColour('merge')}"
 								use:tooltip={`Merge commit — ${v.row.commit.parents.length} parents`}>merge</span
 							>{/if}{#if showTicketBadge && parsed.ticket}<span class="ticket">{parsed.ticket}</span
 							>{/if}{#if showTypeBadge && parsed.type}<span
 								class="type"
-								style="color:{typeColour(parsed.type)}; border-color:{typeColour(parsed.type)}"
+								style="color:{typeColour(parsed.type)}"
 								>{parsed.type}{parsed.scope ? `(${parsed.scope})` : ''}</span
 							>{/if}{subjectText(parsed)}
 					</span>
@@ -1241,7 +1258,7 @@
 						checkoutChip(chip);
 					}}
 				>
-					{@render chipBody(chip, 'var(--gg-accent)')}
+					{@render chipBody(chip)}
 				</button>
 			{:else}
 				<span
@@ -1249,7 +1266,7 @@
 					title={chip.title}
 					oncontextmenu={(event) => openRefMenu(event, expandCommit, chip)}
 				>
-					{@render chipBody(chip, 'var(--gg-accent)')}
+					{@render chipBody(chip)}
 				</span>
 			{/if}
 		{/each}
@@ -1310,19 +1327,22 @@
 		box-sizing: border-box;
 		border-bottom: 1px solid var(--gg-border);
 		color: var(--gg-fg-muted);
+		font-size: var(--gg-text-sm);
 	}
-	/*
-	 * Every header label is centred over its column, whatever the cells below do. The header names a
-	 * column rather than labelling any one value in it, so hanging them all on the same alignment
-	 * reads as one strip; aligning each to its own content turned it into a ragged line.
-	 */
+	/* Each label starts where its column's text starts; Date, whose values hang right, ends with them. */
 	.hcell {
 		position: relative;
 		display: flex;
 		align-items: center;
-		justify-content: center;
+		justify-content: flex-start;
 		white-space: nowrap;
 		min-width: 0;
+	}
+	.hcell:first-child {
+		padding-left: var(--gg-space-2);
+	}
+	.hcell.end {
+		justify-content: flex-end;
 	}
 	.hlabel {
 		overflow: hidden;
@@ -1333,7 +1353,7 @@
 	}
 	/* While a column label is being dragged, every other optional column is a place it can land. */
 	.hcell.drop-column {
-		outline: 1px dashed var(--vscode-focusBorder);
+		outline: 1px dashed var(--gg-focus);
 		outline-offset: -2px;
 	}
 	/* Sits in the grid gap so the divider line lands exactly between two columns. */
@@ -1414,25 +1434,25 @@
 		z-index: 0;
 	}
 	/* The highlight is a layer inset from the row, not the row's own background: that is what buys
-	   the 2px gutter and the rounded corners without a border shifting the column grid. */
+	   the gutter and the rounded corners without a border shifting the column grid. */
 	.row::before {
 		content: '';
 		position: absolute;
-		inset: 2px;
+		inset: 2px var(--gg-row-inset);
 		z-index: -1;
-		border-radius: 2px;
+		border-radius: var(--gg-radius);
 		pointer-events: none;
 		/* Short enough that the row still feels like it lights up under the pointer, not after it. */
 		transition: background-color 60ms var(--gg-ease);
 	}
 	.row:hover::before {
-		background: var(--vscode-list-hoverBackground);
+		background: var(--gg-bg-hover);
 	}
 	.row.selected::before {
-		background: var(--vscode-list-activeSelectionBackground);
+		background: var(--gg-bg-selected);
 	}
 	.row.selected {
-		color: var(--vscode-list-activeSelectionForeground);
+		color: var(--gg-fg-selected);
 	}
 	.row.selected .subject,
 	.row.selected .muted {
@@ -1440,13 +1460,13 @@
 	}
 	/* Under the selection: a selected match reads as selected, the find colour returns once it moves on. */
 	.row.find-match:not(.selected)::before {
-		background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+		background: var(--gg-find-highlight-bg);
 	}
 	.row.find-current:not(.selected)::before {
-		background: var(--vscode-editor-findMatchBackground, rgba(81, 92, 106, 0.8));
+		background: var(--gg-find-bg);
 	}
 	.row.find-current::before {
-		outline: 1px solid var(--vscode-editor-findMatchBorder, var(--gg-accent));
+		outline: 1px solid var(--gg-find-border);
 		outline-offset: -1px;
 	}
 	/* On the highlight layer, so the compare marker traces the same inset rounded rect. */
@@ -1475,17 +1495,17 @@
 		align-items: stretch;
 		min-width: 0;
 		flex: 0 1 auto;
-		font-size: 12px;
+		font-size: var(--gg-text-sm);
 		line-height: 18px;
 		/* Fixed, not a minimum: an icon's line box must never make one chip taller than its neighbour.
 		   Border-box so the border and any padding a variant adds come out of this height rather than
 		   on top of it — otherwise the one chip that pads itself stands taller than the rest. */
 		box-sizing: border-box;
 		height: 20px;
-		border-radius: 5px;
+		border-radius: var(--gg-radius);
 		border: 1px solid var(--gg-chip-border);
 		background: var(--gg-chip-bg);
-		/* Keeps the tag/stash colour block inside the chip's rounded corners. */
+		/* Keeps a long name clipped inside the rounded corners. */
 		overflow: hidden;
 	}
 	.ref .seg {
@@ -1499,27 +1519,26 @@
 	.ref .seg.indicator {
 		flex: none;
 		justify-content: center;
-		width: 20px;
+		width: 18px;
 		padding: 0;
+		color: var(--gg-fg-muted);
 	}
-	.ref .seg.indicator.divided {
-		border-left: 1px solid var(--gg-chip-border);
-	}
-	/* Divided like the indicators it follows: the drift is a fact about the chip's local half, and
-	   the rule is what keeps it from reading as part of the branch name. */
+	/* The drift reads in the accent colour, the same ↑N ↓N as on the Pull / Push buttons. */
 	.ref .seg.tracking {
 		flex: none;
 		gap: 3px;
-		border-left: 1px solid var(--gg-chip-border);
+		padding-left: 2px;
+		color: var(--gg-accent);
+		font-weight: 600;
 		font-variant-numeric: tabular-nums;
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 		/* Same flex baseline as every other seg: the arrows are glyphs and would otherwise ride up. */
 		align-items: center;
 	}
 	.ref .seg.tracking.gone {
-		color: var(--vscode-errorForeground, #f48771);
+		color: var(--gg-danger);
 		text-transform: uppercase;
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 		letter-spacing: 0.04em;
 	}
 	.ref .drift {
@@ -1543,23 +1562,30 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-	/* A tag or stash leads with its icon on a filled block, the way the branch colour reads on a node. */
+	/* A tag or stash leads with its icon in its own colour; the chip body stays the same neutral grey
+	   as every other ref, so colour in this column means a kind of ref, never a lane. */
 	.ref .glyph {
 		flex: none;
 		display: inline-flex;
 		align-items: center;
-		padding: 0 4px;
-		color: var(--gg-bg);
+		padding-left: 5px;
+		color: var(--gg-fg-muted);
+	}
+	.ref.tag .glyph {
+		color: var(--gg-tag);
+	}
+	.ref.stash .glyph {
+		color: var(--gg-stash);
 	}
 	.ref .glyph :global(.codicon) {
-		font-size: 13px;
+		font-size: var(--gg-icon-sm);
 		opacity: 1;
 	}
 	/* Detached HEAD is a state to get out of, not a ref to admire — it borrows the warning colour
 	   rather than a lane colour, so it never reads as one more branch on the row. */
 	.ref.head {
-		border-color: var(--vscode-editorWarning-foreground, #cca700);
-		color: var(--vscode-editorWarning-foreground, #cca700);
+		border-color: var(--gg-warning);
+		color: var(--gg-warning);
 		font-weight: 600;
 	}
 	.ref.head .glyph {
@@ -1579,7 +1605,7 @@
 		padding: 0;
 	}
 	.ref.branch:hover {
-		background: var(--vscode-list-hoverBackground);
+		background: var(--gg-bg-hover);
 	}
 	/* Where the dragged branch may land, and the one it would land on right now. */
 	.ref.droppable {
@@ -1588,10 +1614,19 @@
 	}
 	.ref.drop-hover {
 		border-style: solid;
-		background: var(--vscode-list-dropBackground, var(--vscode-list-hoverBackground));
+		background: var(--gg-bg-drop);
+	}
+	/* The checked-out branch is the one chip that takes the accent: ring, tint and its check mark. */
+	.ref.current {
+		border-color: var(--gg-accent);
+		background: color-mix(in srgb, var(--gg-accent) 14%, transparent);
 	}
 	.ref.current .ref-name {
 		font-weight: 600;
+	}
+	.ref .check {
+		display: inline-flex;
+		color: var(--gg-accent);
 	}
 	.ref.current :global(.codicon) {
 		opacity: 1;
@@ -1619,10 +1654,10 @@
 		align-items: flex-end;
 		gap: var(--gg-space-1);
 		padding: var(--gg-space-1);
-		border-radius: 6px;
-		background: var(--vscode-menu-background, var(--gg-bg));
-		border: 1px solid var(--vscode-menu-border, var(--gg-chip-border));
-		box-shadow: 0 4px 12px rgb(0 0 0 / 36%);
+		border-radius: var(--gg-radius-lg);
+		background: var(--gg-menu-bg);
+		border: 1px solid var(--gg-menu-border);
+		box-shadow: var(--gg-shadow);
 	}
 	/* The panel behind them is opaque, so these only need to read as chips against it — the same
 	   lift a chip has against a row, left alone rather than tuned for a second background. */
@@ -1632,7 +1667,7 @@
 	}
 	.ref :global(.codicon) {
 		flex: none;
-		font-size: 14px;
+		font-size: var(--gg-icon-sm);
 		opacity: 0.9;
 	}
 	.subject {
@@ -1648,42 +1683,48 @@
 		margin-right: var(--gg-space-1);
 	}
 	.signature :global(.codicon) {
-		font-size: 13px;
+		font-size: var(--gg-icon-sm);
 	}
 	.signature.good {
-		color: var(--vscode-testing-iconPassed, #73c991);
+		color: var(--gg-success);
 	}
 	.signature.warn {
-		color: var(--vscode-editorWarning-foreground, #cca700);
+		color: var(--gg-warning);
 	}
 	.signature.bad {
-		color: var(--vscode-errorForeground, #f48771);
+		color: var(--gg-danger);
 	}
-	/* Outlined rather than filled, so every colour stays legible on light and dark themes. */
-	.ticket,
+	/* A soft tint of the type's own colour, with no outline: one quiet block per row, so the subject
+	   is still what the eye lands on. The hue comes from the theme, tuned for its background. */
 	.type {
 		display: inline-block;
 		margin-right: var(--gg-space-1);
 		padding: var(--gg-chip-padding);
-		border: 1px solid;
-		border-radius: var(--gg-chip-radius);
-		font-size: var(--gg-chip-font-size);
+		border-radius: var(--gg-radius);
+		background: color-mix(in srgb, currentColor 15%, transparent);
+		font-size: var(--gg-text-sm);
 		line-height: var(--gg-chip-line-height);
 		font-weight: 600;
 		vertical-align: 1px;
 	}
+	/* A lookup key rather than a label: plain muted code text, no box. */
 	.ticket {
-		border-color: var(--gg-fg-muted);
+		margin-right: var(--gg-space-1);
 		color: var(--gg-fg-muted);
+		font-family: var(--gg-font-mono);
+		font-size: var(--gg-text-xs);
+	}
+	.head-halo {
+		opacity: 0.4;
 	}
 	.muted {
 		color: var(--gg-fg-muted);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 	.mono {
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 	}
 	.author {
 		display: flex;
@@ -1701,16 +1742,16 @@
 	}
 	/* Monospace keeps the date parts in the same place on every row. */
 	.muted.date {
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: 0.8em;
+		font-family: var(--gg-font-mono);
+		font-size: var(--gg-text-xs);
 	}
 	.changes {
 		display: flex;
 		align-items: center;
 		gap: var(--gg-space-1);
 		min-width: 0;
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: 0.8em;
+		font-family: var(--gg-font-mono);
+		font-size: var(--gg-text-xs);
 	}
 	/* The gauge takes what the counts leave, so a narrow column drops the bar before the numbers. */
 	.gauge {
@@ -1719,18 +1760,18 @@
 		min-width: 3px;
 		height: 6px;
 		overflow: hidden;
-		border-radius: 3px;
-		background: var(--vscode-gitDecoration-deletedResourceForeground, #f44336);
+		border-radius: var(--gg-radius-xs);
+		background: var(--gg-deleted);
 	}
 	.gauge-added {
 		display: block;
 		height: 100%;
-		background: var(--vscode-gitDecoration-addedResourceForeground, #4caf50);
+		background: var(--gg-added);
 	}
 	.added {
-		color: var(--vscode-gitDecoration-addedResourceForeground, #4caf50);
+		color: var(--gg-added);
 	}
 	.removed {
-		color: var(--vscode-gitDecoration-deletedResourceForeground, #f44336);
+		color: var(--gg-deleted);
 	}
 </style>

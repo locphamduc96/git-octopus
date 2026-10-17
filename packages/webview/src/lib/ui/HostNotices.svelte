@@ -54,23 +54,23 @@
 		align-items: center;
 		gap: var(--gg-space-2);
 		padding: var(--gg-space-2) var(--gg-space-3);
-		background: var(--vscode-editorWidget-background, var(--gg-bg));
+		background: var(--gg-bg-overlay);
 		border: 1px solid var(--gg-border);
-		border-radius: 6px;
-		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+		border-radius: var(--gg-radius-lg);
+		box-shadow: var(--gg-shadow);
 	}
 	.lead {
 		display: inline-flex;
 		flex: none;
 	}
 	.info .lead {
-		color: var(--vscode-textLink-foreground, var(--gg-accent));
+		color: var(--gg-accent);
 	}
 	.warning .lead {
-		color: var(--vscode-editorWarning-foreground, #cca700);
+		color: var(--gg-warning);
 	}
 	.error .lead {
-		color: var(--vscode-errorForeground, #f48771);
+		color: var(--gg-danger);
 	}
 	.spin {
 		animation: spin 1s linear infinite;
@@ -93,7 +93,7 @@
 	}
 	.detail {
 		color: var(--gg-fg-muted);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	.action {
 		flex: none;
@@ -102,10 +102,10 @@
 		height: var(--gg-hit);
 		padding: 0 var(--gg-space-2);
 		font: inherit;
-		color: var(--vscode-button-foreground);
-		background: var(--vscode-button-background);
+		color: var(--gg-btn-fg);
+		background: var(--gg-btn-bg);
 		border: none;
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		cursor: pointer;
 	}
 	@media (prefers-reduced-motion: reduce) {

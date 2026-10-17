@@ -122,16 +122,17 @@
 		display: flex;
 		align-items: center;
 		gap: var(--gg-space-1);
+		margin: 0 var(--gg-row-inset);
 		padding-right: var(--gg-space-2);
-		border-radius: var(--gg-radius-item);
+		border-radius: var(--gg-radius);
 		transition: background-color 60ms var(--gg-ease);
 	}
 	.file-row:hover {
-		background: var(--vscode-list-hoverBackground);
+		background: var(--gg-bg-hover);
 	}
 	.file-row.active {
-		background: var(--vscode-list-activeSelectionBackground);
-		color: var(--vscode-list-activeSelectionForeground, inherit);
+		background: var(--gg-bg-selected);
+		color: var(--gg-fg-selected);
 	}
 	.open {
 		flex: 1;
@@ -153,20 +154,20 @@
 		width: 1.1em;
 		text-align: center;
 		font-weight: 600;
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	.st-A,
 	.st-\? {
-		color: var(--vscode-gitDecoration-addedResourceForeground, #4caf50);
+		color: var(--gg-added);
 	}
 	.st-M {
-		color: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+		color: var(--gg-modified);
 	}
 	.st-D {
-		color: var(--vscode-gitDecoration-deletedResourceForeground, #f44336);
+		color: var(--gg-deleted);
 	}
 	.st-U {
-		color: var(--vscode-gitDecoration-conflictingResourceForeground, #e4676b);
+		color: var(--gg-conflict);
 	}
 	.path {
 		display: flex;
@@ -188,11 +189,11 @@
 	.lfs {
 		flex: none;
 		padding: 0 4px;
-		font-size: 0.75em;
+		font-size: var(--gg-text-xs);
 		line-height: 14px;
 		color: var(--gg-fg-muted);
 		border: 1px solid var(--gg-border);
-		border-radius: 3px;
+		border-radius: var(--gg-radius-sm);
 	}
 	.name {
 		flex: 0 1 auto;
@@ -204,14 +205,14 @@
 		flex: none;
 		display: flex;
 		gap: var(--gg-space-1);
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: 0.8em;
+		font-family: var(--gg-font-mono);
+		font-size: var(--gg-text-xs);
 	}
 	.add {
-		color: var(--vscode-gitDecoration-addedResourceForeground, #4caf50);
+		color: var(--gg-added);
 	}
 	.del {
-		color: var(--vscode-gitDecoration-deletedResourceForeground, #f44336);
+		color: var(--gg-deleted);
 	}
 	/*
 	 * Out of the layout until the row is hovered, rather than merely invisible: keeping the space

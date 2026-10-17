@@ -281,14 +281,14 @@
 	}
 	.note {
 		margin: 0;
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
 	}
 	.fg {
 		color: var(--gg-fg);
 	}
 	.warn {
-		color: var(--vscode-editorWarning-foreground, #cca700);
+		color: var(--gg-warning);
 	}
 	.linkish {
 		background: none;
@@ -296,7 +296,7 @@
 		padding: 0;
 		text-align: left;
 		font: inherit;
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-accent);
 		cursor: pointer;
 	}
@@ -313,7 +313,7 @@
 		margin-top: var(--gg-space-2);
 	}
 	.sec-title {
-		font-size: 0.75em;
+		font-size: var(--gg-text-xs);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		color: var(--gg-fg-muted);
@@ -333,7 +333,7 @@
 		gap: 2px;
 		padding: var(--gg-space-2) var(--gg-space-3);
 		border: 1px solid var(--gg-border);
-		border-radius: 4px;
+		border-radius: var(--gg-radius-lg);
 		min-width: 0;
 	}
 	.card.in-use {
@@ -363,13 +363,13 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 	}
 	.pill {
 		flex: none;
-		font-size: 0.75em;
+		font-size: var(--gg-text-xs);
 		padding: 0 var(--gg-space-2);
-		border-radius: 8px;
+		border-radius: 999px;
 		background: color-mix(in srgb, var(--gg-fg) 10%, transparent);
 		color: var(--gg-fg-muted);
 	}
@@ -381,19 +381,19 @@
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
 	}
 	.mini {
 		flex: none;
 		display: inline-flex;
 		align-items: center;
-		background: var(--vscode-button-secondaryBackground, transparent);
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
+		background: var(--gg-btn2-bg);
+		color: var(--gg-btn2-fg);
 		border: 1px solid var(--gg-border);
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		font: inherit;
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 		padding: 1px var(--gg-space-1);
 		cursor: pointer;
 	}
@@ -407,12 +407,12 @@
 		gap: var(--gg-space-1);
 	}
 	.id-form input {
-		background: var(--vscode-input-background, var(--gg-bg));
-		color: var(--vscode-input-foreground, var(--gg-fg));
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 3px;
+		background: var(--gg-input-bg);
+		color: var(--gg-input-fg);
+		border: 1px solid var(--gg-input-border);
+		border-radius: var(--gg-radius);
 		font: inherit;
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		padding: 2px var(--gg-space-1);
 	}
 	.id-form-actions {
@@ -421,9 +421,9 @@
 	}
 	.ws-box {
 		border: 1px solid var(--gg-border);
-		border-radius: var(--gg-radius-item);
+		border-radius: var(--gg-radius);
 		overflow: hidden;
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 	}
 	.ws-row {
 		display: grid;

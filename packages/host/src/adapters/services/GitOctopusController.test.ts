@@ -96,7 +96,7 @@ describe('opening a view', () => {
 		// one of these arriving after the reply is. No workspace folder here, so the reply the view
 		// waits on is the "nothing to show" error rather than commits.
 		const listTypes = view.webview.listTypes;
-		for (const type of ['fileIcons', 'colorTheme', 'viewSettings']) {
+		for (const type of ['fileIcons', 'colorTheme', 'editorPrefs', 'viewSettings']) {
 			expect(listTypes.indexOf(type), type).toBeGreaterThanOrEqual(0);
 			expect(listTypes.indexOf(type), type).toBeLessThan(listTypes.indexOf('error'));
 		}

@@ -325,3 +325,113 @@ describe('signature badge', () => {
 		expect(document.querySelector('.signature')).toBeNull();
 	});
 });
+
+describe('GraphView working tree, HEAD and chip looks', () => {
+	const WT = 'w'.repeat(40);
+	const HEAD = 'c'.repeat(40);
+	const BASE = 'b'.repeat(40);
+	const lane = (hash: string) => ({ hash, colour: 0, branch: 0 });
+
+	/** Working tree → HEAD (main, tag v1) → base, all on one lane. */
+	function mountHeadGraph() {
+		const wt = row([]);
+		wt.commit = {
+			...wt.commit,
+			hash: WT,
+			parents: [HEAD],
+			subject: 'Uncommitted Changes (1)',
+			isUncommitted: true,
+		};
+		wt.listOutputLanes = [lane(HEAD)];
+		wt.listParentColumns = [0];
+		const head = row([
+			{ kind: 'branch', name: 'main' },
+			{ kind: 'tag', name: 'v1' },
+		]);
+		head.commit = { ...head.commit, hash: HEAD, parents: [BASE], subject: 'feat(ui): soft chips' };
+		head.listInputLanes = [lane(HEAD)];
+		head.listOutputLanes = [lane(BASE)];
+		head.listParentColumns = [0];
+		const base = row([]);
+		base.commit = { ...base.commit, hash: BASE, subject: 'base' };
+		base.listInputLanes = [lane(BASE)];
+		const { container } = render(GraphView, {
+			rows: [wt, head, base],
+			selectedHash: null,
+			listSelectedHashes: [],
+			currentBranch: 'main',
+			lastPicked: null,
+			columns: { author: false, commit: false, date: false, changes: false },
+			widths: { ref: 200, author: 120, commit: 80, date: 120, changes: 100 },
+			compareHash: null,
+			dateType: 'commit',
+			graphStyle: 'rounded',
+			rowDensity: 'comfortable',
+			highlightHover: false,
+			muteMerges: false,
+			showTicketBadge: true,
+			showTypeBadge: true,
+			showTracking: false,
+			mapTracking: {},
+			showGhostBranch: false,
+			headHash: HEAD,
+			fastForward: null,
+			scrollTarget: null,
+			hasMore: false,
+			onselect: vi.fn(),
+			onselectRange: vi.fn(),
+			oncompare: vi.fn(),
+			oncompareWorking: vi.fn(),
+			oncheckoutBranch: vi.fn(),
+			onaction: vi.fn(),
+			onmulti: vi.fn(),
+			onloadMore: vi.fn(),
+			onbranchAction: vi.fn(),
+			onfilterBranch: vi.fn(),
+			oncheckFastForward: vi.fn(),
+			ontoggleColumn: vi.fn(),
+			onresizeColumn: vi.fn(),
+		});
+		return container;
+	}
+
+	/** The dash pattern of every line in each row's band, top row first. */
+	function dashesByRow(container: HTMLElement): (string | null)[][] {
+		return [...container.querySelectorAll('svg.lines > g')].map((band) =>
+			[...band.querySelectorAll(':scope > path')].map((path) =>
+				path.getAttribute('stroke-dasharray')
+			)
+		);
+	}
+
+	it('dashes the line from the working tree down to HEAD, and only that line', () => {
+		expect(dashesByRow(mountHeadGraph())).toEqual([['3 3'], ['3 3', null], [null]]);
+	});
+
+	it('rings the checked-out commit with a halo', () => {
+		const container = mountHeadGraph();
+		const listBands = [...container.querySelectorAll('svg.lines > g')];
+		expect(listBands.map((band) => band.querySelectorAll('circle.head-halo').length)).toEqual([
+			0, 1, 0,
+		]);
+	});
+
+	it('marks the checked-out chip by class, not by a lane colour written on it', () => {
+		mountHeadGraph();
+		const chip = screen.getByText('main').closest('.ref');
+		expect(chip?.classList.contains('current')).toBe(true);
+		expect(chip?.getAttribute('style') ?? '').not.toContain('border-color');
+	});
+
+	it('leaves the tag icon unfilled, coloured by the stylesheet', () => {
+		const container = mountHeadGraph();
+		expect(container.querySelector('.ref.tag .glyph')?.getAttribute('style')).toBeNull();
+	});
+
+	it('colours a type chip from its theme token, with no outline colour', () => {
+		mountHeadGraph();
+		const style = screen.getByText('feat(ui)').getAttribute('style') ?? '';
+		expect(style).toContain('var(--gg-type-feat)');
+		expect(style).not.toContain('border-color');
+	});
+});

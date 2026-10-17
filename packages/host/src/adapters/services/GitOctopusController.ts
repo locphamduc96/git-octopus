@@ -250,6 +250,18 @@ export class GitOctopusController {
 		}
 	}
 
+	/** The editor's tab size changed: every view redraws its diffs with the new width. */
+	public refreshEditorPrefs(): void {
+		for (const webview of this.listWebviews) this.sendEditorPrefs(webview);
+	}
+
+	private sendEditorPrefs(webview: ViewChannel): void {
+		this.reply(webview, {
+			type: 'editorPrefs',
+			tabSize: this.shell.editorTabSize(),
+		} satisfies HostToWebview);
+	}
+
 	private sendViewSettings(webview: ViewChannel): void {
 		const settings =
 			this.shell.globalState.get<Record<string, unknown>>(STATE_VIEW_SETTINGS) ?? null;
@@ -476,6 +488,7 @@ export class GitOctopusController {
 					}
 					this.sendIconTheme(webview);
 					this.sendColorTheme(webview);
+					this.sendEditorPrefs(webview);
 					this.sendViewSettings(webview);
 				} catch (error) {
 					this.trace(

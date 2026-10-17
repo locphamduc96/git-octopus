@@ -76,14 +76,14 @@
 	}
 	.note {
 		margin: 0;
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
 	}
 	.url {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 	}
 	.add {
 		gap: var(--gg-space-2);
@@ -100,10 +100,10 @@
 		min-width: 0;
 		padding: 2px var(--gg-space-2);
 		font: inherit;
-		color: var(--vscode-input-foreground);
-		background: var(--vscode-input-background);
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 2px;
+		color: var(--gg-input-fg);
+		background: var(--gg-input-bg);
+		border: 1px solid var(--gg-input-border);
+		border-radius: var(--gg-radius);
 	}
 	.fields input:first-child {
 		flex: 0 0 9em;
@@ -115,10 +115,10 @@
 		flex: none;
 		padding: 2px var(--gg-space-3);
 		font: inherit;
-		color: var(--vscode-button-foreground);
-		background: var(--vscode-button-background);
+		color: var(--gg-btn-fg);
+		background: var(--gg-btn-bg);
 		border: none;
-		border-radius: 2px;
+		border-radius: var(--gg-radius);
 		cursor: pointer;
 	}
 	.primary:disabled {

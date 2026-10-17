@@ -114,7 +114,7 @@
 		display: inline-flex;
 		align-self: flex-start;
 		border: 1px solid var(--gg-border);
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		overflow: hidden;
 	}
 	.views button {
@@ -126,8 +126,8 @@
 		cursor: pointer;
 	}
 	.views button.on {
-		color: var(--vscode-button-foreground);
-		background: var(--vscode-button-background);
+		color: var(--gg-btn-fg);
+		background: var(--gg-btn-bg);
 	}
 	.pair {
 		display: grid;
@@ -190,7 +190,7 @@
 		margin: auto;
 	}
 	.meta {
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
 		font-variant-numeric: tabular-nums;
 	}

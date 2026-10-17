@@ -75,3 +75,78 @@ describe('ChangesTab commit dialog', () => {
 		expect(summary()?.value).toBe('');
 	});
 });
+
+describe('ChangesTab sections', () => {
+	it('lists staged changes first, as Source Control does, with conflicts above all', () => {
+		render(ChangesTab, {
+			working: {
+				staged: [{ status: 'M', path: 'src/staged.ts' }],
+				unstaged: [
+					{ status: 'M', path: 'src/edited.ts' },
+					{ status: '?', path: 'notes/todo.md' },
+					{ status: 'U', path: 'src/clash.ts' },
+				],
+			},
+			ahead: 0,
+			fileView: 'list',
+			activePath: null,
+			onaction: vi.fn(),
+			onopenFile: vi.fn(),
+			onmenu: vi.fn(),
+			onpush: vi.fn(),
+			onpushForce: vi.fn(),
+		});
+		const listTitles = screen
+			.getAllByRole('heading', { level: 3 })
+			.map((heading) => heading.querySelector('.title')?.textContent);
+		expect(listTitles).toEqual(['Conflicts', 'Staged Changes', 'Changes', 'Untracked']);
+	});
+});
+
+describe('ChangesTab folding', () => {
+	it('folds a group from its header and opens it again', async () => {
+		render(ChangesTab, {
+			working: {
+				staged: [{ status: 'M', path: 'src/staged.ts' }],
+				unstaged: [{ status: 'M', path: 'src/edited.ts' }],
+			},
+			ahead: 0,
+			fileView: 'list',
+			activePath: null,
+			onaction: vi.fn(),
+			onopenFile: vi.fn(),
+			onmenu: vi.fn(),
+			onpush: vi.fn(),
+			onpushForce: vi.fn(),
+		});
+		const header = screen.getByRole('button', { name: /Staged Changes/ });
+		expect(header.getAttribute('aria-expanded')).toBe('true');
+		expect(screen.queryByText('staged.ts')).not.toBeNull();
+
+		await fireEvent.click(header);
+		expect(header.getAttribute('aria-expanded')).toBe('false');
+		expect(screen.queryByText('staged.ts')).toBeNull();
+		// Only the group that was folded: the next one still lists its file.
+		expect(screen.queryByText('edited.ts')).not.toBeNull();
+
+		await fireEvent.click(header);
+		expect(screen.queryByText('staged.ts')).not.toBeNull();
+	});
+});
+
+describe('ChangesTab group headings', () => {
+	it('starts each heading with the group name, which is how the end-to-end suite finds it', () => {
+		render(ChangesTab, {
+			working: { staged: [{ status: 'M', path: 'src/staged.ts' }], unstaged: [] },
+			ahead: 0,
+			fileView: 'list',
+			activePath: null,
+			onaction: vi.fn(),
+			onopenFile: vi.fn(),
+			onmenu: vi.fn(),
+			onpush: vi.fn(),
+			onpushForce: vi.fn(),
+		});
+		expect(screen.getByRole('heading', { level: 3 }).textContent).toMatch(/^Staged Changes\b/);
+	});
+});

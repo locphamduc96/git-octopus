@@ -131,7 +131,7 @@
 	.note {
 		margin: 0;
 		color: var(--gg-fg-muted);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	.rows {
 		list-style: none;
@@ -151,7 +151,7 @@
 		outline: none;
 	}
 	.row.focused {
-		box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
+		box-shadow: inset 2px 0 0 var(--gg-focus);
 	}
 	.row.skipped .subject,
 	.row.skipped .hash,
@@ -164,7 +164,7 @@
 		flex: none;
 	}
 	.mono {
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 	}
 	.hash {
 		flex: none;
@@ -180,7 +180,7 @@
 	.meta {
 		flex: none;
 		color: var(--gg-fg-muted);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	.option {
 		display: flex;
@@ -191,15 +191,15 @@
 	.btn {
 		padding: 3px var(--gg-space-3);
 		font: inherit;
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
-		background: var(--vscode-button-secondaryBackground, transparent);
+		color: var(--gg-btn2-fg);
+		background: var(--gg-btn2-bg);
 		border: 1px solid var(--gg-border);
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		cursor: pointer;
 	}
 	.btn.primary {
-		color: var(--vscode-button-foreground);
-		background: var(--vscode-button-background);
+		color: var(--gg-btn-fg);
+		background: var(--gg-btn-bg);
 		border-color: transparent;
 	}
 	.btn:disabled {

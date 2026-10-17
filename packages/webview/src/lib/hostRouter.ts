@@ -52,6 +52,7 @@ export const LIST_ROUTED_BY_STORE = [
 	'worktrees',
 	'rebaseTodo',
 	'colorTheme',
+	'editorPrefs',
 	'agentInventory',
 	'commitPlanProgress',
 	'commitPlanResult',

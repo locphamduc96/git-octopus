@@ -202,6 +202,11 @@ export class DesktopShell implements ControllerShell {
 		return this.theme;
 	}
 
+	/** No editor to follow: four columns, what most editors default to. */
+	public editorTabSize(): number {
+		return 4;
+	}
+
 	public prepareView(view: ViewChannel): Promise<void> {
 		this.setViews.add(view);
 		return Promise.resolve();

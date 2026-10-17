@@ -40,6 +40,7 @@
 		wrap = false,
 		ignoreWhitespace = false,
 		intraline = true,
+		tabSize = 4,
 		image = null,
 		lfs = null,
 		submodule = null,
@@ -72,6 +73,8 @@
 		ignoreWhitespace?: boolean;
 		/** Mark the words that changed inside an edited line. */
 		intraline?: boolean;
+		/** Columns one tab spans — the editor's `editor.tabSize`, so code lines up as it does there. */
+		tabSize?: number;
 		/** An image's sides, drawn in place of hunks. */
 		image?: ImageDiff | null;
 		/** What an LFS file's pointers name, in place of the pointer text. */
@@ -100,8 +103,6 @@
 
 	const ROW_H = 18;
 	const OVERSCAN = 20;
-	/** Matches `tab-size` on the rows, so the width computed here is the width drawn. */
-	const TAB_SIZE = 8;
 	const GUTTER_W = 44;
 	const BLAME_W = 240;
 	/** Sub-pixel rounding kept clear, so the count never runs a column past where the browser breaks. */
@@ -262,7 +263,8 @@
 	let measureW = $state(0);
 	const charW = $derived(measureW / 100);
 
-	const listRowColumns = $derived(listRows.map((row) => rowColumns(row, TAB_SIZE)));
+	// The same tab size as `tab-size` on the rows, so the width computed here is the width drawn.
+	const listRowColumns = $derived(listRows.map((row) => rowColumns(row, tabSize)));
 	/**
 	 * Characters that fit on one wrapped line, or null when lines do not wrap. Counted rather than
 	 * measured per row — the rows are virtualised, so most of them are not in the DOM to measure. A
@@ -550,7 +552,7 @@
 	>
 {/snippet}
 
-<div class="diff">
+<div class="diff" style="--tab-size:{tabSize}">
 	<header>
 		<span class="path" use:tooltip={path}>
 			<span class="folder">{folder}</span><b class="file">{fileName}</b>
@@ -903,20 +905,20 @@
 	}
 	.title {
 		color: var(--gg-fg-muted);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		white-space: nowrap;
 	}
 	.stats {
 		display: flex;
 		gap: var(--gg-space-1);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		white-space: nowrap;
 	}
 	.stats .add {
-		color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950);
+		color: var(--gg-added);
 	}
 	.stats .del {
-		color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149);
+		color: var(--gg-deleted);
 	}
 	.spacer {
 		flex: 1;
@@ -926,7 +928,7 @@
 		display: flex;
 		flex: none;
 		border: 1px solid var(--gg-border);
-		border-radius: 4px;
+		border-radius: var(--gg-radius);
 		overflow: hidden;
 	}
 	/* Same height as the icon buttons beside it, so the row sits on one line. */
@@ -939,15 +941,15 @@
 		border: none;
 		cursor: pointer;
 		font: inherit;
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		padding: 0 var(--gg-space-2);
 	}
 	.modes button:hover:not(.active) {
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 	}
 	.modes button.active {
-		background: var(--vscode-list-activeSelectionBackground);
-		color: var(--vscode-list-activeSelectionForeground);
+		background: var(--gg-bg-selected);
+		color: var(--gg-fg-selected);
 	}
 	.hint {
 		padding: var(--gg-space-3);
@@ -1007,7 +1009,7 @@
 		top: 2px;
 		bottom: 2px;
 		min-width: 24px;
-		border-radius: 3px;
+		border-radius: var(--gg-radius-xs);
 		background: color-mix(in srgb, var(--gg-fg) 30%, transparent);
 		pointer-events: none;
 		transition: background-color 60ms var(--gg-ease);
@@ -1038,18 +1040,14 @@
 		right: 3px;
 	}
 	.mark.add {
-		background: var(--vscode-editorOverviewRuler-addedForeground, #3fb950);
+		background: var(--gg-ruler-added);
 	}
 	.mark.del {
-		background: var(--vscode-editorOverviewRuler-deletedForeground, #f85149);
+		background: var(--gg-ruler-deleted);
 	}
 	/* A run too short to stack: half red, half green — never a third colour. */
 	.mark.both {
-		background: linear-gradient(
-			90deg,
-			var(--vscode-editorOverviewRuler-deletedForeground, #f85149) 50%,
-			var(--vscode-editorOverviewRuler-addedForeground, #3fb950) 50%
-		);
+		background: linear-gradient(90deg, var(--gg-ruler-deleted) 50%, var(--gg-ruler-added) 50%);
 	}
 	/* Now the only thing showing the scroll position, so it is drawn stronger than an overlay hint. */
 	.thumb {
@@ -1057,7 +1055,7 @@
 		left: 0;
 		right: 0;
 		min-height: 12px;
-		border-radius: 2px;
+		border-radius: var(--gg-radius-xs);
 		background: color-mix(in srgb, var(--gg-fg) 30%, transparent);
 		pointer-events: none;
 		transition: background-color 60ms var(--gg-ease);
@@ -1072,8 +1070,8 @@
 	.spacer-v {
 		position: relative;
 		min-width: 100%;
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: var(--vscode-editor-font-size, 12px);
+		font-family: var(--gg-font-mono);
+		font-size: var(--gg-text-mono);
 	}
 	/* Rows span the spacer, so a row's tint runs the full width however far it is scrolled. */
 	.row {
@@ -1084,7 +1082,7 @@
 		display: flex;
 		align-items: center;
 		white-space: pre;
-		tab-size: 8;
+		tab-size: var(--tab-size);
 		background: var(--row-tint);
 	}
 	/*
@@ -1100,7 +1098,7 @@
 		padding-right: var(--gg-space-2);
 		box-sizing: border-box;
 		text-align: right;
-		color: var(--vscode-editorLineNumber-foreground, var(--gg-fg-muted));
+		color: var(--gg-fg-subtle);
 		background: linear-gradient(var(--row-tint), var(--row-tint)), var(--gg-bg);
 		user-select: none;
 	}
@@ -1158,7 +1156,7 @@
 	}
 	.row.picked,
 	.half.picked {
-		box-shadow: inset 3px 0 0 var(--vscode-focusBorder, #007fd4);
+		box-shadow: inset 3px 0 0 var(--gg-focus);
 	}
 	.row.picked .gutter,
 	.half.picked .gutter {
@@ -1180,18 +1178,18 @@
 	.pick-actions button {
 		padding: 0 var(--gg-space-2);
 		font: inherit;
-		font-family: var(--vscode-font-family);
-		font-size: 0.9em;
+		font-family: var(--gg-font);
+		font-size: var(--gg-text-sm);
 		line-height: 16px;
-		color: var(--vscode-button-secondaryForeground);
-		background: var(--vscode-button-secondaryBackground);
+		color: var(--gg-btn2-fg);
+		background: var(--gg-btn2-bg);
 		border: none;
-		border-radius: 2px;
+		border-radius: var(--gg-radius-sm);
 		cursor: pointer;
 	}
 	.pick-actions button.primary {
-		color: var(--vscode-button-foreground);
-		background: var(--vscode-button-background);
+		color: var(--gg-btn-fg);
+		background: var(--gg-btn-bg);
 	}
 	/* Laid out in the code font but never seen: one hundred zeros, so a `ch` can be read in px. */
 	.measure {
@@ -1241,13 +1239,13 @@
 		position: static;
 	}
 	.half.add {
-		--row-tint: var(--vscode-diffEditor-insertedTextBackground, rgba(63, 185, 80, 0.15));
+		--row-tint: var(--gg-diff-ins-bg);
 	}
 	.half.del {
-		--row-tint: var(--vscode-diffEditor-removedTextBackground, rgba(248, 81, 73, 0.15));
+		--row-tint: var(--gg-diff-del-bg);
 	}
 	.half.empty {
-		--row-tint: var(--vscode-diffEditor-diagonalFill, rgba(128, 128, 128, 0.12));
+		--row-tint: var(--gg-diff-fill);
 	}
 	.marker {
 		display: inline-block;
@@ -1255,19 +1253,19 @@
 		color: var(--gg-fg-muted);
 	}
 	.row.add {
-		--row-tint: var(--vscode-diffEditor-insertedTextBackground, rgba(63, 185, 80, 0.15));
+		--row-tint: var(--gg-diff-ins-bg);
 	}
 	.row.del {
-		--row-tint: var(--vscode-diffEditor-removedTextBackground, rgba(248, 81, 73, 0.15));
+		--row-tint: var(--gg-diff-del-bg);
 	}
 	/* The words that changed: the row's own tint laid twice more over itself, so it reads stronger in any
 	   theme without a colour of its own. */
 	.emph {
 		background: linear-gradient(var(--row-tint), var(--row-tint)), var(--row-tint);
-		border-radius: 2px;
+		border-radius: var(--gg-radius-xs);
 	}
 	.row.gap {
-		--row-tint: var(--vscode-diffEditor-diagonalFill, rgba(128, 128, 128, 0.12));
+		--row-tint: var(--gg-diff-fill);
 		color: var(--gg-fg-muted);
 	}
 	/* The jump landing: VS Code's own reveal tint over the run, plus a bar so the block reads even
@@ -1276,8 +1274,8 @@
 		position: absolute;
 		left: 0;
 		right: 0;
-		background: var(--vscode-editor-rangeHighlightBackground, rgba(255, 255, 255, 0.07));
-		border-left: 3px solid var(--vscode-focusBorder, #007fd4);
+		background: var(--gg-bg-range);
+		border-left: 3px solid var(--gg-focus);
 		box-sizing: border-box;
 		pointer-events: none;
 		/* Above the sticky line numbers, or they would cover its bar. */

@@ -109,7 +109,8 @@
 		display: flex;
 		align-items: center;
 		gap: var(--gg-space-1);
-		width: 100%;
+		width: calc(100% - 2 * var(--gg-row-inset));
+		margin: 0 var(--gg-row-inset);
 		background: none;
 		border: none;
 		color: inherit;
@@ -121,11 +122,11 @@
 		padding-right: var(--gg-space-2);
 		white-space: nowrap;
 		overflow: hidden;
-		border-radius: var(--gg-radius-item);
+		border-radius: var(--gg-radius);
 		transition: background-color 60ms var(--gg-ease);
 	}
 	.folder:hover {
-		background: var(--vscode-list-hoverBackground);
+		background: var(--gg-bg-hover);
 	}
 	.folder :global(.codicon) {
 		flex: none;

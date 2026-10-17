@@ -72,29 +72,29 @@ export function formatSubject(parts: ParsedSubject): string {
 }
 
 /**
- * Colour per commit type, so the kind of change is readable at a glance. Drawn as outlined chips,
- * which keeps every hue legible on both light and dark themes.
+ * Colour per commit type, so the kind of change is readable at a glance. The graph draws it as a soft
+ * tint behind the type's name, in the same hue as the text.
  *
- * Held at 80% brightness, in step with the graph lanes: the badge is a label on a subject, not the
- * thing being read, and at full strength a wall of them pulls the eye off the text.
+ * Each is a token (`--gg-type-*` in tokens.css) taken from the theme's chart colours, so a light
+ * theme gets hues tuned for white and a dark theme hues tuned for black.
  */
-const mapTypeColour: Record<string, string> = {
-	feat: '#329440',
-	fix: '#c6413a',
-	chore: '#6f767e',
-	refactor: '#825ac6',
-	docs: '#4685cc',
-	test: '#a87a1b',
-	style: '#af4e82',
-	perf: '#c06d32',
-	build: '#585e67',
-	ci: '#585e67',
-	revert: '#c6413a',
+const mapTypeToken: Record<string, string> = {
+	feat: 'feat',
+	fix: 'fix',
+	chore: 'chore',
+	refactor: 'refactor',
+	docs: 'docs',
+	test: 'test',
+	style: 'style',
+	perf: 'perf',
+	build: 'chore',
+	ci: 'chore',
+	revert: 'fix',
 	// Not a conventional-commit type: the graph tags merge commits with a chip of the same kind, and
 	// this hue is the one nothing else claims.
-	merge: '#2e9da6',
+	merge: 'merge',
 };
 
 export function typeColour(type: string): string {
-	return mapTypeColour[type] ?? '#6f767e';
+	return `var(--gg-type-${mapTypeToken[type] ?? 'chore'})`;
 }

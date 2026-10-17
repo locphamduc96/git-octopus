@@ -18,6 +18,7 @@
 	import { prefs } from '../../lib/stores/prefs.svelte';
 	import type { CommitOptions } from '../../lib/stores/identity.svelte';
 	import { buildFileTree, type FileViewMode } from '../../lib/fileTree';
+	import type { WorkingSection } from '../../lib/viewSettings';
 	import type { FileMenuAction } from '../../lib/fileMenu';
 	import { tooltip } from '../../lib/ui/tooltip';
 
@@ -215,32 +216,80 @@
 				{/if}
 			</div>
 		{:else}
+			<!-- Staged first, as in VS Code's own Source Control: it is what Commit is about to take.
+			     Conflicts stay above everything, because nothing commits until they are settled. -->
 			{#if conflicts.length > 0}
-				{@render section('Conflicts', conflicts, listStageActions, listConflictMenu, 'unstaged')}
-			{/if}
-			{#if changes.length > 0}
-				{@render section('Changes', changes, listStageActions, listTrackedMenu, 'unstaged')}
-			{/if}
-			{#if untracked.length > 0}
-				{@render section('Untracked', untracked, listStageActions, listUntrackedMenu, 'unstaged')}
+				{@render section(
+					'conflicts',
+					'Conflicts',
+					conflicts,
+					listStageActions,
+					listConflictMenu,
+					'unstaged'
+				)}
 			{/if}
 			{#if staged.length > 0}
-				{@render section('Staged Changes', staged, listUnstageActions, listUnstageMenu, 'staged')}
+				{@render section(
+					'staged',
+					'Staged Changes',
+					staged,
+					listUnstageActions,
+					listUnstageMenu,
+					'staged'
+				)}
+			{/if}
+			{#if changes.length > 0}
+				{@render section(
+					'changes',
+					'Changes',
+					changes,
+					listStageActions,
+					listTrackedMenu,
+					'unstaged'
+				)}
+			{/if}
+			{#if untracked.length > 0}
+				{@render section(
+					'untracked',
+					'Untracked',
+					untracked,
+					listStageActions,
+					listUntrackedMenu,
+					'unstaged'
+				)}
 			{/if}
 		{/if}
 	</div>
 </div>
 
 {#snippet section(
+	id: WorkingSection,
 	title: string,
 	listFiles: FileChange[],
 	actions: FileRowAction<WorkingTreeAction>[],
 	listMenuActions: FileMenuAction[],
 	side: WorkingDiffSide
 )}
-	<section>
-		<h3>{title} <span class="count">{listFiles.length}</span></h3>
-		{#if listFiles.length === 0}
+	{@const isCollapsed = prefs.listCollapsedSections.includes(id)}
+	<!-- One card per group, folded from its header; the folds are kept with the other view
+	     preferences, so a long Staged list stays out of the way across reloads. -->
+	<section class="group" class:collapsed={isCollapsed}>
+		<h3>
+			<button
+				class="group-head"
+				aria-expanded={!isCollapsed}
+				onclick={() => prefs.toggleSection(id)}
+			>
+				<!-- No whitespace before the title: the heading's text must start with the group's name. -->
+				<Icon name={isCollapsed ? 'chevron-right' : 'chevron-down'} /><span class="title"
+					>{title}</span
+				>
+				<span class="count">{listFiles.length}</span>
+			</button>
+		</h3>
+		{#if isCollapsed}
+			<!-- Folded: the header alone stands for the group. -->
+		{:else if listFiles.length === 0}
 			<p class="empty">No files</p>
 		{:else if fileView === 'tree'}
 			<FileTree
@@ -357,20 +406,20 @@
 		background: transparent;
 		color: var(--gg-fg);
 		border: none;
-		border-radius: 4px;
+		border-radius: var(--gg-radius);
 		cursor: pointer;
 		padding: 0 5px;
 	}
 	.toolbar button:hover:not(:disabled) {
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 	}
 	.toolbar button:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}
 	.toolbar .push {
-		background: var(--vscode-button-secondaryBackground, transparent);
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
+		background: var(--gg-btn2-bg);
+		color: var(--gg-btn2-fg);
 	}
 	.toolbar .push:disabled {
 		opacity: 0.5;
@@ -382,8 +431,8 @@
 		display: inline-flex;
 	}
 	.toolbar .primary {
-		background: var(--vscode-button-background);
-		color: var(--vscode-button-foreground);
+		background: var(--gg-btn-bg);
+		color: var(--gg-btn-fg);
 		border-color: transparent;
 	}
 	.toolbar .primary:disabled {
@@ -394,20 +443,70 @@
 		flex: 1;
 		overflow: auto;
 		min-height: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--gg-space-2);
+		padding: var(--gg-space-2);
+	}
+	/* One card per group: a faint border and tint show where each starts and ends. */
+	.group {
+		flex: none;
+		padding-bottom: var(--gg-space-1);
+		border: 1px solid var(--gg-card-border);
+		border-radius: var(--gg-radius-lg);
+		background: var(--gg-card-bg);
+	}
+	.group.collapsed {
+		padding-bottom: 0;
 	}
 	h3 {
+		margin: 0;
+	}
+	.group-head {
 		display: flex;
 		align-items: center;
-		gap: var(--gg-space-2);
-		margin: 0;
-		padding: var(--gg-space-1) var(--gg-space-2);
-		font-size: 0.85em;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		gap: var(--gg-space-1);
+		width: 100%;
+		height: var(--gg-control-h);
+		padding: 0 var(--gg-space-2) 0 var(--gg-space-1);
+		border: none;
+		border-radius: var(--gg-radius-lg);
+		background: transparent;
 		color: var(--gg-fg-muted);
+		font: inherit;
+		font-size: var(--gg-text-xs);
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-align: left;
+		text-transform: uppercase;
+		cursor: pointer;
+	}
+	.group-head:hover {
+		color: var(--gg-fg);
+	}
+	.group-head:focus-visible {
+		outline: 1px solid var(--gg-focus);
+		outline-offset: -1px;
+	}
+	.group-head :global(.codicon) {
+		font-size: var(--gg-icon-sm);
 	}
 	.count {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 18px;
+		height: 16px;
 		margin-left: auto;
+		padding: 0 5px;
+		box-sizing: border-box;
+		border-radius: 999px;
+		background: var(--gg-badge-bg);
+		color: var(--gg-badge-fg);
+		font-size: var(--gg-text-xs);
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		letter-spacing: 0;
 	}
 	ul {
 		list-style: none;
@@ -418,7 +517,7 @@
 		margin: 0;
 		padding: 2px var(--gg-space-3);
 		color: var(--gg-fg-muted);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	.clean {
 		display: flex;
@@ -429,11 +528,11 @@
 		color: var(--gg-fg-muted);
 	}
 	.clean :global(.codicon) {
-		color: var(--vscode-testing-iconPassed, #3fb950);
-		font-size: 20px;
+		color: var(--gg-success);
+		font-size: var(--gg-icon-lg);
 	}
 	.clean-sub {
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		opacity: 0.8;
 	}
 </style>

@@ -53,6 +53,8 @@
 		onsettings,
 		oncleanup,
 		identityLabel,
+		identityInitials,
+		identityLine,
 		identityWarning,
 		listIdentities,
 		activeEmail,
@@ -116,8 +118,12 @@
 		onsettings: () => void;
 		/** Open the dialog that deletes local branches nobody has touched in months. */
 		oncleanup: () => void;
-		/** Label of the Git identity in use (saved-identity label, else the effective email). */
+		/** Label of the Git identity in use (saved-identity label, else the name, else the email). */
 		identityLabel: string | null;
+		/** Letters drawn in the avatar beside the label. */
+		identityInitials: string;
+		/** "Name <email>" commits are stamped with — the tooltip, since the label drops the email. */
+		identityLine: string;
 		/** Set when the repo's remote suggests a different identity — shown as a warning state. */
 		identityWarning: string | null;
 		/** Saved identities offered in the account dropdown, and the email currently committing. */
@@ -300,7 +306,7 @@
 				: 'Pull — this branch is up to date; right-click for rebase / ff-only'}
 		>
 			<Icon name="arrow-down" label="Pull" />
-			{#if behind > 0}<span class="badge">{behind}</span>{/if}
+			{#if behind > 0}<span class="drift">{behind}</span>{/if}
 		</button>
 		<!-- Never disabled on a zero count: a branch with no upstream yet is exactly the one that
 		     needs publishing, and it reads as 0 ahead. -->
@@ -315,7 +321,7 @@
 				: 'Push — publish this branch to the remote; right-click for force push'}
 		>
 			<Icon name="arrow-up" label="Push" />
-			{#if ahead > 0}<span class="badge">{ahead}</span>{/if}
+			{#if ahead > 0}<span class="drift">{ahead}</span>{/if}
 		</button>
 		<IconButton
 			name="refresh"
@@ -350,12 +356,18 @@
 			<button
 				class="identity"
 				class:warning={identityWarning !== null}
+				aria-label="Git identity: {identityLine}"
+				use:tooltip={identityWarning ?? `${identityLine} — click to switch identity`}
 				onclick={(event) => {
 					const rect = event.currentTarget.getBoundingClientRect();
 					identityMenu = { x: rect.left, y: rect.bottom + 2 };
 				}}
 			>
-				<Icon name="account" label="Git identity" />
+				{#if identityInitials}
+					<span class="avatar" aria-hidden="true">{identityInitials}</span>
+				{:else}
+					<Icon name="account" />
+				{/if}
 				<span class="identity-label">{identityLabel}</span>
 			</button>
 		{/if}
@@ -483,11 +495,7 @@
 		flex: none;
 		padding: var(--gg-space-1) var(--gg-space-2);
 		border-bottom: 1px solid var(--gg-border);
-		background: color-mix(
-			in srgb,
-			var(--vscode-editorWarning-foreground, #cca700) 14%,
-			transparent
-		);
+		background: color-mix(in srgb, var(--gg-warning) 14%, transparent);
 		color: var(--gg-fg);
 		white-space: nowrap;
 		overflow: hidden;
@@ -509,21 +517,21 @@
 		background: transparent;
 		color: var(--gg-fg);
 		border: 1px solid var(--gg-border);
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		cursor: pointer;
 		font: inherit;
 		padding: 1px var(--gg-space-2);
 	}
 	.seq-actions button:hover {
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 	}
 	.seq-actions .primary {
-		background: var(--vscode-button-background);
-		color: var(--vscode-button-foreground);
+		background: var(--gg-btn-bg);
+		color: var(--gg-btn-fg);
 		border-color: transparent;
 	}
 	.seq-actions .primary:hover {
-		background: var(--vscode-button-hoverBackground);
+		background: var(--gg-btn-hover);
 	}
 	.branch {
 		display: inline-flex;
@@ -562,8 +570,8 @@
 		flex: 1;
 	}
 	.notice {
-		color: var(--vscode-editorWarning-foreground, #cca700);
-		font-size: 0.85em;
+		color: var(--gg-warning);
+		font-size: var(--gg-text-xs);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -576,17 +584,17 @@
 		gap: 4px;
 		height: var(--gg-hit);
 		padding: 0 var(--gg-space-2);
-		border: 1px solid var(--vscode-inputOption-activeBorder, var(--gg-border));
+		border: 1px solid var(--gg-option-border);
 		border-radius: 999px;
-		background: var(--vscode-inputOption-activeBackground, transparent);
-		color: var(--vscode-inputOption-activeForeground, var(--gg-fg));
-		font-size: 0.85em;
+		background: var(--gg-option-bg);
+		color: var(--gg-option-fg);
+		font-size: var(--gg-text-xs);
 		cursor: pointer;
 		white-space: nowrap;
 		max-width: 220px;
 	}
 	.filter-pill:hover {
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 	}
 	.filter-name {
 		overflow: hidden;
@@ -594,7 +602,7 @@
 	}
 	.count {
 		color: var(--gg-fg-muted);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		white-space: nowrap;
 	}
 	.actions {
@@ -625,32 +633,56 @@
 		background: transparent;
 		color: var(--gg-fg);
 		border: none;
-		border-radius: 4px;
+		border-radius: var(--gg-radius);
 		cursor: pointer;
 		padding: 0 4px;
 	}
 	.actions button:hover:not(:disabled) {
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 	}
 	.actions button:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}
-	.badge {
-		background: var(--vscode-badge-background);
-		color: var(--vscode-badge-foreground);
-		border-radius: 8px;
-		padding: 0 var(--gg-space-1);
-		font-size: 0.8em;
+	/* The arrow is the icon beside it, so the count alone completes the ↑N ↓N every chip shows. */
+	.drift {
+		color: var(--gg-accent);
+		font-size: var(--gg-text-xs);
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+	}
+	.actions button.identity {
+		gap: var(--gg-space-1);
+		padding: 0 6px 0 2px;
+	}
+	/* Letters rather than a generic person glyph: two identities tell apart before the label is read,
+	   and the label can drop the email (it lives in the tooltip) to give the bar its room back. */
+	.avatar {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: none;
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		background: var(--gg-btn-bg);
+		color: var(--gg-btn-fg);
+		font-size: var(--gg-text-xs);
+		font-weight: 700;
+		letter-spacing: -0.02em;
 	}
 	.identity-label {
 		max-width: 140px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: 0.85em;
+		font-size: var(--gg-text-sm);
 	}
 	.actions button.identity.warning {
-		color: var(--vscode-editorWarning-foreground, #cca700);
+		color: var(--gg-warning);
+	}
+	.actions button.identity.warning .avatar {
+		background: var(--gg-warning);
+		color: var(--gg-bg);
 	}
 </style>

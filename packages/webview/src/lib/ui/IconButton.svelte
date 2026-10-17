@@ -54,18 +54,18 @@
 		background: transparent;
 		color: var(--gg-fg);
 		border: none;
-		border-radius: 4px;
+		border-radius: var(--gg-radius);
 		cursor: pointer;
 		font: inherit;
 		line-height: 0;
 	}
 	.icon-button:hover:not(:disabled) {
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 	}
 	.icon-button.pressed {
-		background: var(--vscode-inputOption-activeBackground, rgba(36, 137, 219, 0.51));
-		color: var(--vscode-inputOption-activeForeground, var(--gg-fg));
-		box-shadow: inset 0 0 0 1px var(--vscode-inputOption-activeBorder, #007acc);
+		background: var(--gg-option-bg);
+		color: var(--gg-option-fg);
+		box-shadow: inset 0 0 0 1px var(--gg-option-border);
 	}
 	.icon-button:disabled {
 		opacity: 0.4;

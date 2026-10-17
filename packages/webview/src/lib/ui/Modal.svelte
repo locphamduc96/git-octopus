@@ -46,32 +46,38 @@
 		align-items: center;
 		justify-content: center;
 		padding: var(--gg-space-4);
-		background: rgba(0, 0, 0, 0.45);
+		background: var(--gg-scrim);
 	}
 	.card {
 		display: flex;
 		flex-direction: column;
-		gap: var(--gg-space-3);
 		width: min(460px, 100%);
 		max-height: 100%;
-		padding: var(--gg-space-3);
-		background: var(--vscode-editorWidget-background, var(--gg-bg));
+		overflow: hidden;
+		background: var(--gg-bg-overlay);
 		border: 1px solid var(--gg-border);
-		border-radius: 6px;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+		border-radius: var(--gg-radius-xl);
+		box-shadow: var(--gg-shadow);
 	}
 	/* Only the width widens; the shell above is every dialog's. */
 	.card.wide {
 		width: min(760px, 100%);
 	}
+	/* One title bar for every dialog, the same height as the Settings one. */
 	header {
 		display: flex;
 		align-items: center;
 		gap: var(--gg-space-2);
+		flex: none;
+		height: var(--gg-dialog-head-h);
+		box-sizing: border-box;
+		padding: 0 var(--gg-space-4);
+		border-bottom: 1px solid var(--gg-border);
 	}
 	.title {
-		font-weight: 600;
 		flex: none;
+		font-size: var(--gg-text-lg);
+		font-weight: 600;
 	}
 	.body {
 		display: flex;
@@ -79,12 +85,20 @@
 		gap: var(--gg-space-2);
 		min-height: 0;
 		overflow: auto;
+		padding: var(--gg-space-3) var(--gg-space-4);
 	}
+	/*
+	 * Cancel, then the main action, both on the right — the order VS Code's own dialogs end in, so the
+	 * main button is always in the same corner. A dialog's secondary action (Regenerate, a question)
+	 * sits apart on the left by giving itself `margin-right: auto`.
+	 */
 	footer {
 		display: flex;
 		align-items: center;
-		/* Confirm and cancel sit at opposite edges so neither is hit by accident. */
-		justify-content: space-between;
-		gap: var(--gg-space-3);
+		justify-content: flex-end;
+		gap: var(--gg-space-2);
+		flex: none;
+		padding: var(--gg-space-3) var(--gg-space-4);
+		border-top: 1px solid var(--gg-border);
 	}
 </style>

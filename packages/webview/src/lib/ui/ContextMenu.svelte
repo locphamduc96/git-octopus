@@ -185,11 +185,11 @@
 		padding: var(--gg-space-1);
 		list-style: none;
 		min-width: 200px;
-		background: var(--vscode-menu-background, var(--gg-bg));
-		color: var(--vscode-menu-foreground, var(--gg-fg));
-		border: 1px solid var(--vscode-menu-border, var(--gg-border));
-		border-radius: 4px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+		background: var(--gg-menu-bg);
+		color: var(--gg-menu-fg);
+		border: 1px solid var(--gg-menu-border);
+		border-radius: var(--gg-radius-lg);
+		box-shadow: var(--gg-shadow);
 	}
 	/* Flyouts are never `.placed`; they are positioned by their parent row, not by this pass. */
 	.menu:not(.submenu, .placed) {
@@ -215,7 +215,7 @@
 		font: inherit;
 		cursor: pointer;
 		padding: var(--gg-space-1) var(--gg-space-3);
-		border-radius: var(--gg-radius-item);
+		border-radius: var(--gg-radius);
 	}
 	.menu button.disabled {
 		opacity: 0.45;
@@ -227,8 +227,8 @@
 	}
 	.menu button:hover,
 	.parent:hover > button {
-		background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
-		color: var(--vscode-menu-selectionForeground, inherit);
+		background: var(--gg-menu-sel-bg);
+		color: var(--gg-menu-sel-fg);
 	}
 	.chevron {
 		margin-left: auto;

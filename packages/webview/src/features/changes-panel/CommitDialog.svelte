@@ -129,10 +129,10 @@
 		</p>
 	{/snippet}
 	{#snippet actions()}
+		<button class="cancel" onclick={oncancel}>Cancel</button>
 		<button class="confirm" disabled={!canCommit} onclick={submit}>
 			{amend ? 'Amend' : 'Commit'}
 		</button>
-		<button class="cancel" onclick={oncancel}>Cancel</button>
 	{/snippet}
 </Modal>
 
@@ -148,24 +148,24 @@
 		flex-direction: column;
 		gap: var(--gg-space-1);
 		color: var(--gg-fg-muted);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
 	.optional {
 		opacity: 0.7;
 	}
 	input,
 	textarea {
-		background: var(--vscode-input-background);
-		color: var(--vscode-input-foreground);
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 3px;
+		background: var(--gg-input-bg);
+		color: var(--gg-input-fg);
+		border: 1px solid var(--gg-input-border);
+		border-radius: var(--gg-radius);
 		font: inherit;
 		padding: var(--gg-space-1) var(--gg-space-2);
 		resize: vertical;
 	}
 	input:focus,
 	textarea:focus {
-		outline: 1px solid var(--vscode-focusBorder);
+		outline: 1px solid var(--gg-focus);
 	}
 	.types {
 		display: flex;
@@ -176,10 +176,10 @@
 	.type {
 		padding: 2px 10px;
 		border: 1px solid var(--type-colour);
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		background: transparent;
 		color: var(--type-colour);
-		font-size: 0.95em;
+		font-size: var(--gg-text-sm);
 		font-weight: 600;
 		cursor: pointer;
 	}
@@ -188,7 +188,7 @@
 	}
 	.type.on {
 		background: var(--type-colour);
-		color: var(--vscode-editor-background);
+		color: var(--gg-bg);
 	}
 	.amend {
 		flex-direction: row;
@@ -199,32 +199,32 @@
 	.hint {
 		margin: 0;
 		color: var(--gg-fg-muted);
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 	}
 	code {
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 	}
 	button {
 		border: none;
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		font: inherit;
 		cursor: pointer;
 		padding: var(--gg-space-1) var(--gg-space-4);
 	}
 	.confirm {
-		background: var(--vscode-button-background);
-		color: var(--vscode-button-foreground);
+		background: var(--gg-btn-bg);
+		color: var(--gg-btn-fg);
 	}
 	.confirm:hover:not(:disabled) {
-		background: var(--vscode-button-hoverBackground);
+		background: var(--gg-btn-hover);
 	}
 	.confirm:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}
 	.cancel {
-		background: var(--vscode-button-secondaryBackground, transparent);
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
+		background: var(--gg-btn2-bg);
+		color: var(--gg-btn2-fg);
 		border: 1px solid var(--gg-border);
 	}
 </style>

@@ -57,8 +57,8 @@
 		</div>
 	{/snippet}
 	{#snippet actions()}
-		<button class="confirm" disabled={blocked} onclick={submit}>OK</button>
 		<button class="cancel" onclick={oncancel}>Cancel</button>
+		<button class="confirm" disabled={blocked} onclick={submit}>OK</button>
 	{/snippet}
 </Modal>
 
@@ -75,45 +75,45 @@
 	input,
 	textarea {
 		font: inherit;
-		color: var(--vscode-input-foreground);
-		background: var(--vscode-input-background);
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 3px;
+		color: var(--gg-input-fg);
+		background: var(--gg-input-bg);
+		border: 1px solid var(--gg-input-border);
+		border-radius: var(--gg-radius);
 		padding: var(--gg-space-1) var(--gg-space-2);
 		resize: vertical;
 	}
 	input:focus,
 	textarea:focus {
-		outline: 1px solid var(--vscode-focusBorder);
+		outline: 1px solid var(--gg-focus);
 		outline-offset: -1px;
 	}
 	.hint {
 		margin: 0;
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
 	}
 	.confirm,
 	.cancel {
 		border: none;
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		font: inherit;
 		cursor: pointer;
 		padding: var(--gg-space-1) var(--gg-space-4);
 	}
 	.confirm {
-		background: var(--vscode-button-background);
-		color: var(--vscode-button-foreground);
+		background: var(--gg-btn-bg);
+		color: var(--gg-btn-fg);
 	}
 	.confirm:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}
 	.confirm:not(:disabled):hover {
-		background: var(--vscode-button-hoverBackground);
+		background: var(--gg-btn-hover);
 	}
 	.cancel {
-		background: var(--vscode-button-secondaryBackground, transparent);
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
+		background: var(--gg-btn2-bg);
+		color: var(--gg-btn2-fg);
 		border: 1px solid var(--gg-border);
 	}
 </style>

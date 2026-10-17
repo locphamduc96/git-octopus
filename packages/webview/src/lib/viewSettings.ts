@@ -14,6 +14,17 @@ export type { GraphStyle } from './graphPath';
 
 /** How tall a commit row is drawn — named for the space around the text, not a pixel count. */
 export type RowDensity = 'compact' | 'comfortable' | 'spacious';
+
+/**
+ * Row heights per density, read by the graph and by its loading skeleton so the real rows land on
+ * the placeholder ones. Every step stays taller than the text needs, so the lane curves keep room to
+ * read as smooth transitions rather than corners.
+ */
+export const mapRowHeight: Record<RowDensity, number> = {
+	compact: 26,
+	comfortable: 34,
+	spacious: 44,
+};
 /** Where a file diff opens: a VS Code editor tab, or the panel in place of the graph. */
 export type DiffTarget = 'editor' | 'panel';
 /** How much of the file the diff panel draws. */
@@ -238,11 +249,21 @@ export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
  * Everything is spread over the defaults, so a value saved by an older version — or by a
  * version that had a setting this one dropped — degrades to the default instead of breaking.
  */
+/** The groups of the working-tree list, each of which can be folded away. */
+export const LIST_WORKING_SECTIONS = ['conflicts', 'staged', 'changes', 'untracked'] as const;
+export type WorkingSection = (typeof LIST_WORKING_SECTIONS)[number];
+
+function isWorkingSection(value: unknown): value is WorkingSection {
+	return (LIST_WORKING_SECTIONS as readonly unknown[]).includes(value);
+}
+
 export interface GlobalPreferences {
 	settings: ViewSettings;
 	columns: ColumnVisibility;
 	fileView: FileViewMode;
 	metaOpen: boolean;
+	/** Working-tree groups the user folded; the rest are open. */
+	listCollapsedSections: WorkingSection[];
 }
 
 /**
@@ -260,6 +281,9 @@ export function mergePreferences(
 		columns: next.columns ? { ...current.columns, ...next.columns } : current.columns,
 		fileView: next.fileView ?? current.fileView,
 		metaOpen: typeof next.metaOpen === 'boolean' ? next.metaOpen : current.metaOpen,
+		listCollapsedSections: Array.isArray(next.listCollapsedSections)
+			? next.listCollapsedSections.filter(isWorkingSection)
+			: current.listCollapsedSections,
 	};
 }
 

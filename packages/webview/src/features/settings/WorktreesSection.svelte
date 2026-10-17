@@ -100,25 +100,25 @@
 	}
 	.note {
 		margin: 0;
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
 	}
 	.path {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 	}
 	.tag {
 		margin-left: var(--gg-space-1);
 		padding: 0 4px;
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
 		border: 1px solid var(--gg-border);
-		border-radius: 3px;
+		border-radius: var(--gg-radius-sm);
 	}
 	.tag.warn {
-		color: var(--vscode-editorWarning-foreground, #cca700);
+		color: var(--gg-warning);
 		border-color: currentColor;
 	}
 	.prune {
@@ -132,10 +132,10 @@
 		flex: none;
 		padding: 2px var(--gg-space-3);
 		font: inherit;
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
-		background: var(--vscode-button-secondaryBackground, transparent);
+		color: var(--gg-btn2-fg);
+		background: var(--gg-btn2-bg);
 		border: 1px solid var(--gg-border);
-		border-radius: 2px;
+		border-radius: var(--gg-radius);
 		cursor: pointer;
 	}
 	.secondary:disabled {
@@ -157,10 +157,10 @@
 		min-width: 0;
 		padding: 2px var(--gg-space-2);
 		font: inherit;
-		color: var(--vscode-input-foreground);
-		background: var(--vscode-input-background);
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 2px;
+		color: var(--gg-input-fg);
+		background: var(--gg-input-bg);
+		border: 1px solid var(--gg-input-border);
+		border-radius: var(--gg-radius);
 	}
 	.fields input:first-child {
 		flex: 0 0 11em;
@@ -172,10 +172,10 @@
 		flex: none;
 		padding: 2px var(--gg-space-3);
 		font: inherit;
-		color: var(--vscode-button-foreground);
-		background: var(--vscode-button-background);
+		color: var(--gg-btn-fg);
+		background: var(--gg-btn-bg);
 		border: none;
-		border-radius: 2px;
+		border-radius: var(--gg-radius);
 		cursor: pointer;
 	}
 	.primary:disabled {

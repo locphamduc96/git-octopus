@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { GitIdentity } from '@git-octopus/shared';
 import {
+	identityInitials,
+	identityLine,
 	identityMismatch,
 	listMatchedIdentities,
 	matchIdentity,
@@ -116,5 +118,34 @@ describe('remoteHost', () => {
 
 	it('returns null for something that is not a URL', () => {
 		expect(remoteHost('../sibling-repo')).toBeNull();
+	});
+});
+
+describe('identityInitials', () => {
+	it('takes the first letters of the first and last name', () => {
+		expect(identityInitials('Loc Pham Duc', 'locpd@example.com')).toBe('LD');
+	});
+
+	it('takes one letter from a single-word name', () => {
+		expect(identityInitials('rhodo', null)).toBe('R');
+	});
+
+	it('falls back to the email local part when git has no name', () => {
+		expect(identityInitials(null, 'loc.pham@example.com')).toBe('LP');
+	});
+
+	it('is empty with neither', () => {
+		expect(identityInitials(null, null)).toBe('');
+	});
+});
+
+describe('identityLine', () => {
+	it('joins name and email the way git writes them', () => {
+		expect(identityLine('Loc Pham', 'loc@example.com')).toBe('Loc Pham <loc@example.com>');
+	});
+
+	it('keeps whichever half there is', () => {
+		expect(identityLine(null, 'loc@example.com')).toBe('loc@example.com');
+		expect(identityLine('Loc Pham', null)).toBe('Loc Pham');
 	});
 });

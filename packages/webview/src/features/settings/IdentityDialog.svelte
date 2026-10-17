@@ -56,29 +56,29 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--gg-space-1);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 		color: var(--gg-fg-muted);
 	}
 	input {
-		background: var(--vscode-input-background, var(--gg-bg));
-		color: var(--vscode-input-foreground, var(--gg-fg));
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 3px;
+		background: var(--gg-input-bg);
+		color: var(--gg-input-fg);
+		border: 1px solid var(--gg-input-border);
+		border-radius: var(--gg-radius);
 		font: inherit;
 		padding: 3px var(--gg-space-2);
 	}
 	button {
-		background: var(--vscode-button-secondaryBackground, transparent);
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
+		background: var(--gg-btn2-bg);
+		color: var(--gg-btn2-fg);
 		border: 1px solid var(--gg-border);
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		font: inherit;
 		padding: 3px var(--gg-space-3);
 		cursor: pointer;
 	}
 	button.primary {
-		background: var(--vscode-button-background);
-		color: var(--vscode-button-foreground);
+		background: var(--gg-btn-bg);
+		color: var(--gg-btn-fg);
 		border-color: transparent;
 	}
 	button:disabled {

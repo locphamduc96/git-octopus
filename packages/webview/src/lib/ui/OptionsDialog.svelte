@@ -56,6 +56,7 @@
 		</div>
 	{/snippet}
 	{#snippet actions()}
+		<button class="cancel" onclick={oncancel}>Cancel</button>
 		{#if multi}
 			<button
 				class="confirm"
@@ -67,7 +68,6 @@
 				OK
 			</button>
 		{/if}
-		<button class="cancel" onclick={oncancel}>Cancel</button>
 	{/snippet}
 </Modal>
 
@@ -82,10 +82,10 @@
 		align-items: flex-start;
 		gap: var(--gg-space-2);
 		padding: var(--gg-space-1) var(--gg-space-2);
-		border-radius: 4px;
+		border-radius: var(--gg-radius);
 	}
 	.option:hover {
-		background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+		background: var(--gg-bg-hover);
 	}
 	button.choice {
 		border: none;
@@ -102,26 +102,26 @@
 	}
 	.description {
 		color: var(--gg-fg-muted);
-		font-size: 0.92em;
+		font-size: var(--gg-text-sm);
 	}
 	.confirm,
 	.cancel {
 		border: none;
-		border-radius: 3px;
+		border-radius: var(--gg-radius);
 		font: inherit;
 		cursor: pointer;
 		padding: var(--gg-space-1) var(--gg-space-4);
 	}
 	.confirm {
-		background: var(--vscode-button-background);
-		color: var(--vscode-button-foreground);
+		background: var(--gg-btn-bg);
+		color: var(--gg-btn-fg);
 	}
 	.confirm:hover {
-		background: var(--vscode-button-hoverBackground);
+		background: var(--gg-btn-hover);
 	}
 	.cancel {
-		background: var(--vscode-button-secondaryBackground, transparent);
-		color: var(--vscode-button-secondaryForeground, var(--gg-fg));
+		background: var(--gg-btn2-bg);
+		color: var(--gg-btn2-fg);
 		border: 1px solid var(--gg-border);
 	}
 </style>

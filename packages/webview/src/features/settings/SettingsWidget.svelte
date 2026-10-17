@@ -15,6 +15,8 @@
 	import { LIST_AUTO_FETCH_MINUTES } from '@git-octopus/shared';
 	import IconButton from '../../lib/ui/IconButton.svelte';
 	import Icon from '../../lib/ui/Icon.svelte';
+	import SelectField from '../../lib/ui/SelectField.svelte';
+	import { tooltip } from '../../lib/ui/tooltip';
 	import IdentitySection from './IdentitySection.svelte';
 	import PresetPicker, { CUSTOM, type PresetOption } from './PresetPicker.svelte';
 	import { aiCommit } from '../../lib/stores/aiCommit.svelte';
@@ -56,6 +58,11 @@
 	} = $props();
 
 	const listLimits = [100, 300, 500, 1000];
+	/** The long story behind a setting's one-line note, shown from its ⓘ. */
+	const PULL_STRATEGY_DETAIL =
+		'"Follow git config" is a plain git pull — this repository\'s pull.ff and pull.rebase decide. The others say so on the command line, so a repository set to write a merge commit on every pull can still be pulled clean. The Pull menu ⌄ offers each one for a single pull.';
+	const AUTO_FETCH_DETAIL =
+		'Your checked-out branch does not move. Pauses while the window is in the background or a merge is unresolved, and stops itself after repeated failures rather than asking for a password again and again.';
 	/**
 	 * Labels only — the options themselves are rendered from `LIST_COMMIT_ORDERS`, the same list the
 	 * onchange handler validates against. A `Record` keyed by the union means an order added to it
@@ -235,14 +242,14 @@
 					<section>
 						<div class="row">
 							<span class="row-label">Commits to load</span>
-							<select
+							<SelectField
 								value={String(settings.commitLimit)}
 								onchange={(event) => set('commitLimit', Number(event.currentTarget.value))}
 							>
 								{#each listLimits as limit (limit)}
 									<option value={String(limit)}>{limit}</option>
 								{/each}
-							</select>
+							</SelectField>
 						</div>
 						<div class="row">
 							<span class="row-label">
@@ -259,12 +266,17 @@
 							<div class="row">
 								<span class="row-label">
 									Open diffs in
-									<span class="note">
-										The panel keeps the review inside this view, without opening tabs. Changes-only
-										or whole-file is chosen in the panel's own header.
-									</span>
+									<span class="note"
+										>Review inside this view, or open an editor tab.<span
+											class="info"
+											role="img"
+											aria-label="The panel keeps the review inside this view, without opening tabs. Changes-only or whole-file is chosen in the panel's own header."
+											use:tooltip={"The panel keeps the review inside this view, without opening tabs. Changes-only or whole-file is chosen in the panel's own header."}
+											><Icon name="info" /></span
+										></span
+									>
 								</span>
-								<select
+								<SelectField
 									value={settings.diffTarget}
 									onchange={(event) => {
 										const picked = pickOption(LIST_DIFF_TARGETS, event.currentTarget.value);
@@ -273,7 +285,7 @@
 								>
 									<option value="editor">VS Code editor</option>
 									<option value="panel">Git Octopus panel</option>
-								</select>
+								</SelectField>
 							</div>
 						{/if}
 						<div class="row">
@@ -303,11 +315,15 @@
 						<div class="row">
 							<span class="row-label">
 								Fast-forward on checkout
-								<span class="note">
-									Checking out a branch from its remote brings it up to date when it has only fallen
-									behind. Never runs on a branch with commits of its own, or while you have
-									uncommitted changes.
-								</span>
+								<span class="note"
+									>Update a branch that has only fallen behind its remote.<span
+										class="info"
+										role="img"
+										aria-label="Never runs on a branch with commits of its own, or while you have uncommitted changes."
+										use:tooltip={'Never runs on a branch with commits of its own, or while you have uncommitted changes.'}
+										><Icon name="info" /></span
+									></span
+								>
 							</span>
 							<input
 								type="checkbox"
@@ -318,14 +334,16 @@
 						<div class="row">
 							<span class="row-label">
 								Pull strategy
-								<span class="note">
-									What the Pull button runs. "Follow git config" is a plain <code>git pull</code>
-									— this repository's <code>pull.ff</code> and <code>pull.rebase</code> decide. The others
-									say so on the command line, so a repository set to write a merge commit on every pull
-									can still be pulled clean. The Pull menu ⌄ offers each one for a single pull.
-								</span>
+								<span class="note"
+									>What the Pull button runs.<span
+										class="info"
+										role="img"
+										aria-label={PULL_STRATEGY_DETAIL}
+										use:tooltip={PULL_STRATEGY_DETAIL}><Icon name="info" /></span
+									></span
+								>
 							</span>
-							<select
+							<SelectField
 								value={settings.pullStrategy}
 								onchange={(event) =>
 									set(
@@ -336,19 +354,21 @@
 								{#each LIST_PULL_STRATEGIES as strategy (strategy)}
 									<option value={strategy}>{MAP_PULL_STRATEGY_LABEL[strategy]}</option>
 								{/each}
-							</select>
+							</SelectField>
 						</div>
 						<div class="row">
 							<span class="row-label">
 								Auto-fetch
-								<span class="note">
-									Fetch in the background so the drift shown on branch chips stays true. Never pulls
-									— your checked-out branch does not move. Pauses while the window is in the
-									background or a merge is unresolved, and stops itself after repeated failures
-									rather than asking for a password again and again.
-								</span>
+								<span class="note"
+									>Keeps the drift on branch chips true. Never pulls.<span
+										class="info"
+										role="img"
+										aria-label={AUTO_FETCH_DETAIL}
+										use:tooltip={AUTO_FETCH_DETAIL}><Icon name="info" /></span
+									></span
+								>
 							</span>
-							<select
+							<SelectField
 								value={String(settings.autoFetchMinutes)}
 								onchange={(event) => set('autoFetchMinutes', Number(event.currentTarget.value))}
 							>
@@ -357,14 +377,14 @@
 										>{minutes === 0 ? 'Never' : `Every ${minutes} min`}</option
 									>
 								{/each}
-							</select>
+							</SelectField>
 						</div>
 					</section>
 				{:else if tab === 'graph'}
 					<section>
 						<div class="row">
 							<span class="row-label">Graph style</span>
-							<select
+							<SelectField
 								value={settings.graphStyle}
 								onchange={(event) => {
 									const picked = pickOption(LIST_GRAPH_STYLES, event.currentTarget.value);
@@ -375,7 +395,7 @@
 								<option value="curved">Curved</option>
 								<option value="angular">Angular</option>
 								<option value="diagonal">Diagonal</option>
-							</select>
+							</SelectField>
 						</div>
 						<div class="row">
 							<span class="row-label">
@@ -494,7 +514,7 @@
 								Commit ordering
 								<span class="note">Topological keeps a branch's commits together.</span>
 							</span>
-							<select
+							<SelectField
 								value={settings.commitOrder}
 								onchange={(event) => {
 									const picked = pickOption(LIST_COMMIT_ORDERS, event.currentTarget.value);
@@ -504,11 +524,11 @@
 								{#each LIST_COMMIT_ORDERS as order (order)}
 									<option value={order}>{mapOrderLabel[order]}</option>
 								{/each}
-							</select>
+							</SelectField>
 						</div>
 						<div class="row">
 							<span class="row-label">Date column shows</span>
-							<select
+							<SelectField
 								value={settings.dateType}
 								onchange={(event) => {
 									const picked = pickOption(LIST_DATE_TYPES, event.currentTarget.value);
@@ -517,7 +537,7 @@
 							>
 								<option value="commit">Commit date</option>
 								<option value="author">Author date</option>
-							</select>
+							</SelectField>
 						</div>
 						<div class="row">
 							<span class="row-label">
@@ -534,8 +554,13 @@
 							<span class="row-label">
 								Show upstream drift on branch chips
 								<span class="note"
-									>How far each local branch is ahead of or behind its upstream. Measured against
-									what your last fetch brought in, not against the remote right now.</span
+									>How far each local branch is ahead of or behind its upstream.<span
+										class="info"
+										role="img"
+										aria-label="Measured against what your last fetch brought in, not against the remote right now."
+										use:tooltip={'Measured against what your last fetch brought in, not against the remote right now.'}
+										><Icon name="info" /></span
+									></span
 								>
 							</span>
 							<input
@@ -679,10 +704,15 @@
 						<div class="row">
 							<span class="row-label">
 								Auto-apply identity by remote
-								<span class="note">
-									When a repository has no identity override and exactly one saved identity matches
-									its remotes, apply that identity automatically. Ambiguous matches only warn.
-								</span>
+								<span class="note"
+									>Apply the one saved identity that matches a repository's remotes.<span
+										class="info"
+										role="img"
+										aria-label="Only when the repository has no identity override and exactly one saved identity matches; ambiguous matches only warn."
+										use:tooltip={'Only when the repository has no identity override and exactly one saved identity matches; ambiguous matches only warn.'}
+										><Icon name="info" /></span
+									></span
+								>
 							</span>
 							<input
 								type="checkbox"
@@ -715,7 +745,7 @@
 		align-items: center;
 		justify-content: center;
 		padding: var(--gg-space-4);
-		background: rgba(0, 0, 0, 0.45);
+		background: var(--gg-scrim);
 	}
 	.panel {
 		display: flex;
@@ -723,10 +753,10 @@
 		width: min(820px, 100%);
 		/* Fixed, not content-sized: switching categories must not resize the dialog. */
 		height: min(560px, 100%);
-		background: var(--vscode-editorWidget-background, var(--gg-bg));
+		background: var(--gg-bg-overlay);
 		border: 1px solid var(--gg-border);
-		border-radius: 6px;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+		border-radius: var(--gg-radius-xl);
+		box-shadow: var(--gg-shadow);
 		overflow: hidden;
 	}
 	header {
@@ -734,9 +764,11 @@
 		align-items: center;
 		justify-content: space-between;
 		flex: none;
+		height: var(--gg-dialog-head-h);
+		box-sizing: border-box;
 		font-weight: 600;
-		font-size: 1.05em;
-		padding: var(--gg-space-3) var(--gg-space-4);
+		font-size: var(--gg-text-lg);
+		padding: 0 var(--gg-space-2) 0 var(--gg-space-4);
 		border-bottom: 1px solid var(--gg-border);
 	}
 	.main {
@@ -752,7 +784,7 @@
 	}
 	.content-title {
 		margin: 0 0 var(--gg-space-2);
-		font-size: 1em;
+		font-size: var(--gg-text-md);
 		font-weight: 600;
 	}
 	section {
@@ -768,12 +800,13 @@
 	section.trail .row {
 		border-bottom: none;
 	}
-	/* Label left, control right on one shared column, a hairline between rows. */
+	/* Label left, every control in one 220px column on the right, a hairline between rows. */
 	.row {
-		display: flex;
-		align-items: flex-start;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 220px;
+		align-items: center;
 		gap: var(--gg-space-4);
-		padding: var(--gg-space-2) 0;
+		padding: var(--gg-space-3) 0;
 		border-bottom: 1px solid color-mix(in srgb, var(--gg-fg) 8%, transparent);
 	}
 	section .row:last-child {
@@ -786,14 +819,23 @@
 		gap: 2px;
 		min-width: 0;
 	}
-	.row select,
-	.row input[type='checkbox'] {
-		flex: none;
-		margin-top: 2px;
+	.row > input[type='checkbox'] {
+		justify-self: start;
+	}
+	/* Sits on the note's last line, after its full stop; the long version is in its tooltip. */
+	.info {
+		display: inline-flex;
+		vertical-align: -2px;
+		margin-left: var(--gg-space-1);
+		color: var(--gg-fg-muted);
+		cursor: help;
+	}
+	.info :global(.codicon) {
+		font-size: var(--gg-icon-xs);
 	}
 	.note {
 		margin: 0;
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
 	}
 	/* The density (and later style) pickers: small pictures where the dropdown used to sit. */
@@ -809,12 +851,12 @@
 		padding: 4px 6px;
 		background: transparent;
 		border: 1px solid var(--gg-border);
-		border-radius: var(--gg-radius-item);
+		border-radius: var(--gg-radius);
 		color: var(--gg-fg-muted);
 		cursor: pointer;
 	}
 	.swatch:hover:not(.on) {
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 		color: var(--gg-fg);
 	}
 	.swatch.on {
@@ -836,14 +878,14 @@
 		padding: var(--gg-space-2) var(--gg-space-3);
 		background: transparent;
 		border: 1px solid var(--gg-border);
-		border-radius: var(--gg-radius-item);
+		border-radius: var(--gg-radius);
 		color: var(--gg-fg);
 		font: inherit;
 		cursor: pointer;
 		text-align: left;
 	}
 	.agent-card:hover:not(:disabled):not(.on) {
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 	}
 	.agent-card.on {
 		border-color: var(--gg-accent);
@@ -864,14 +906,14 @@
 	}
 	.agent-version {
 		color: var(--gg-fg-muted);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 	}
 	.agent-state {
 		display: flex;
 		align-items: center;
 		gap: 5px;
 		color: var(--gg-fg-muted);
-		font-size: 0.8em;
+		font-size: var(--gg-text-xs);
 	}
 	.agent-state .dot {
 		width: 6px;
@@ -880,20 +922,10 @@
 		background: var(--gg-fg-muted);
 	}
 	.agent-state.ready {
-		color: var(--vscode-testing-iconPassed, #3fb950);
+		color: var(--gg-success);
 	}
 	.agent-state.ready .dot {
-		background: var(--vscode-testing-iconPassed, #3fb950);
-	}
-	select {
-		background: var(--vscode-dropdown-background, var(--gg-bg));
-		color: var(--vscode-dropdown-foreground, var(--gg-fg));
-		border: 1px solid var(--vscode-dropdown-border, var(--gg-border));
-		border-radius: 3px;
-		font: inherit;
-		padding: 2px var(--gg-space-1);
-		/* Fixed, not min: every dropdown ends on the same edge as the checkboxes' column. */
-		width: 180px;
+		background: var(--gg-success);
 	}
 	.nav {
 		width: 190px;
@@ -903,7 +935,7 @@
 		gap: 1px;
 		padding: var(--gg-space-2);
 		border-right: 1px solid var(--gg-border);
-		background: rgba(0, 0, 0, 0.12);
+		background: var(--gg-bg-raised);
 		overflow-y: auto;
 	}
 	.nav button {
@@ -912,7 +944,7 @@
 		gap: var(--gg-space-2);
 		background: transparent;
 		border: none;
-		border-radius: var(--gg-radius-item);
+		border-radius: var(--gg-radius);
 		color: var(--gg-fg-muted);
 		font: inherit;
 		padding: 5px 10px;
@@ -920,11 +952,11 @@
 		text-align: left;
 	}
 	.nav button:hover:not(.active) {
-		background: var(--vscode-list-hoverBackground);
+		background: var(--gg-bg-hover);
 		color: var(--gg-fg);
 	}
 	.nav button.active {
-		background: var(--vscode-list-activeSelectionBackground);
-		color: var(--vscode-list-activeSelectionForeground);
+		background: var(--gg-bg-selected);
+		color: var(--gg-fg-selected);
 	}
 </style>

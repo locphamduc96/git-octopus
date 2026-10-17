@@ -1468,6 +1468,8 @@
 					onshowHead={() => showHead()}
 					onsettings={openSettings}
 					identityLabel={identity.label}
+					identityInitials={identity.initials}
+					identityLine={identity.line}
 					identityWarning={identity.warning}
 					listIdentities={identity.listIdentities}
 					activeEmail={identity.current?.email ?? null}
@@ -1627,6 +1629,7 @@
 						wrap={prefs.settings.diffWrap}
 						ignoreWhitespace={prefs.settings.diffIgnoreWhitespace}
 						intraline={prefs.settings.diffIntraline}
+						tabSize={diffView.tabSize}
 						image={diffView.image}
 						lfs={diffView.lfs}
 						submodule={diffView.submodule}
@@ -1665,9 +1668,7 @@
 				{working}
 				{details}
 				{detailsLoading}
-				branchName={currentBranch}
 				{ahead}
-				{behind}
 				{comparison}
 				activePath={diffView.target?.path ?? null}
 				onpush={() =>
@@ -1765,9 +1766,9 @@
 		display: inline-block;
 		max-width: 46em;
 		margin-top: var(--gg-space-2);
-		color: var(--vscode-editorWarning-foreground, #cca700);
+		color: var(--gg-warning);
 	}
 	.error {
-		color: var(--vscode-errorForeground);
+		color: var(--gg-danger);
 	}
 </style>

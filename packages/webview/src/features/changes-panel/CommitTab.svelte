@@ -23,8 +23,8 @@
 		fileView: FileViewMode;
 		activePath: string | null;
 		/**
-		 * Whether the full message and the hash/parent/author block are expanded. The subject and
-		 * byline stay visible either way, so collapsing leaves the file list more room.
+		 * Whether the rest of the message, below its subject, is shown. The subject and the meta lines
+		 * stay visible either way, so collapsing a long message leaves the file list more room.
 		 */
 		metaOpen: boolean;
 		onmetaOpen: (open: boolean) => void;
@@ -81,94 +81,63 @@
 		<button
 			class="subject-bar"
 			onclick={() => onmetaOpen(!metaOpen)}
-			title={metaOpen
-				? 'Hide the full message, hash, parents and author'
-				: 'Show the full message, hash, parents and author'}
+			title={metaOpen ? 'Hide the rest of the message' : 'Show the whole message'}
 			aria-expanded={metaOpen}
 		>
-			<span class="lines">
-				<!-- Open means the whole message, so the subject wraps instead of ellipsizing. -->
-				<span class="subject" class:open={metaOpen} title={metaOpen ? undefined : subject}
-					>{subject}</span
-				>
-				<!-- Only while the block below is closed. Open, it says all three again and in full —
-				     the short hash is the first eight characters of the one it prints, and the name and
-				     date are the same characters twice, a few pixels apart. -->
-				{#if !metaOpen}
-					<span class="byline">
-						<span class="mono">{details.hash.slice(0, 8)}</span>
-						· {details.author.name}
-						· {fmtWhen(details.authoredAt)}
-						{#if details.signature}
-							{@const look = MAP_SIGNATURE_LOOK[details.signature.status]}
-							<span class="signature {look.tone}" title={look.label}><Icon name={look.icon} /></span
-							>
-						{/if}
-					</span>
-				{/if}
-			</span>
+			<!-- Open means the whole message, so the subject wraps instead of ellipsizing. -->
+			<span class="subject" class:open={metaOpen} title={metaOpen ? undefined : subject}
+				>{subject}</span
+			>
 		</button>
 
-		{#if metaOpen}
-			<dl class="meta">
-				<dt><Icon name="git-commit" />Commit</dt>
-				<dd>
-					<button class="link mono" onclick={() => oncopy(details.hash)} title="Copy the full hash">
-						{details.hash}
-					</button>
-				</dd>
-
-				{#if details.parents.length > 0}
-					<dt><Icon name="git-merge" />{details.parents.length > 1 ? 'Parents' : 'Parent'}</dt>
-					<dd class="parents">
-						{#each details.parents as parent (parent)}
-							<button
-								class="link mono"
-								onclick={() => onselectCommit(parent)}
-								title="Show {parent}"
-							>
-								{parent.slice(0, 8)}
-							</button>
-						{/each}
-					</dd>
+		<!-- Who and when, then where it sits: one compact block, the same whether the message is open
+		     or not, so the hash and the parents are always one click away. -->
+		<div class="meta">
+			<div class="meta-line" title={personLabel(details.author)}>
+				{#if details.author.avatarUrl}
+					<img class="avatar" src={details.author.avatarUrl} alt="" />
 				{/if}
-
-				<dt><Icon name="person" />Author</dt>
-				<dd class="person" title={personLabel(details.author)}>
-					{#if details.author.avatarUrl}
-						<img class="avatar" src={details.author.avatarUrl} alt="" />
-					{/if}
-					<span class="name">{personLabel(details.author)}</span>
-					<span class="when">{fmtWhen(details.authoredAt)}</span>
-				</dd>
-
-				{#if showCommitter}
-					<dt><Icon name="verified" />Committer</dt>
-					<dd class="person" title={personLabel(details.committer)}>
-						{#if details.committer.avatarUrl}
-							<img class="avatar" src={details.committer.avatarUrl} alt="" />
-						{/if}
-						<span class="name">{personLabel(details.committer)}</span>
-						<span class="when">{fmtWhen(details.committedAt)}</span>
-					</dd>
-				{/if}
-
-				{#if details.signature}
-					{@const look = MAP_SIGNATURE_LOOK[details.signature.status]}
-					<dt><Icon name="shield" />Signature</dt>
-					<dd class="signature {look.tone}" title={details.signature.key}>
-						<Icon name={look.icon} />
-						<span class="name">
-							{look.label}{details.signature.signer ? ` — ${details.signature.signer}` : ''}
-						</span>
-						{#if details.signature.key}<span class="key mono">{details.signature.key}</span>{/if}
-					</dd>
-				{/if}
-			</dl>
-
-			{#if restOfBody}
-				<pre class="body">{restOfBody}</pre>
+				<span class="name">{details.author.name}</span>
+				<span class="muted">· {fmtWhen(details.authoredAt)}</span>
+			</div>
+			{#if showCommitter}
+				<div class="meta-line muted" title={personLabel(details.committer)}>
+					<span class="name"
+						>committed by {details.committer.name} · {fmtWhen(details.committedAt)}</span
+					>
+				</div>
 			{/if}
+			<div class="meta-line">
+				<button
+					class="link mono hash"
+					onclick={() => oncopy(details.hash)}
+					title="Copy the full hash {details.hash}"
+				>
+					{details.hash.slice(0, 8)}<Icon name="copy" />
+				</button>
+				{#if details.parents.length > 0}
+					<span class="muted">{details.parents.length > 1 ? 'parents' : 'parent'}</span>
+					{#each details.parents as parent (parent)}
+						<button class="link mono" onclick={() => onselectCommit(parent)} title="Show {parent}">
+							{parent.slice(0, 8)}
+						</button>
+					{/each}
+				{/if}
+			</div>
+			{#if details.signature}
+				{@const look = MAP_SIGNATURE_LOOK[details.signature.status]}
+				<div class="meta-line signature {look.tone}" title={details.signature.key}>
+					<Icon name={look.icon} />
+					<span class="name">
+						{look.label}{details.signature.signer ? ` — ${details.signature.signer}` : ''}
+					</span>
+					{#if details.signature.key}<span class="key mono">{details.signature.key}</span>{/if}
+				</div>
+			{/if}
+		</div>
+
+		{#if metaOpen && restOfBody}
+			<pre class="body">{restOfBody}</pre>
 		{/if}
 
 		<h3>
@@ -214,16 +183,10 @@
 		cursor: pointer;
 	}
 	.subject-bar:hover {
-		background: var(--vscode-list-hoverBackground);
-	}
-	.lines {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
-		flex: 1;
+		background: var(--gg-bg-hover);
 	}
 	.subject {
+		min-width: 0;
 		font-weight: 600;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -233,85 +196,56 @@
 		white-space: pre-wrap;
 		word-break: break-word;
 	}
-	.byline {
-		color: var(--gg-fg-muted);
-		font-size: 0.85em;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
 	.meta {
-		display: grid;
-		grid-template-columns: auto 1fr;
-		gap: 2px var(--gg-space-2);
-		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
 		padding: 0 var(--gg-space-2) var(--gg-space-2);
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 	}
-	dt {
+	.meta-line {
 		display: flex;
 		align-items: center;
 		gap: var(--gg-space-1);
-		color: var(--gg-fg-muted);
-		white-space: nowrap;
-	}
-	dt :global(.codicon) {
-		font-size: 13px;
-	}
-	dd {
-		margin: 0;
 		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	.parents {
-		display: flex;
-		gap: var(--gg-space-2);
-	}
-	.person {
-		display: flex;
-		align-items: center;
-		gap: var(--gg-space-1);
 	}
 	.name {
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-	.byline .signature {
-		display: inline-flex;
-		vertical-align: middle;
+	.muted {
+		color: var(--gg-fg-muted);
 	}
-	dd.signature {
-		display: flex;
-		flex-wrap: wrap;
+	.hash {
+		display: inline-flex;
 		align-items: center;
-		gap: 0 var(--gg-space-1);
-		min-width: 0;
+		gap: 3px;
+	}
+	.hash :global(.codicon) {
+		font-size: var(--gg-icon-xs);
+		opacity: 0.75;
+	}
+	.meta-line.signature {
+		flex-wrap: wrap;
 	}
 	.signature.good > :global(.codicon) {
-		color: var(--vscode-testing-iconPassed, #73c991);
+		color: var(--gg-success);
 	}
 	.signature.warn > :global(.codicon) {
-		color: var(--vscode-editorWarning-foreground, #cca700);
+		color: var(--gg-warning);
 	}
 	.signature.bad > :global(.codicon) {
-		color: var(--vscode-errorForeground, #f48771);
+		color: var(--gg-danger);
 	}
 	.signature .key {
 		flex-basis: 100%;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
-	}
-	.when {
-		flex: none;
-		margin-left: auto;
-		color: var(--gg-fg-muted);
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: 0.9em;
 	}
 	.avatar {
 		flex: none;
@@ -331,7 +265,7 @@
 		text-decoration: underline;
 	}
 	.mono {
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 	}
 	.body {
 		margin: 0;
@@ -352,15 +286,15 @@
 		gap: var(--gg-space-2);
 		margin: 0;
 		padding: var(--gg-space-2) var(--gg-space-2) var(--gg-space-1);
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		font-weight: 600;
 		color: var(--gg-fg-muted);
 	}
 	.add {
-		color: var(--vscode-gitDecoration-addedResourceForeground, #4caf50);
+		color: var(--gg-added);
 	}
 	.del {
-		color: var(--vscode-gitDecoration-deletedResourceForeground, #f44336);
+		color: var(--gg-deleted);
 	}
 	ul {
 		list-style: none;

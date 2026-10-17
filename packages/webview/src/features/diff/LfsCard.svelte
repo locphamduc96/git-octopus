@@ -57,7 +57,7 @@
 		font-variant-numeric: tabular-nums;
 	}
 	.oid {
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 		color: var(--gg-fg-muted);
 	}
 	.none {

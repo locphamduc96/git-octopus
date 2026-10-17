@@ -154,6 +154,7 @@ export function controllerShell(over: Partial<ControllerShell> = {}): Controller
 		fallbackPrompt: DISMISSING_PROMPT,
 		listRoots: () => [],
 		colorThemeKind: () => 'dark',
+		editorTabSize: () => 4,
 		prepareView: () => Promise.resolve(),
 		fileIconsFor: () => null,
 		reloadIconTheme: () => Promise.resolve(),

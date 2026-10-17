@@ -105,7 +105,7 @@
 	}
 	.note {
 		margin: 0;
-		font-size: 0.85em;
+		font-size: var(--gg-text-xs);
 		color: var(--gg-fg-muted);
 	}
 	.chips {
@@ -117,14 +117,14 @@
 		padding: 2px 10px;
 		background: transparent;
 		border: 1px solid var(--gg-border);
-		border-radius: 10px;
+		border-radius: 999px;
 		color: var(--gg-fg-muted);
 		font: inherit;
-		font-size: 0.9em;
+		font-size: var(--gg-text-sm);
 		cursor: pointer;
 	}
 	.chip:hover:not(:disabled):not(.on) {
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 		color: var(--gg-fg);
 	}
 	.chip.on {
@@ -137,15 +137,15 @@
 		cursor: default;
 	}
 	input.model {
-		background: var(--vscode-input-background);
-		color: var(--vscode-input-foreground);
-		border: 1px solid var(--vscode-input-border, var(--gg-border));
-		border-radius: 3px;
+		background: var(--gg-input-bg);
+		color: var(--gg-input-fg);
+		border: 1px solid var(--gg-input-border);
+		border-radius: var(--gg-radius);
 		font: inherit;
 		padding: 2px var(--gg-space-1);
 		width: 170px;
 	}
 	input.model:focus {
-		outline: 1px solid var(--vscode-focusBorder);
+		outline: 1px solid var(--gg-focus);
 	}
 </style>

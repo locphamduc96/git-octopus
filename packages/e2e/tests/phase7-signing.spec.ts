@@ -76,10 +76,8 @@ test('7.2 a commit from the commit box is signed, and the graph says so', async 
 
 test('7.3 the details name the signer and the key', async () => {
 	await row(s, 'feat: signed from the commit box').click();
-	const subjectBar = s.graph.locator('button.subject-bar');
-	// Folded, the byline carries the shield alone; unfolded, the block says who signed.
-	await expect(subjectBar.locator('.signature.good')).toBeVisible();
-	if ((await subjectBar.getAttribute('aria-expanded')) !== 'true') await subjectBar.click();
-	await expect(s.graph.getByText('Good signature — test@example.invalid')).toBeVisible();
-	await expect(s.graph.locator('dd.signature .key')).toHaveText(/^SHA256:/);
+	// The meta lines show whether the message is folded or not: the signer and key are always there.
+	const signature = s.graph.locator('.meta .signature.good');
+	await expect(signature).toContainText('Good signature — test@example.invalid');
+	await expect(signature.locator('.key')).toHaveText(/^SHA256:/);
 });

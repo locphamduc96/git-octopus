@@ -52,7 +52,7 @@
 		flex: 1;
 		min-height: 0;
 		overflow: hidden;
-		mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+		mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
 	}
 	.section {
 		padding-bottom: var(--gg-space-2);

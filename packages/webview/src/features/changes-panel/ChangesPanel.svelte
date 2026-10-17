@@ -41,9 +41,7 @@
 		working,
 		details,
 		detailsLoading,
-		branchName,
 		ahead,
-		behind,
 		comparison,
 		activePath,
 		onworkingAction,
@@ -80,9 +78,7 @@
 		working: WorkingTreeStatus | null;
 		details: CommitDetails | null;
 		detailsLoading: boolean;
-		branchName: string | null;
 		ahead: number;
-		behind: number;
 		comparison: ComparisonState;
 		/** The file whose diff is open in the panel, highlighted in whichever tab lists it. */
 		activePath: string | null;
@@ -200,29 +196,14 @@
 		{#if loading}
 			<span class="summary"><span class="gg-skeleton-bar head-bar"></span></span>
 		{:else if mode === 'changes'}
+			<!-- The branch and its drift are on the control bar and the Push button already; the panel
+			     only names what it lists. -->
 			<span class="summary">
-				{#if branchName}
-					<span class="branch" use:tooltip={'Commits and pushes go to this branch'}
-						><span class="branch-name">{branchName}</span></span
-					>
-				{:else}
-					<span class="branch" use:tooltip={'HEAD is detached'}
-						><span class="branch-name">detached</span></span
-					>
-				{/if}
-				{#if ahead > 0}<span
-						class="sync"
-						use:tooltip={`${ahead} commit${ahead === 1 ? '' : 's'} waiting to be pushed`}
-						>↑{ahead}</span
+				<span class="title">Working tree</span>
+				{#if changeCount > 0}<span
+						class="count"
+						use:tooltip={`${changeCount} change${changeCount === 1 ? '' : 's'}`}>{changeCount}</span
 					>{/if}
-				{#if behind > 0}<span
-						class="sync"
-						use:tooltip={`${behind} commit${behind === 1 ? '' : 's'} waiting to be pulled`}
-						>↓{behind}</span
-					>{/if}
-				{#if changeCount > 0}
-					· {changeCount} change{changeCount === 1 ? '' : 's'}
-				{/if}
 			</span>
 		{:else if mode === 'commit'}
 			<span class="summary">
@@ -248,15 +229,13 @@
 		{/if}
 
 		<span class="tools">
-			<!-- Expands the message/hash/author block in the tab below; lives up here with the other
-			     view controls rather than dangling off the end of the subject line. -->
+			<!-- Expands the commit message in the tab below; lives up here with the other view controls
+			     rather than dangling off the end of the subject line. -->
 			{#if mode === 'commit'}
 				<IconButton
 					name={metaOpen ? 'fold' : 'unfold'}
-					label={metaOpen ? 'Collapse the commit details' : 'Expand the commit details'}
-					title={metaOpen
-						? 'Hide the full message, hash, parents and author'
-						: 'Show the full message, hash, parents and author'}
+					label={metaOpen ? 'Collapse the commit message' : 'Expand the commit message'}
+					title={metaOpen ? 'Hide the rest of the message' : 'Show the whole message'}
 					onclick={() => onmetaOpen(!metaOpen)}
 				/>
 			{/if}
@@ -395,31 +374,26 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-	/* Outlined like the chips on the graph, so the same idea looks the same everywhere — and built
-	   the same way: an atomic inline box with the border inside a fixed height. As a plain inline
-	   span its border box came out 2px taller than the line box `.summary` clips to, so the top and
-	   bottom borders were cut away and the chip read as two stray arcs around the name. */
-	.branch {
-		display: inline-flex;
-		align-items: center;
-		box-sizing: border-box;
-		height: 20px;
-		max-width: 100%;
-		border: 1px solid var(--gg-fg-muted);
+	.title {
 		color: var(--gg-fg);
-		border-radius: var(--gg-chip-radius);
-		padding: var(--gg-chip-padding);
 		font-weight: 600;
 	}
-	/* The name truncates inside the chip, so a long branch never costs the chip its right border. */
-	.branch-name {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-	.sync {
-		color: var(--gg-accent);
+	.count {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 18px;
+		height: 16px;
 		margin-left: var(--gg-space-1);
+		padding: 0 5px;
+		box-sizing: border-box;
+		border-radius: 999px;
+		background: var(--gg-badge-bg);
+		color: var(--gg-badge-fg);
+		font-size: var(--gg-text-xs);
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		vertical-align: 1px;
 	}
 	.tools {
 		display: flex;
@@ -439,21 +413,18 @@
 		background: transparent;
 		color: var(--gg-fg);
 		border: none;
-		border-radius: 4px;
+		border-radius: var(--gg-radius);
 		cursor: pointer;
 		padding: 0;
 	}
 	.tools button:hover {
-		background: var(--vscode-toolbar-hoverBackground);
+		background: var(--gg-bg-tool-hover);
 	}
 	.tools button.active {
-		background: var(
-			--vscode-toolbar-activeBackground,
-			var(--vscode-list-activeSelectionBackground)
-		);
+		background: var(--gg-bg-tool-active);
 	}
 	.mono {
-		font-family: var(--vscode-editor-font-family, monospace);
+		font-family: var(--gg-font-mono);
 	}
 	.body {
 		position: relative;
