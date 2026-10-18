@@ -10,7 +10,7 @@
 		"start": "node build.mjs && env -u ELECTRON_RUN_AS_NODE electron .",
 		"spike:build": "node spike/build.mjs",
 		"spike": "node spike/build.mjs && electron spike/dist/main.js",
-		"typecheck": "tsc -p tsconfig.json --noEmit && svelte-check --tsconfig ./tsconfig.tabs.json --threshold error",
+		"typecheck": "tsc -p tsconfig.json --noEmit && svelte-check --tsconfig ./tsconfig.tabs.json --threshold error && svelte-check --tsconfig ./tsconfig.welcome.json --threshold error",
 		"test": "vitest run",
 		"dist": "node build.mjs && electron-builder --mac --arm64 --publish never",
 		"install-app": "node scripts/install-app.mjs",
