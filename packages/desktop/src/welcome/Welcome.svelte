@@ -103,6 +103,9 @@
 		user-select: none;
 		background: var(--vscode-editor-background);
 	}
+	:global(#welcome) {
+		height: 100%;
+	}
 	.welcome {
 		position: relative;
 		display: flex;
