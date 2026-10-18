@@ -31,8 +31,15 @@ export const FILE_PLACEHOLDER = '{file}';
 export interface EditorRunner {
 	/** Run a program to completion and answer its stdout. */
 	capture(command: string, listArgs: string[]): Promise<string>;
-	/** Start a program and let it run on its own; settles once it has started or failed to start. */
-	launch(command: string, listArgs: string[]): Promise<void>;
+	/**
+	 * Start a program and let it run on its own; settles once it has started or failed to start.
+	 * With `waitForExit` it settles when the program ends, and a nonzero exit rejects.
+	 */
+	launch(command: string, listArgs: string[], options?: LaunchOptions): Promise<void>;
+}
+
+export interface LaunchOptions {
+	waitForExit?: boolean;
 }
 
 export interface LaunchPlan {
@@ -49,10 +56,16 @@ export function systemEditorRunner(): EditorRunner {
 					error ? reject(error) : resolve(stdout),
 				);
 			}),
-		launch: (command, listArgs) =>
+		launch: (command, listArgs, options = {}) =>
 			new Promise((resolve, reject) => {
 				const child = spawn(command, listArgs, { shell: false, detached: true, stdio: 'ignore' });
 				child.once('error', reject);
+				if (options.waitForExit) {
+					child.once('exit', (code, signal) =>
+						code === 0 ? resolve() : reject(new Error(`${command} exited with ${code ?? signal}`)),
+					);
+					return;
+				}
 				child.once('spawn', () => {
 					child.unref();
 					resolve();
@@ -208,12 +221,12 @@ export class ExternalEditor {
 	public async openFile(setting: ExternalEditorSetting, file: string): Promise<LaunchPlan['via']> {
 		const chosen = await this.plan(setting, file);
 		try {
-			await this.runner.launch(chosen.command, chosen.listArgs);
+			await this.runner.launch(chosen.command, chosen.listArgs, { waitForExit: chosen.via !== 'custom' });
 			return chosen.via;
 		} catch (error) {
 			if (chosen.via === 'default') throw error;
 			const fallback = buildDefaultPlan(path.resolve(file));
-			await this.runner.launch(fallback.command, fallback.listArgs);
+			await this.runner.launch(fallback.command, fallback.listArgs, { waitForExit: true });
 			return fallback.via;
 		}
 	}

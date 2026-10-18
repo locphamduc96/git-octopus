@@ -4,6 +4,7 @@ import {
 	buildCustomPlan,
 	parseExternalEditorSetting,
 	splitCommand,
+	systemEditorRunner,
 	type EditorRunner,
 } from './externalEditor.js';
 
@@ -131,6 +132,31 @@ describe('ExternalEditor', () => {
 		expect(listLaunched[1].listArgs).toEqual(['/repo/a.ts']);
 	});
 
+	it('falls back to open when open -b starts but then exits nonzero', async () => {
+		const { runner, listLaunched } = fakeRunner(ALL, (call) => call.listArgs[0] === '-b');
+		const via = await new ExternalEditor(runner).openFile('vscode', '/repo/a.ts');
+		expect(via).toBe('default');
+		expect(listLaunched.map((call) => call.listArgs)).toEqual([
+			['-b', 'com.microsoft.VSCode', '/repo/a.ts'],
+			['/repo/a.ts'],
+		]);
+	});
+
+	it('waits for open to exit but not for a custom command', async () => {
+		const listWaits: Array<boolean | undefined> = [];
+		const runner: EditorRunner = {
+			capture: () => Promise.resolve('/Applications/Some.app\n'),
+			launch: (_command, _listArgs, options) => {
+				listWaits.push(options?.waitForExit);
+				return Promise.resolve();
+			},
+		};
+		const editor = new ExternalEditor(runner, { exists: () => true });
+		await editor.openFile('vscode', '/repo/a.ts');
+		await editor.openFile({ command: '/usr/local/bin/ed --wait {file}' }, '/repo/a.ts');
+		expect(listWaits).toEqual([true, false]);
+	});
+
 	it('uses open for an empty or unterminated custom command', async () => {
 		const { runner, listLaunched } = fakeRunner(ALL);
 		const editor = new ExternalEditor(runner);
@@ -212,6 +238,21 @@ describe('buildCustomPlan', () => {
 			'/r/a.ts:1',
 			'/r/a.ts',
 		]);
+	});
+});
+
+describe('systemEditorRunner.launch', () => {
+	it('rejects a nonzero exit only when asked to wait for it', async () => {
+		const runner = systemEditorRunner();
+		await expect(runner.launch('false', [], { waitForExit: true })).rejects.toThrow();
+		await expect(runner.launch('true', [], { waitForExit: true })).resolves.toBeUndefined();
+		await expect(runner.launch('false', [])).resolves.toBeUndefined();
+	});
+
+	it('rejects a program that cannot start', async () => {
+		await expect(
+			systemEditorRunner().launch('/nope/does-not-exist', [], { waitForExit: true }),
+		).rejects.toThrow();
 	});
 });
 
