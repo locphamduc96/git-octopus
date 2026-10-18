@@ -66,4 +66,26 @@ describe('MarkdownOverlay', () => {
 		await fireEvent.keyDown(await screen.findByRole('dialog'), { key: 'Escape' });
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 	});
+
+	it('keeps keystrokes away from the window shortcuts of the view underneath', async () => {
+		const heardByWindow = vi.fn();
+		window.addEventListener('keydown', heardByWindow);
+		try {
+			render(MarkdownOverlay);
+			show();
+			const dialog = await screen.findByRole('dialog');
+			await fireEvent.keyDown(dialog, { key: 'ArrowDown' });
+			await fireEvent.keyDown(dialog, { key: 'PageDown' });
+			await fireEvent.keyDown(dialog, { key: 'z', metaKey: true });
+			const copy = await screen.findByRole('button', { name: 'Copy' });
+			await fireEvent.keyDown(copy, { key: 'y', ctrlKey: true });
+			await fireEvent.keyDown(dialog, { key: 'Escape' });
+			expect(heardByWindow).not.toHaveBeenCalled();
+
+			await fireEvent.keyDown(document.body, { key: 'ArrowDown' });
+			expect(heardByWindow).toHaveBeenCalledTimes(1);
+		} finally {
+			window.removeEventListener('keydown', heardByWindow);
+		}
+	});
 });

@@ -6,6 +6,8 @@ import type { HostToWebview } from '@git-octopus/shared';
 import type { HostViewSettings } from '@git-octopus/host/adapters/services/CommitActionService';
 import { STATE_VIEW_SETTINGS } from '@git-octopus/host/adapters/services/GitOctopusController';
 import type { ViewChannel } from '@git-octopus/host/app/ports/shell';
+import type { ThemeSource } from '../ipc.js';
+import { followSavedTheme } from '../themeSource.js';
 import { DesktopShell, markdownTitle } from './desktopShell.js';
 import { ExternalEditor, type EditorRunner } from './externalEditor.js';
 
@@ -350,6 +352,34 @@ describe('DesktopShell', () => {
 			columns: {},
 		});
 		expect(listHeard).toEqual([{ theme: 'dark', gitPath: '/opt/git' }]);
+	});
+
+	it('applies a theme choice in one tab even when another tab changed the theme in between', async () => {
+		const listApplied: [string, ThemeSource][] = [];
+		const openTab = (name: string) =>
+			new DesktopShell({
+				folder: '/repo',
+				dataDir: dir,
+				logDir: path.join(dir, 'logs'),
+				theme: 'dark',
+				rpc: () => Promise.resolve(undefined),
+				onViewSettingsSaved: (settings) =>
+					followSavedTheme(settings, (source) => listApplied.push([name, source])),
+			});
+		const tabA = openTab('A');
+		const tabB = openTab('B');
+		await tabA.globalState.update(STATE_VIEW_SETTINGS, {
+			settings: { theme: 'dark' },
+			columns: {},
+		});
+		await tabB.globalState.update(STATE_VIEW_SETTINGS, {
+			settings: { theme: 'system' },
+			columns: {},
+		});
+		expect(listApplied).toEqual([
+			['A', 'dark'],
+			['B', 'system'],
+		]);
 	});
 
 	it('looks for repositories in its own folder, and keeps its state there', async () => {

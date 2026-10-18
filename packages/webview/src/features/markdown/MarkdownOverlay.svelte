@@ -13,8 +13,12 @@
 		element.focus();
 	}
 
-	/** Scoped to the overlay: a dialog opened above it keeps its own Escape. */
+	/**
+	 * Scoped to the overlay: a dialog opened above it keeps its own Escape. Nothing typed here goes
+	 * on to the window shortcuts of the graph hidden underneath (arrows, Cmd+Z, Cmd+R …).
+	 */
 	function onkeydown(event: KeyboardEvent): void {
+		event.stopPropagation();
 		if (event.key === 'Escape') markdownPanel.close();
 	}
 </script>

@@ -31,8 +31,8 @@ import { WorkingTreeService } from '@git-octopus/host/adapters/services/WorkingT
 import { RepoActionService } from '@git-octopus/host/adapters/services/RepoActionService';
 import { CommitAgentService } from '@git-octopus/host/adapters/services/CommitAgentService';
 import { AutoFetchScheduler } from '@git-octopus/host/adapters/services/AutoFetchScheduler';
-import type { HostToMain, MainRpc, MainToHost, ThemeSource } from '../ipc.js';
-import { parseThemeSource } from '../themeSource.js';
+import type { HostToMain, MainRpc, MainToHost } from '../ipc.js';
+import { followSavedTheme } from '../themeSource.js';
 import { createDesktopAskpass } from './askpassEnv.js';
 import { DesktopShell } from './desktopShell.js';
 import { GitAvailabilityExecutor } from './gitAvailability.js';
@@ -99,7 +99,6 @@ async function startAskpass(init: Extract<MainToHost, { kind: 'init' }>, owner: 
 async function start(init: Extract<MainToHost, { kind: 'init' }>): Promise<void> {
 	focused = init.focused;
 	setGitPathSource(() => readViewSettings()?.gitPath);
-	let themeSource: ThemeSource = 'system';
 	let gitProgram = DEFAULT_GIT_PROGRAM;
 	let git: GitAvailabilityExecutor | null = null;
 	const owner = new DesktopShell({
@@ -107,12 +106,7 @@ async function start(init: Extract<MainToHost, { kind: 'init' }>): Promise<void>
 		rpc,
 		readViewSettings,
 		onViewSettingsSaved: (settings) => {
-			// Main applies a theme at launch from the same file; it only has to hear of a change.
-			const nextTheme = parseThemeSource(settings?.theme);
-			if (nextTheme !== themeSource) {
-				themeSource = nextTheme;
-				void rpc('setThemeSource', nextTheme);
-			}
+			followSavedTheme(settings, (source) => void rpc('setThemeSource', source));
 			const nextProgram = gitProgramFor(settings?.gitPath);
 			if (nextProgram !== gitProgram) {
 				gitProgram = nextProgram;
@@ -121,7 +115,6 @@ async function start(init: Extract<MainToHost, { kind: 'init' }>): Promise<void>
 		},
 	});
 	shell = owner;
-	themeSource = parseThemeSource(readViewSettings()?.theme);
 	gitProgram = resolveGitProgram();
 	const askpass = await startAskpass(init, owner);
 	git = new GitAvailabilityExecutor(new GitProcessExecutor(askpass), {

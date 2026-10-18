@@ -68,6 +68,17 @@ describe('resolveWatchPaths', () => {
 		expect(paths.commonDir).toBe(path.join(repo, '.git'));
 	});
 
+	it('keeps trailing whitespace in a folder name', async () => {
+		const repo = path.join(root, 'repo ');
+		fs.mkdirSync(repo);
+		git(repo, 'init', '-q', '-b', 'main');
+		expect(await resolveWatchPaths(new GitProcessExecutor(), repo)).toEqual({
+			worktree: repo,
+			gitDir: path.join(repo, '.git'),
+			commonDir: path.join(repo, '.git'),
+		});
+	});
+
 	it('rejects for a folder that is no repository', async () => {
 		const plain = path.join(root, 'plain');
 		fs.mkdirSync(plain);

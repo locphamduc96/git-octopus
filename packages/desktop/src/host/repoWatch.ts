@@ -12,7 +12,7 @@ export async function resolveWatchPaths(
 		['rev-parse', '--show-toplevel', '--absolute-git-dir', '--git-common-dir'],
 		repo
 	);
-	const [worktree, gitDir, commonDir] = out.split('\n').map((line) => line.trim());
+	const [worktree, gitDir, commonDir] = out.split('\n');
 	if (!worktree || !gitDir || !commonDir) {
 		throw new Error(`git rev-parse gave no repository folders for ${repo}`);
 	}

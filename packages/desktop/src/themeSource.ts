@@ -15,6 +15,18 @@ export function parseThemeSource(raw: unknown): ThemeSource {
 	return LIST_THEME_SOURCES.find((source) => source === raw) ?? 'system';
 }
 
+/**
+ * Hands the theme a saved settings blob names to `apply`, every time. A save is never skipped as
+ * "unchanged": the native theme belongs to the app, all tabs share it, and what this host last
+ * sent may have been overtaken by another tab.
+ */
+export function followSavedTheme(
+	settings: { theme?: unknown } | null,
+	apply: (source: ThemeSource) => void
+): void {
+	apply(parseThemeSource(settings?.theme));
+}
+
 /** The theme the user chose last time, read straight from the state file. */
 export function readStoredThemeSource(stateFile: string): ThemeSource {
 	try {

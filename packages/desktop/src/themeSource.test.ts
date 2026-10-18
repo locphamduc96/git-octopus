@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { STATE_VIEW_SETTINGS } from '@git-octopus/host/adapters/services/GitOctopusController';
-import { parseThemeSource, readStoredThemeSource, VIEW_SETTINGS_KEY } from './themeSource.js';
+import {
+	followSavedTheme,
+	parseThemeSource,
+	readStoredThemeSource,
+	VIEW_SETTINGS_KEY,
+} from './themeSource.js';
 
 describe('themeSource', () => {
 	let dir = '';
@@ -19,6 +24,16 @@ describe('themeSource', () => {
 	it('accepts the three sources and falls back to the system for anything else', () => {
 		expect(['system', 'light', 'dark'].map(parseThemeSource)).toEqual(['system', 'light', 'dark']);
 		expect([undefined, null, '', 'Dark', 3].map(parseThemeSource)).toEqual(Array(5).fill('system'));
+	});
+
+	it('hands over the theme of every save, repeats included', () => {
+		const listApplied: string[] = [];
+		const apply = (source: string) => listApplied.push(source);
+		followSavedTheme({ theme: 'dark' }, apply);
+		followSavedTheme({ theme: 'dark' }, apply);
+		followSavedTheme({}, apply);
+		followSavedTheme(null, apply);
+		expect(listApplied).toEqual(['dark', 'dark', 'system', 'system']);
 	});
 
 	it('reads the saved choice out of the state file', () => {
