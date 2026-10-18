@@ -4,12 +4,17 @@ import * as http from 'node:http';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { redactSecrets } from '../../core/git/redactSecrets';
 import { AskpassCore, type PromptRequest } from './askpassCore';
+
+const USERNAME = 'octo-user';
+const PASSWORD = 'octo-pass';
+const BASIC_TOKEN = Buffer.from(`${USERNAME}:${PASSWORD}`).toString('base64');
 
 /**
  * The whole chain, with nothing faked in the middle: a real `git ls-remote` against an HTTP
  * server that demands Basic auth → git runs the real `askpass.sh` (from a directory with a
- * space in its name, as an installed extension path may have) → the editor-node client → the
+ * space in its name, as an installed app or extension path may have) → the node client → the
  * unix socket → the prompt handler. The server then verifies the Authorization header carries
  * exactly what the handler answered.
  */
@@ -21,8 +26,24 @@ describe('askpass end to end', () => {
 	const listPrompts: PromptRequest[] = [];
 	let authHeader: string | null = null;
 
+	/** git always fails here (the server answers 401 to everything); its stderr is what is kept. */
+	function lsRemote(mapEnv: Record<string, string>, extraEnv: Record<string, string> = {}) {
+		return new Promise<string>((resolve) => {
+			execFile(
+				'git',
+				['ls-remote', `http://127.0.0.1:${String(port)}/repo.git`],
+				{
+					cwd: tmpdir(),
+					env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...mapEnv, ...extraEnv },
+					timeout: 15_000,
+				},
+				(_error, _stdout, stderr) => resolve(stderr)
+			);
+		});
+	}
+
 	beforeAll(async () => {
-		// An installed extension can live under a path with spaces — prove the launcher quotes.
+		// An installed app or extension can live under a path with spaces — prove the launcher quotes.
 		scriptDir = path.join(mkdtempSync(path.join(tmpdir(), 'gg-e2e-')), 'with space');
 		cpSync(path.resolve(__dirname, '../../../media/askpass'), scriptDir, { recursive: true });
 		chmodSync(path.join(scriptDir, 'askpass.sh'), 0o755);
@@ -49,7 +70,7 @@ describe('askpass end to end', () => {
 			},
 			async (request) => {
 				listPrompts.push(request);
-				return request.kind === 'username' ? 'octo-user' : 'octo-pass';
+				return request.kind === 'username' ? USERNAME : PASSWORD;
 			}
 		);
 		await core.start();
@@ -67,18 +88,7 @@ describe('askpass end to end', () => {
 			operation: 'fetch',
 			listHosts: ['127.0.0.1'],
 		});
-		await new Promise<void>((resolve) => {
-			execFile(
-				'git',
-				['ls-remote', `http://127.0.0.1:${String(port)}/repo.git`],
-				{
-					cwd: tmpdir(),
-					env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...mapEnv },
-					timeout: 15_000,
-				},
-				() => resolve() // git fails (server always 401s) — expected.
-			);
-		});
+		await lsRemote(mapEnv);
 		core.release(nonce);
 
 		// git asked for a username, then a password, through the real script chain.
@@ -86,7 +96,26 @@ describe('askpass end to end', () => {
 		expect(listKinds).toContain('username');
 		expect(listKinds).toContain('secret');
 		// And what the handler answered is exactly what reached the server.
-		const expected = `Basic ${Buffer.from('octo-user:octo-pass').toString('base64')}`;
-		expect(authHeader).toBe(expected);
+		expect(authHeader).toBe(`Basic ${BASIC_TOKEN}`);
+	});
+
+	it('leaves neither the answer nor the lease in a git trace once it is redacted', async () => {
+		const { nonce, mapEnv } = core.register({
+			cwd: tmpdir(),
+			operation: 'fetch',
+			listHosts: ['127.0.0.1'],
+		});
+		// Git redacts its own trace by default; turning that off is the worst case a log can be in.
+		const stderr = await lsRemote(mapEnv, { GIT_CURL_VERBOSE: '1', GIT_TRACE_REDACT: '0' });
+		core.release(nonce);
+		expect(stderr).toContain(BASIC_TOKEN);
+
+		const bare = redactSecrets(stderr);
+		expect(bare).not.toContain(BASIC_TOKEN);
+
+		const clean = redactSecrets(stderr, [PASSWORD, nonce, core.handlePath ?? '']);
+		expect(clean).not.toContain(PASSWORD);
+		expect(clean).not.toContain(BASIC_TOKEN);
+		expect(clean).not.toContain(nonce);
 	});
 });
