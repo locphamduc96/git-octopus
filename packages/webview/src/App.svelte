@@ -84,6 +84,9 @@
 	import { capabilities } from './lib/stores/capabilities.svelte';
 	import './lib/stores/hostNotices.svelte';
 	import HostNotices from './lib/ui/HostNotices.svelte';
+	import { credentials } from './lib/stores/credentials.svelte';
+	import CredentialDialog from './features/credential/CredentialDialog.svelte';
+	import MarkdownOverlay from './features/markdown/MarkdownOverlay.svelte';
 	import { rebaseEditor } from './lib/stores/rebaseEditor.svelte';
 	import GraphView from './features/graph/GraphView.svelte';
 	import GraphSkeleton from './features/graph/GraphSkeleton.svelte';
@@ -1911,6 +1914,22 @@
 		onselect={onRefMenuSelect}
 		onclose={() => (refMenu = null)}
 	/>
+{/if}
+
+<MarkdownOverlay />
+
+{#if credentials.current}
+	{@const question = credentials.current}
+	{#key question.id}
+		<CredentialDialog
+			title={question.title}
+			prompt={question.prompt}
+			secret={question.secret}
+			confirm={question.confirm}
+			onanswer={(answer) => credentials.answer(question.id, answer)}
+			oncancel={() => credentials.cancel(question.id)}
+		/>
+	{/key}
 {/if}
 
 <HostNotices />

@@ -3,83 +3,92 @@ import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { AskpassServer } from '@git-octopus/host/adapters/askpass/askpassServer';
+import type { AskpassServer } from '@git-octopus/host/adapters/askpass/askpassServer';
 import type { CredentialRequest } from '@git-octopus/host/app/ports/credentialPrompt';
-import { buildDesktopAskpassEnv } from './askpassEnv.js';
+import { createDesktopAskpass, desktopAskpassHelperDir, unpackedPath } from './askpassEnv.js';
 
 const APP_BINARY = '/Applications/Git Octopus.app/Contents/MacOS/Git Octopus';
-const HELPER_DIR = '/Applications/Git Octopus.app/Contents/Resources/askpass';
+const PACKED_DIST = '/Applications/Git Octopus.app/Contents/Resources/app.asar/dist';
 const HELPER_SOURCE = path.resolve(__dirname, '../../../host/media/askpass');
+const CONTEXT = { cwd: '/work/octo-repo', operation: 'fetch', listHosts: ['example.invalid'] };
 
-describe('buildDesktopAskpassEnv', () => {
-	it('runs the helper under the app binary as node, against the given handle and nonce', () => {
-		expect(
-			buildDesktopAskpassEnv({
-				helperDir: HELPER_DIR,
-				handle: '/tmp/gg-ask-x/s',
-				nonce: 'n0nce',
-				execPath: APP_BINARY,
-				display: ':1',
-			})
-		).toEqual({
-			GIT_ASKPASS: `${HELPER_DIR}/askpass.sh`,
-			SSH_ASKPASS: `${HELPER_DIR}/askpass.sh`,
-			SSH_ASKPASS_REQUIRE: 'force',
-			GIT_OCTOPUS_ASKPASS_NODE: APP_BINARY,
-			GIT_OCTOPUS_ASKPASS_MAIN: `${HELPER_DIR}/askpass-main.cjs`,
-			GIT_OCTOPUS_ASKPASS_HANDLE: '/tmp/gg-ask-x/s',
-			GIT_OCTOPUS_ASKPASS_NONCE: 'n0nce',
-			ELECTRON_RUN_AS_NODE: '1',
-		});
+describe('unpackedPath', () => {
+	it('moves a path inside the archive to the unpacked folder beside it', () => {
+		expect(unpackedPath(`${PACKED_DIST}/askpass/askpass.sh`)).toBe(
+			'/Applications/Git Octopus.app/Contents/Resources/app.asar.unpacked/dist/askpass/askpass.sh'
+		);
 	});
 
-	it("defaults to the running process's own executable", () => {
-		const mapEnv = buildDesktopAskpassEnv({ helperDir: HELPER_DIR, handle: 'h', nonce: 'n' });
-		expect(mapEnv.GIT_OCTOPUS_ASKPASS_NODE).toBe(process.execPath);
-		expect(mapEnv.ELECTRON_RUN_AS_NODE).toBe('1');
+	it('leaves a path outside any archive as it was', () => {
+		expect(unpackedPath('/repo/packages/desktop/dist/askpass')).toBe(
+			'/repo/packages/desktop/dist/askpass'
+		);
+		expect(unpackedPath('/Applications/app.asarx/dist')).toBe('/Applications/app.asarx/dist');
 	});
 
-	it('supplies a DISPLAY for older OpenSSH only when there is none', () => {
-		const base = { helperDir: HELPER_DIR, handle: 'h', nonce: 'n' };
-		expect(buildDesktopAskpassEnv({ ...base, display: '' }).DISPLAY).toBe(':0');
-		expect(buildDesktopAskpassEnv({ ...base, display: ':1' }).DISPLAY).toBeUndefined();
+	it('does not touch a path that is already unpacked', () => {
+		const unpacked = '/A/Resources/app.asar.unpacked/dist/askpass';
+		expect(unpackedPath(unpacked)).toBe(unpacked);
 	});
 });
 
-describe('the environment drives the real helper', () => {
-	let helperDir: string;
+describe('desktopAskpassHelperDir', () => {
+	it('is the askpass folder of the dist, taken out of the archive when packaged', () => {
+		expect(desktopAskpassHelperDir('/repo/packages/desktop/dist')).toBe(
+			'/repo/packages/desktop/dist/askpass'
+		);
+		expect(desktopAskpassHelperDir(PACKED_DIST)).toBe(
+			'/Applications/Git Octopus.app/Contents/Resources/app.asar.unpacked/dist/askpass'
+		);
+	});
+});
+
+describe('the desktop askpass bridge', () => {
+	let distDir: string;
 	let server: AskpassServer | null = null;
 
 	beforeEach(() => {
-		helperDir = path.join(mkdtempSync(path.join(tmpdir(), 'gg-desk-')), 'Git Octopus.app');
-		cpSync(HELPER_SOURCE, helperDir, { recursive: true });
+		distDir = path.join(mkdtempSync(path.join(tmpdir(), 'gg-desk-')), 'dist');
+		cpSync(HELPER_SOURCE, path.join(distDir, 'askpass'), { recursive: true });
 	});
 
 	afterEach(() => {
 		server?.dispose();
 		server = null;
-		rmSync(path.dirname(helperDir), { recursive: true, force: true });
+		rmSync(path.dirname(distDir), { recursive: true, force: true });
 	});
 
-	it('gets the answer of a server that was handed the same helper directory', async () => {
+	it('hands git the helper and the app binary, and keeps ELECTRON_RUN_AS_NODE out of git', async () => {
+		server = createDesktopAskpass({
+			distDir,
+			appBinary: APP_BINARY,
+			prompt: { ask: () => Promise.resolve(undefined) },
+		});
+		await server.start();
+		const { mapEnv } = server.register(CONTEXT);
+
+		expect(mapEnv.GIT_ASKPASS).toBe(path.join(distDir, 'askpass', 'askpass.sh'));
+		expect(mapEnv.SSH_ASKPASS).toBe(path.join(distDir, 'askpass', 'askpass.sh'));
+		expect(mapEnv.GIT_OCTOPUS_ASKPASS_MAIN).toBe(path.join(distDir, 'askpass', 'askpass-main.cjs'));
+		expect(mapEnv.GIT_OCTOPUS_ASKPASS_NODE).toBe(APP_BINARY);
+		expect(mapEnv.GIT_OCTOPUS_ASKPASS_HANDLE).toBe(server.handlePath);
+		expect(mapEnv).not.toHaveProperty('ELECTRON_RUN_AS_NODE');
+	});
+
+	it('gets the answer of the prompt when the helper is run the way git runs it', async () => {
 		const listAsked: CredentialRequest[] = [];
-		server = new AskpassServer(helperDir, {
-			ask: (request) => {
-				listAsked.push(request);
-				return Promise.resolve('hunter2');
+		server = createDesktopAskpass({
+			distDir,
+			appBinary: process.execPath,
+			prompt: {
+				ask: (request) => {
+					listAsked.push(request);
+					return Promise.resolve('hunter2');
+				},
 			},
 		});
 		await server.start();
-		const { nonce } = server.register({
-			cwd: '/work/octo-repo',
-			operation: 'fetch',
-			listHosts: ['example.invalid'],
-		});
-		const mapEnv = buildDesktopAskpassEnv({
-			helperDir,
-			handle: server.handlePath ?? '',
-			nonce,
-		});
+		const { nonce, mapEnv } = server.register(CONTEXT);
 
 		// How git launches GIT_ASKPASS: through the shell, with the prompt as the argument.
 		const stdout = await new Promise<string>((resolve, reject) => {
@@ -90,6 +99,7 @@ describe('the environment drives the real helper', () => {
 				(error, out) => (error ? reject(error) : resolve(out))
 			);
 		});
+		server.release(nonce);
 
 		expect(stdout).toBe('hunter2');
 		expect(listAsked).toEqual([

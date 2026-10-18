@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CredentialPrompt, CredentialRequest } from '../../app/ports/credentialPrompt.js';
-import { AskpassServer } from './askpassServer.js';
+import { AskpassServer, ensureExecutable } from './askpassServer.js';
 
 const HELPER_SOURCE = path.resolve(__dirname, '../../../media/askpass');
 const CONTEXT = { cwd: '/work/octo-repo', operation: 'push', listHosts: ['example.invalid'] };
@@ -99,6 +99,26 @@ describe('AskpassServer', () => {
 		server = new AskpassServer(helperDir, fakePrompt().port);
 		await server.start();
 		expect(statSync(script).mode & 0o111).not.toBe(0);
+	});
+
+	it('starts from a read-only install whose script is already executable', async () => {
+		const ops = {
+			chmod: () => Promise.reject(new Error('EROFS: read-only file system')),
+			access: () => Promise.resolve(),
+		};
+		await expect(ensureExecutable('/Applications/Git Octopus.app/askpass.sh', ops)).resolves.toBe(
+			undefined
+		);
+	});
+
+	it('refuses to start when the script can be neither changed nor run', async () => {
+		const ops = {
+			chmod: () => Promise.reject(new Error('EROFS: read-only file system')),
+			access: () => Promise.reject(new Error('EACCES')),
+		};
+		await expect(ensureExecutable('/Applications/Git Octopus.app/askpass.sh', ops)).rejects.toThrow(
+			/askpass\.sh cannot be run.*EROFS/
+		);
 	});
 
 	it('refuses to start when the helper is not where it was told', async () => {

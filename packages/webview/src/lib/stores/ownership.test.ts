@@ -31,6 +31,8 @@ beforeAll(async () => {
 	await import('./capabilities.svelte');
 	await import('./refPanel.svelte');
 	await import('./hostNotices.svelte');
+	await import('./credentials.svelte');
+	await import('./markdown.svelte');
 });
 
 describe('store ownership', () => {

@@ -1,14 +1,21 @@
+import { writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import {
+	app,
+	BrowserWindow,
 	clipboard,
+	dialog,
 	MessageChannelMain,
+	nativeTheme,
 	shell,
 	utilityProcess,
 	WebContentsView,
+	type SaveDialogOptions,
 	type UtilityProcess,
 } from 'electron';
 import type { HostCommand } from '@git-octopus/shared';
 import type { HostToMain, MainRpc, MainToHost, TabInfo, ThemeKind } from '../ipc.js';
+import { parseThemeSource } from '../themeSource.js';
 
 export interface RepoTabOptions {
 	id: number;
@@ -145,6 +152,7 @@ export class RepoTab {
 			logDir: this.options.logDir,
 			theme: this.options.theme,
 			focused: false,
+			appBinary: process.execPath,
 		} satisfies MainToHost);
 		return host;
 	}
@@ -185,7 +193,29 @@ export class RepoTab {
 			case 'focusWindow':
 				this.options.activate(this);
 				return undefined;
+			case 'setThemeSource':
+				nativeTheme.themeSource = parseThemeSource(listArgs[0]);
+				return undefined;
+			case 'saveFile':
+				return this.saveFile(String(listArgs[0]), String(listArgs[1]));
 		}
+	}
+
+	/** Asks where, writes there, answers the path; a cancelled dialog answers nothing. */
+	private async saveFile(suggestedName: string, content: string): Promise<string | undefined> {
+		const name = path.basename(suggestedName).replace(/[\\/:*?"<>|]/g, '-') || 'explanation.md';
+		const options: SaveDialogOptions = {
+			title: 'Save as',
+			defaultPath: path.join(app.getPath('documents'), name),
+			filters: [{ name: 'Markdown', extensions: ['md'] }],
+		};
+		const owner = BrowserWindow.fromWebContents(this.view.webContents);
+		const result = owner
+			? await dialog.showSaveDialog(owner, options)
+			: await dialog.showSaveDialog(options);
+		if (result.canceled || !result.filePath) return undefined;
+		await writeFile(result.filePath, content, 'utf8');
+		return result.filePath;
 	}
 
 	private openExternal(url: string): void {

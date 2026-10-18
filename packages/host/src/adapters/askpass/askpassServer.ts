@@ -1,9 +1,39 @@
-import { chmod } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, chmod } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { CredentialPrompt } from '../../app/ports/credentialPrompt.js';
 import type { AskpassBridge, GitAuthContext } from '../../core/git/GitExecutor.js';
 import { AskpassCore, type PromptRequest } from './askpassCore.js';
 import { askpassHelperPaths } from './askpassEnv.js';
+
+export interface ExecutableOps {
+	chmod: (file: string, mode: number) => Promise<void>;
+	access: (file: string, mode: number) => Promise<void>;
+}
+
+/**
+ * Makes sure git can run `file`. The exec bit does not survive VSIX packaging, so it is restored
+ * here; where the file cannot be changed at all (a packaged, read-only app, whose bit was set when
+ * it was built) that is fine as long as it is already executable.
+ */
+export async function ensureExecutable(
+	file: string,
+	ops: ExecutableOps = { chmod, access }
+): Promise<void> {
+	try {
+		await ops.chmod(file, 0o755);
+	} catch (error) {
+		try {
+			await ops.access(file, constants.X_OK);
+		} catch {
+			throw new Error(
+				`The askpass helper ${file} cannot be run and its mode cannot be changed: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			);
+		}
+	}
+}
 
 /**
  * The shell-neutral face of the askpass bridge: owns an {@link AskpassCore} and puts its
@@ -39,8 +69,7 @@ export class AskpassServer implements AskpassBridge {
 
 	/** Must complete before any executor holds this as its bridge. */
 	public async start(): Promise<void> {
-		// The exec bit does not survive VSIX packaging, so it is restored on every start.
-		await chmod(this.scriptPath, 0o755);
+		await ensureExecutable(this.scriptPath);
 		await this.core.start();
 	}
 

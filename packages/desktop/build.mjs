@@ -1,6 +1,9 @@
 import { cpSync, existsSync, rmSync } from 'node:fs';
 import esbuild from 'esbuild';
 import { build as viteBuild } from 'vite';
+import { copyAskpassHelper } from './scripts/copyAskpass.mjs';
+
+const ASKPASS_HELPER = '../host/media/askpass';
 
 // The view is the webview's own build, made by `pnpm --filter @git-octopus/webview build`.
 const WEBVIEW_BUILD = '../extension/media/webview';
@@ -30,6 +33,9 @@ await esbuild.build({
 
 rmSync('dist/renderer', { recursive: true, force: true });
 cpSync(WEBVIEW_BUILD, 'dist/renderer', { recursive: true });
+
+// The askpass helper git runs to ask for a password; electron-builder unpacks it from the archive.
+copyAskpassHelper(ASKPASS_HELPER, 'dist/askpass');
 
 // The tab strip, a Svelte page of its own, into dist/tabs.
 await viteBuild({ configFile: 'vite.tabs.config.mts', logLevel: 'warn' });

@@ -98,6 +98,34 @@ export const LIST_TERMINAL_APPS = membersOf<TerminalApp>()([
 	'Warp',
 ]);
 
+/** The desktop app's colours: follow macOS, or hold one whatever macOS is set to. */
+export type ThemeChoice = 'system' | 'light' | 'dark';
+export const LIST_THEME_CHOICES = membersOf<ThemeChoice>()(['system', 'light', 'dark']);
+export const MAP_THEME_LABEL: Record<ThemeChoice, string> = {
+	system: 'System',
+	light: 'Light',
+	dark: 'Dark',
+};
+
+/** The editor the desktop app opens files and conflicts in. */
+export type ExternalEditorChoice = 'auto' | 'vscode' | 'cursor' | 'zed' | 'sublime' | 'custom';
+export const LIST_EXTERNAL_EDITORS = membersOf<ExternalEditorChoice>()([
+	'auto',
+	'vscode',
+	'cursor',
+	'zed',
+	'sublime',
+	'custom',
+]);
+export const MAP_EXTERNAL_EDITOR_LABEL: Record<ExternalEditorChoice, string> = {
+	auto: 'Automatic',
+	vscode: 'VS Code',
+	cursor: 'Cursor',
+	zed: 'Zed',
+	sublime: 'Sublime Text',
+	custom: 'Custom command',
+};
+
 /** The desktop app opens with the panel; the extension keeps the room for the graph. */
 export function branchesPanelShown(settings: ViewSettings, desktop: boolean): boolean {
 	return settings.showBranchesPanel ?? desktop;
@@ -120,6 +148,14 @@ export function pickOption<T extends string>(listValid: readonly T[], raw: strin
 export interface ViewSettings {
 	/** Desktop app only: which terminal "open in terminal" launches. */
 	terminalApp: TerminalApp;
+	/** Desktop app only: light, dark, or whatever macOS is set to. */
+	theme: ThemeChoice;
+	/** Desktop app only: the git program to run; empty means the one on the PATH. */
+	gitPath: string;
+	/** Desktop app only: where "Open File" and conflicted files open. */
+	externalEditor: ExternalEditorChoice;
+	/** Desktop app only: the command run for `externalEditor: 'custom'`; `{file}` stands for the path. */
+	externalEditorCommand: string;
 	commitLimit: number;
 	commitOrder: CommitOrder;
 	dateType: DateType;
@@ -234,6 +270,10 @@ export type ColumnKey = keyof ColumnWidths;
  */
 export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
 	terminalApp: 'Terminal',
+	theme: 'system',
+	gitPath: '',
+	externalEditor: 'auto',
+	externalEditorCommand: '',
 	commitLimit: 300,
 	commitOrder: 'date',
 	dateType: 'commit',
@@ -312,6 +352,14 @@ export function mergePreferences(
 					...next.settings,
 					terminalApp:
 						pickOption(LIST_TERMINAL_APPS, String(next.settings.terminalApp)) ?? 'Terminal',
+					theme: pickOption(LIST_THEME_CHOICES, String(next.settings.theme)) ?? 'system',
+					gitPath: typeof next.settings.gitPath === 'string' ? next.settings.gitPath : '',
+					externalEditor:
+						pickOption(LIST_EXTERNAL_EDITORS, String(next.settings.externalEditor)) ?? 'auto',
+					externalEditorCommand:
+						typeof next.settings.externalEditorCommand === 'string'
+							? next.settings.externalEditorCommand
+							: '',
 				}
 			: current.settings,
 		columns: next.columns ? { ...current.columns, ...next.columns } : current.columns,
@@ -323,9 +371,13 @@ export function mergePreferences(
 	};
 }
 
-/** Fields the host's log walk depends on force a reload; pure view settings do not. */
+/**
+ * Fields the host's log walk depends on force a reload; pure view settings do not. The git program
+ * is one of them: a graph that could not load because git was missing must load once it is found.
+ */
 export function settingsRequireReload(prev: ViewSettings, next: ViewSettings): boolean {
 	return (
+		next.gitPath !== prev.gitPath ||
 		next.commitLimit !== prev.commitLimit ||
 		next.fetchAvatars !== prev.fetchAvatars ||
 		next.commitOrder !== prev.commitOrder ||

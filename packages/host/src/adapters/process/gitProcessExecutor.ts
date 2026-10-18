@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { AskpassBridge, GitAuthRequest, GitExecutor } from '../../core/git/GitExecutor.js';
 import { skipsOptionalLocks } from '../../core/git/indexLock.js';
+import { resolveGitProgram } from './gitProgram.js';
 
 /**
  * Everything buffered from one git call is capped: a runaway command (a million-line diff of a
@@ -23,7 +24,7 @@ export class GitProcessExecutor implements GitExecutor {
 			// Only a command that declared itself interactive gets the askpass lease — and the
 			// lease dies with the process, so nothing can ask in this invocation's name later.
 			const lease = auth && this.askpass ? this.askpass.register({ cwd, ...auth }) : null;
-			const child = spawn('git', args, {
+			const child = spawn(resolveGitProgram(), args, {
 				cwd,
 				// No terminal is attached, so a credential prompt on stdin would hang forever with a
 				// spinner in the view. The askpass lease (when present) is the sanctioned way to ask.

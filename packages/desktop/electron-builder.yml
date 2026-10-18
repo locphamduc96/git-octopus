@@ -10,6 +10,10 @@ files:
   - '!dist/**/*.map'
   - package.json
 asar: true
+# Git runs askpass.sh itself, and nothing can execute a file inside an archive: the helper is
+# unpacked beside it, in app.asar.unpacked/dist/askpass, and the host looks for it there.
+asarUnpack:
+  - dist/askpass/**
 # Everything is bundled by esbuild: nothing from node_modules ships, and nothing native to rebuild.
 npmRebuild: false
 mac:

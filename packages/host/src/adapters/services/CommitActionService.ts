@@ -52,6 +52,13 @@ export interface HostViewSettings {
 	autoFetchMinutes?: number;
 	/** Desktop app: the terminal "open in terminal" launches; anything unknown means Terminal. */
 	terminalApp?: string;
+	/** Desktop app: `system`, `light` or `dark`; anything else means system. */
+	theme?: string;
+	/** Desktop app: the git program to run; empty or absent means the one on the PATH. */
+	gitPath?: string;
+	/** Desktop app: `auto`, an editor's id, or `custom` (then `externalEditorCommand` is run). */
+	externalEditor?: string;
+	externalEditorCommand?: string;
 }
 
 /** Reads the saved view settings, or null when the user has never saved any. */

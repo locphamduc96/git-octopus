@@ -19,6 +19,16 @@ describe('readHostViewSettings', () => {
 		});
 	});
 
+	it('carries the desktop settings through', () => {
+		const settings = {
+			theme: 'dark',
+			gitPath: '/opt/homebrew/bin/git',
+			externalEditor: 'custom',
+			externalEditorCommand: 'subl --wait {file}',
+		};
+		expect(readHostViewSettings({ settings })).toEqual(settings);
+	});
+
 	it('answers null for a blob with nothing saved in it yet', () => {
 		expect(readHostViewSettings(null)).toBeNull();
 		expect(readHostViewSettings({})).toBeNull();

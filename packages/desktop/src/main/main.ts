@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { app, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from 'electron';
 import type { HostCommand } from '@git-octopus/shared';
 import type { ThemeKind } from '../ipc.js';
+import { readStoredThemeSource } from '../themeSource.js';
 import { renderWelcomePage } from '../welcome/page.js';
 import {
 	isExistingFolder,
@@ -198,6 +199,8 @@ app.on('open-file', (event, file) => {
 });
 
 void app.whenReady().then(async () => {
+	// Before any window opens, so the first paint is already in the theme the user chose.
+	nativeTheme.themeSource = readStoredThemeSource(path.join(dataDir, 'state.json'));
 	// Before any host starts: each inherits this process's environment, PATH included.
 	await adoptLoginShellPath();
 	try {

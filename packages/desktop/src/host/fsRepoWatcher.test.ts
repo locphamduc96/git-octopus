@@ -38,7 +38,10 @@ describe('FsRepoWatcher', () => {
 	let listWatchers: FsRepoWatcher[] = [];
 	let listKinds: RefreshKind[] = [];
 
-	function start(worktree = repo, deps: ConstructorParameters<typeof FsRepoWatcher>[2] = {}): FsRepoWatcher {
+	function start(
+		worktree = repo,
+		deps: ConstructorParameters<typeof FsRepoWatcher>[2] = {}
+	): FsRepoWatcher {
 		const watcher = new FsRepoWatcher(pathsFor(worktree), (kind) => listKinds.push(kind), deps);
 		listWatchers.push(watcher);
 		return watcher;
@@ -54,7 +57,9 @@ describe('FsRepoWatcher', () => {
 		git(repo, 'commit', '-q', '-m', 'first');
 		listKinds = [];
 		listWatchers = [];
-		await wait(300);
+		// macOS can still hand a stream changes made just before it started; under load that takes
+		// well over 300 ms to settle.
+		await wait(1000);
 	});
 
 	afterEach(() => {

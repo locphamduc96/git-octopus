@@ -22,7 +22,7 @@ export const listEditors: readonly EditorEntry[] = [
 ];
 
 const mapEditors: Readonly<Record<EditorId, EditorEntry>> = Object.fromEntries(
-	listEditors.map((entry) => [entry.id, entry]),
+	listEditors.map((entry) => [entry.id, entry])
 ) as Record<EditorId, EditorEntry>;
 
 export const FILE_PLACEHOLDER = '{file}';
@@ -53,7 +53,7 @@ export function systemEditorRunner(): EditorRunner {
 		capture: (command, listArgs) =>
 			new Promise((resolve, reject) => {
 				execFile(command, listArgs, { encoding: 'utf8' }, (error, stdout) =>
-					error ? reject(error) : resolve(stdout),
+					error ? reject(error) : resolve(stdout)
 				);
 			}),
 		launch: (command, listArgs, options = {}) =>
@@ -62,7 +62,7 @@ export function systemEditorRunner(): EditorRunner {
 				child.once('error', reject);
 				if (options.waitForExit) {
 					child.once('exit', (code, signal) =>
-						code === 0 ? resolve() : reject(new Error(`${command} exited with ${code ?? signal}`)),
+						code === 0 ? resolve() : reject(new Error(`${command} exited with ${code ?? signal}`))
 					);
 					return;
 				}
@@ -101,7 +101,8 @@ export function splitCommand(text: string): string[] | null {
 			else word += char;
 		} else if (quote === '"') {
 			if (char === '"') quote = null;
-			else if (char === '\\' && (text[index + 1] === '"' || text[index + 1] === '\\')) word += text[++index];
+			else if (char === '\\' && (text[index + 1] === '"' || text[index + 1] === '\\'))
+				word += text[++index];
 			else word += char;
 		} else if (char === '"' || char === "'") {
 			quote = char;
@@ -132,7 +133,7 @@ export function splitCommand(text: string): string[] | null {
 export function buildCustomPlan(
 	command: string,
 	file: string,
-	exists: (candidate: string) => boolean = existsSync,
+	exists: (candidate: string) => boolean = existsSync
 ): LaunchPlan | null {
 	const listWords = splitCommand(command);
 	if (!listWords || listWords.length === 0 || listWords[0] === '') return null;
@@ -175,7 +176,7 @@ export class ExternalEditor {
 
 	public constructor(
 		private readonly runner: EditorRunner = systemEditorRunner(),
-		options: ExternalEditorOptions = {},
+		options: ExternalEditorOptions = {}
 	) {
 		this.exists = options.exists ?? existsSync;
 	}
@@ -192,7 +193,7 @@ export class ExternalEditor {
 				} catch {
 					return null;
 				}
-			}),
+			})
 		).then((listFound) => listFound.filter((id): id is EditorId => id !== null));
 		return this.listInstalled;
 	}
@@ -221,7 +222,9 @@ export class ExternalEditor {
 	public async openFile(setting: ExternalEditorSetting, file: string): Promise<LaunchPlan['via']> {
 		const chosen = await this.plan(setting, file);
 		try {
-			await this.runner.launch(chosen.command, chosen.listArgs, { waitForExit: chosen.via !== 'custom' });
+			await this.runner.launch(chosen.command, chosen.listArgs, {
+				waitForExit: chosen.via !== 'custom',
+			});
 			return chosen.via;
 		} catch (error) {
 			if (chosen.via === 'default') throw error;
@@ -232,7 +235,10 @@ export class ExternalEditor {
 	}
 
 	/** A conflicted file opens in the same editor as any other: there is no `git mergetool` on desktop. */
-	public openConflictedFile(setting: ExternalEditorSetting, file: string): Promise<LaunchPlan['via']> {
+	public openConflictedFile(
+		setting: ExternalEditorSetting,
+		file: string
+	): Promise<LaunchPlan['via']> {
 		return this.openFile(setting, file);
 	}
 }

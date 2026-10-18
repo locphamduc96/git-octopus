@@ -43,12 +43,15 @@
 </script>
 
 <script lang="ts">
+	import IconButton from '../../lib/ui/IconButton.svelte';
+
 	let {
 		title,
 		content,
 		oncopy,
 		onsave,
 		onopenlink,
+		onclose,
 	}: {
 		title: string;
 		/** Markdown source. Shown rendered; Copy and Save as… hand it back unchanged. */
@@ -57,6 +60,8 @@
 		onsave: (markdown: string) => void;
 		/** Called with an `https:` URL the user clicked; the panel never navigates by itself. */
 		onopenlink: (url: string) => void;
+		/** Where the panel is closable, a close control ends the header. */
+		onclose?: () => void;
 	} = $props();
 
 	const html = $derived(markdown.render(content));
@@ -93,6 +98,7 @@
 		<div class="actions">
 			<button class="secondary" onclick={() => oncopy(content)}>Copy</button>
 			<button class="secondary" onclick={() => onsave(content)}>Save as…</button>
+			{#if onclose}<IconButton name="close" label="Close" onclick={onclose} />{/if}
 		</div>
 	</header>
 	<!-- The renderer runs with raw HTML off and escapes all text, so this string holds only tags markdown-it itself emitted. -->
@@ -127,6 +133,7 @@
 	}
 	.actions {
 		display: flex;
+		align-items: center;
 		gap: var(--gg-space-2);
 		flex: none;
 	}

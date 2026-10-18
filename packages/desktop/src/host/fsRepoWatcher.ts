@@ -54,7 +54,7 @@ export class FsRepoWatcher {
 	constructor(
 		paths: RepoWatchPaths,
 		private readonly onChange: (kind: RefreshKind) => void,
-		private readonly deps: RepoWatcherDeps = {},
+		private readonly deps: RepoWatcherDeps = {}
 	) {
 		this.debounceMs = deps.debounceMs ?? REPO_WATCH_DEBOUNCE_MS;
 		const worktree = path.resolve(paths.worktree);
@@ -62,7 +62,8 @@ export class FsRepoWatcher {
 		const commonDir = path.resolve(paths.commonDir);
 		this.attach(worktree, classifyWorktreePath);
 		this.attach(gitDir, (relative) => classifyGitPath(relative, 'own'));
-		if (commonDir !== gitDir) this.attach(commonDir, (relative) => classifyGitPath(relative, 'common'));
+		if (commonDir !== gitDir)
+			this.attach(commonDir, (relative) => classifyGitPath(relative, 'common'));
 	}
 
 	close(): void {
@@ -77,7 +78,9 @@ export class FsRepoWatcher {
 		const watch = this.deps.watch ?? fs.watch;
 		try {
 			const watcher = watch(dir, { recursive: true }, (_event, filename) => {
-				const kind = classify(filename === null || filename === undefined ? null : String(filename));
+				const kind = classify(
+					filename === null || filename === undefined ? null : String(filename)
+				);
 				if (kind !== null) this.note(kind);
 			});
 			watcher.on('error', (error) => this.deps.onError?.(error, dir));

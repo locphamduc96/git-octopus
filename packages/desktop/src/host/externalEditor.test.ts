@@ -31,7 +31,7 @@ function fakeRunner(listBundles: string[], failLaunch: (call: Call) => boolean =
 	return { runner, listCaptured, listLaunched };
 }
 
-const ALL = [
+const listBundleIds = [
 	'com.microsoft.VSCode',
 	'com.todesktop.230313mzl4w4u92',
 	'dev.zed.Zed',
@@ -45,7 +45,7 @@ describe('ExternalEditor', () => {
 		['zed', 'dev.zed.Zed'],
 		['sublime', 'com.sublimetext.4'],
 	] as const)('opens a file in %s by bundle id', async (id, bundle) => {
-		const { runner, listLaunched } = fakeRunner(ALL);
+		const { runner, listLaunched } = fakeRunner(listBundleIds);
 		const via = await new ExternalEditor(runner).openFile(id, '/repo/src/a b.ts');
 		expect(via).toBe(id);
 		expect(listLaunched).toEqual([
@@ -54,7 +54,7 @@ describe('ExternalEditor', () => {
 	});
 
 	it('asks Spotlight once per editor with the query as a single argument', async () => {
-		const { runner, listCaptured } = fakeRunner(ALL);
+		const { runner, listCaptured } = fakeRunner(listBundleIds);
 		const editor = new ExternalEditor(runner);
 		await editor.openFile('auto', '/repo/a.ts');
 		await editor.openFile('auto', '/repo/b.ts');
@@ -94,7 +94,7 @@ describe('ExternalEditor', () => {
 	});
 
 	it('opens a conflicted file in the same editor as any other file', async () => {
-		const { runner, listLaunched } = fakeRunner(ALL);
+		const { runner, listLaunched } = fakeRunner(listBundleIds);
 		const editor = new ExternalEditor(runner);
 		await editor.openFile('cursor', '/repo/x.ts');
 		await editor.openConflictedFile('cursor', '/repo/x.ts');
@@ -103,16 +103,16 @@ describe('ExternalEditor', () => {
 	});
 
 	it('resolves a relative path so it can never read as an option', async () => {
-		const { runner, listLaunched } = fakeRunner(ALL);
+		const { runner, listLaunched } = fakeRunner(listBundleIds);
 		await new ExternalEditor(runner).openFile('vscode', '-n');
 		expect(listLaunched[0].listArgs[2].startsWith('/')).toBe(true);
 	});
 
 	it('runs a custom command as argv with {file} replaced, no shell', async () => {
-		const { runner, listLaunched, listCaptured } = fakeRunner(ALL);
+		const { runner, listLaunched, listCaptured } = fakeRunner(listBundleIds);
 		const via = await new ExternalEditor(runner, { exists: () => true }).openFile(
 			{ command: '/usr/local/bin/ed --goto={file} --wait' },
-			'/repo/my file.ts',
+			'/repo/my file.ts'
 		);
 		expect(via).toBe('custom');
 		expect(listCaptured).toHaveLength(0);
@@ -122,10 +122,13 @@ describe('ExternalEditor', () => {
 	});
 
 	it('falls back to open when a custom command cannot start', async () => {
-		const { runner, listLaunched } = fakeRunner(ALL, (call) => call.command === '/nope/ed');
+		const { runner, listLaunched } = fakeRunner(
+			listBundleIds,
+			(call) => call.command === '/nope/ed'
+		);
 		const via = await new ExternalEditor(runner, { exists: () => true }).openFile(
 			{ command: '/nope/ed {file}' },
-			'/repo/a.ts',
+			'/repo/a.ts'
 		);
 		expect(via).toBe('default');
 		expect(listLaunched.map((call) => call.command)).toEqual(['/nope/ed', 'open']);
@@ -133,7 +136,7 @@ describe('ExternalEditor', () => {
 	});
 
 	it('falls back to open when open -b starts but then exits nonzero', async () => {
-		const { runner, listLaunched } = fakeRunner(ALL, (call) => call.listArgs[0] === '-b');
+		const { runner, listLaunched } = fakeRunner(listBundleIds, (call) => call.listArgs[0] === '-b');
 		const via = await new ExternalEditor(runner).openFile('vscode', '/repo/a.ts');
 		expect(via).toBe('default');
 		expect(listLaunched.map((call) => call.listArgs)).toEqual([
@@ -158,7 +161,7 @@ describe('ExternalEditor', () => {
 	});
 
 	it('uses open for an empty or unterminated custom command', async () => {
-		const { runner, listLaunched } = fakeRunner(ALL);
+		const { runner, listLaunched } = fakeRunner(listBundleIds);
 		const editor = new ExternalEditor(runner);
 		await editor.openFile({ command: '   ' }, '/repo/a.ts');
 		await editor.openFile({ command: 'ed "unterminated {file}' }, '/repo/a.ts');
@@ -168,7 +171,13 @@ describe('ExternalEditor', () => {
 
 describe('splitCommand', () => {
 	it('splits on whitespace and honours quotes and backslashes', () => {
-		expect(splitCommand(`ed  --flag "a b" 'c d' e\\ f`)).toEqual(['ed', '--flag', 'a b', 'c d', 'e f']);
+		expect(splitCommand(`ed  --flag "a b" 'c d' e\\ f`)).toEqual([
+			'ed',
+			'--flag',
+			'a b',
+			'c d',
+			'e f',
+		]);
 		expect(splitCommand(`ed "say \\"hi\\""`)).toEqual(['ed', 'say "hi"']);
 		expect(splitCommand(`ed ""`)).toEqual(['ed', '']);
 	});
@@ -223,12 +232,20 @@ describe('buildCustomPlan', () => {
 
 	it('reads an unquoted program path with spaces by finding the file that exists', () => {
 		const program = '/Applications/My Editor.app/Contents/MacOS/editor';
-		const plan = buildCustomPlan(`${program} --wait {file}`, '/r/a.ts', (candidate) => candidate === program);
+		const plan = buildCustomPlan(
+			`${program} --wait {file}`,
+			'/r/a.ts',
+			(candidate) => candidate === program
+		);
 		expect(plan).toEqual({ command: program, listArgs: ['--wait', '/r/a.ts'], via: 'custom' });
 	});
 
 	it('takes a quoted program path with spaces as it is', () => {
-		const plan = buildCustomPlan('"/Applications/My Editor.app/Contents/MacOS/editor" {file}', '/r/a.ts', () => true);
+		const plan = buildCustomPlan(
+			'"/Applications/My Editor.app/Contents/MacOS/editor" {file}',
+			'/r/a.ts',
+			() => true
+		);
 		expect(plan?.command).toBe('/Applications/My Editor.app/Contents/MacOS/editor');
 		expect(plan?.listArgs).toEqual(['/r/a.ts']);
 	});
@@ -251,7 +268,7 @@ describe('systemEditorRunner.launch', () => {
 
 	it('rejects a program that cannot start', async () => {
 		await expect(
-			systemEditorRunner().launch('/nope/does-not-exist', [], { waitForExit: true }),
+			systemEditorRunner().launch('/nope/does-not-exist', [], { waitForExit: true })
 		).rejects.toThrow();
 	});
 });
