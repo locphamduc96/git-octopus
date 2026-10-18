@@ -4,6 +4,9 @@
  */
 export type ThemeKind = 'light' | 'dark';
 
+/** What the app's theme follows: macOS (`system`) or a fixed choice made in Settings. */
+export type ThemeSource = 'system' | 'light' | 'dark';
+
 /** Main → host. */
 export type MainToHost =
 	| {
@@ -15,6 +18,8 @@ export type MainToHost =
 			logDir: string;
 			theme: ThemeKind;
 			focused: boolean;
+			/** The app's own executable: the askpass helper runs under it as node. */
+			appBinary: string;
 	  }
 	/** A renderer is listening; its end of the channel comes with this message. */
 	| { kind: 'view' }
@@ -30,6 +35,10 @@ export interface MainRpc {
 	/** Open a folder in a window of its own (a worktree). */
 	openFolderWindow(folder: string): void;
 	focusWindow(): void;
+	/** Follow macOS, or hold light or dark whatever macOS is set to. */
+	setThemeSource(source: ThemeSource): void;
+	/** Ask where to save `content`, write it there, answer the path — or nothing if cancelled. */
+	saveFile(suggestedName: string, content: string): string | undefined;
 }
 
 /** Host → main. */

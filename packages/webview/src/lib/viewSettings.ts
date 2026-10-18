@@ -89,12 +89,73 @@ export function pullActionFor(strategy: PullStrategy): RepoActionId {
 	return mapAction[strategy];
 }
 
+/** The terminal the desktop app opens for "open in terminal". */
+export type TerminalApp = 'Terminal' | 'iTerm' | 'Ghostty' | 'Warp';
+export const LIST_TERMINAL_APPS = membersOf<TerminalApp>()([
+	'Terminal',
+	'iTerm',
+	'Ghostty',
+	'Warp',
+]);
+
+/** The desktop app's colours: follow macOS, or hold one whatever macOS is set to. */
+export type ThemeChoice = 'system' | 'light' | 'dark';
+export const LIST_THEME_CHOICES = membersOf<ThemeChoice>()(['system', 'light', 'dark']);
+export const MAP_THEME_LABEL: Record<ThemeChoice, string> = {
+	system: 'System',
+	light: 'Light',
+	dark: 'Dark',
+};
+
+/** The editor the desktop app opens files and conflicts in. */
+export type ExternalEditorChoice = 'auto' | 'vscode' | 'cursor' | 'zed' | 'sublime' | 'custom';
+export const LIST_EXTERNAL_EDITORS = membersOf<ExternalEditorChoice>()([
+	'auto',
+	'vscode',
+	'cursor',
+	'zed',
+	'sublime',
+	'custom',
+]);
+export const MAP_EXTERNAL_EDITOR_LABEL: Record<ExternalEditorChoice, string> = {
+	auto: 'Automatic',
+	vscode: 'VS Code',
+	cursor: 'Cursor',
+	zed: 'Zed',
+	sublime: 'Sublime Text',
+	custom: 'Custom command',
+};
+
+/** The desktop app opens with the panel; the extension keeps the room for the graph. */
+export function branchesPanelShown(settings: ViewSettings, desktop: boolean): boolean {
+	return settings.showBranchesPanel ?? desktop;
+}
+
+export const REF_PANEL_MIN_WIDTH = 160;
+export const REF_PANEL_MAX_WIDTH = 520;
+export const REF_PANEL_DEFAULT_WIDTH = 240;
+
+export function clampRefPanelWidth(raw: unknown): number {
+	if (typeof raw !== 'number' || !Number.isFinite(raw)) return REF_PANEL_DEFAULT_WIDTH;
+	return Math.round(Math.min(REF_PANEL_MAX_WIDTH, Math.max(REF_PANEL_MIN_WIDTH, raw)));
+}
+
 /** The member `raw` names, or nothing when it names none. */
 export function pickOption<T extends string>(listValid: readonly T[], raw: string): T | undefined {
 	return listValid.find((option) => option === raw);
 }
 
 export interface ViewSettings {
+	/** Desktop app only: which terminal "open in terminal" launches. */
+	terminalApp: TerminalApp;
+	/** Desktop app only: light, dark, or whatever macOS is set to. */
+	theme: ThemeChoice;
+	/** Desktop app only: the git program to run; empty means the one on the PATH. */
+	gitPath: string;
+	/** Desktop app only: where "Open File" and conflicted files open. */
+	externalEditor: ExternalEditorChoice;
+	/** Desktop app only: the command run for `externalEditor: 'custom'`; `{file}` stands for the path. */
+	externalEditorCommand: string;
 	commitLimit: number;
 	commitOrder: CommitOrder;
 	dateType: DateType;
@@ -131,6 +192,8 @@ export interface ViewSettings {
 	/** Verify signed commits and mark them on the graph. */
 	showSignatures: boolean;
 	scrollToHeadOnLoad: boolean;
+	/** The branches panel beside the graph; null until the user chooses, then the choice wins. */
+	showBranchesPanel: boolean | null;
 	autoFastForwardOnCheckout: boolean;
 	pullStrategy: PullStrategy;
 	/** Minutes between background fetches; 0 is never. Default lives in `shared`, see below. */
@@ -206,6 +269,11 @@ export type ColumnKey = keyof ColumnWidths;
  * workspace can never win an argument with it.
  */
 export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
+	terminalApp: 'Terminal',
+	theme: 'system',
+	gitPath: '',
+	externalEditor: 'auto',
+	externalEditorCommand: '',
 	commitLimit: 300,
 	commitOrder: 'date',
 	dateType: 'commit',
@@ -233,6 +301,7 @@ export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
 	// Off: every signed commit costs a gpg or ssh-keygen run, on every load.
 	showSignatures: false,
 	scrollToHeadOnLoad: false,
+	showBranchesPanel: null,
 	autoFastForwardOnCheckout: true,
 	// `config` changes nothing for anyone: it is what the button always ran.
 	pullStrategy: 'config',
@@ -277,7 +346,22 @@ export function mergePreferences(
 ): GlobalPreferences {
 	const next = stored as Partial<GlobalPreferences>;
 	return {
-		settings: next.settings ? { ...current.settings, ...next.settings } : current.settings,
+		settings: next.settings
+			? {
+					...current.settings,
+					...next.settings,
+					terminalApp:
+						pickOption(LIST_TERMINAL_APPS, String(next.settings.terminalApp)) ?? 'Terminal',
+					theme: pickOption(LIST_THEME_CHOICES, String(next.settings.theme)) ?? 'system',
+					gitPath: typeof next.settings.gitPath === 'string' ? next.settings.gitPath : '',
+					externalEditor:
+						pickOption(LIST_EXTERNAL_EDITORS, String(next.settings.externalEditor)) ?? 'auto',
+					externalEditorCommand:
+						typeof next.settings.externalEditorCommand === 'string'
+							? next.settings.externalEditorCommand
+							: '',
+				}
+			: current.settings,
 		columns: next.columns ? { ...current.columns, ...next.columns } : current.columns,
 		fileView: next.fileView ?? current.fileView,
 		metaOpen: typeof next.metaOpen === 'boolean' ? next.metaOpen : current.metaOpen,
@@ -287,9 +371,13 @@ export function mergePreferences(
 	};
 }
 
-/** Fields the host's log walk depends on force a reload; pure view settings do not. */
+/**
+ * Fields the host's log walk depends on force a reload; pure view settings do not. The git program
+ * is one of them: a graph that could not load because git was missing must load once it is found.
+ */
 export function settingsRequireReload(prev: ViewSettings, next: ViewSettings): boolean {
 	return (
+		next.gitPath !== prev.gitPath ||
 		next.commitLimit !== prev.commitLimit ||
 		next.fetchAvatars !== prev.fetchAvatars ||
 		next.commitOrder !== prev.commitOrder ||

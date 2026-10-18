@@ -22,11 +22,17 @@
 	import { aiCommit } from '../../lib/stores/aiCommit.svelte';
 	import {
 		LIST_COMMIT_ORDERS,
+		branchesPanelShown,
 		LIST_DATE_TYPES,
 		LIST_DIFF_TARGETS,
+		LIST_EXTERNAL_EDITORS,
 		LIST_GRAPH_STYLES,
 		LIST_PULL_STRATEGIES,
+		LIST_TERMINAL_APPS,
+		LIST_THEME_CHOICES,
+		MAP_EXTERNAL_EDITOR_LABEL,
 		MAP_PULL_STRATEGY_LABEL,
+		MAP_THEME_LABEL,
 		pickOption,
 		type RepoIdentityState,
 		type ViewSettings,
@@ -314,6 +320,20 @@
 						</div>
 						<div class="row">
 							<span class="row-label">
+								Show branches panel
+								<span class="note"
+									>Branches, remotes, tags, stashes, worktrees and submodules beside the graph.</span
+								>
+							</span>
+							<input
+								type="checkbox"
+								aria-label="Show branches panel"
+								checked={branchesPanelShown(settings, capabilities.desktop)}
+								onchange={(event) => set('showBranchesPanel', event.currentTarget.checked)}
+							/>
+						</div>
+						<div class="row">
+							<span class="row-label">
 								Fast-forward on checkout
 								<span class="note"
 									>Update a branch that has only fallen behind its remote.<span
@@ -380,6 +400,104 @@
 							</SelectField>
 						</div>
 					</section>
+					{#if capabilities.desktop}
+						<h4 class="block-title">Desktop</h4>
+						<section class="gg-block" aria-label="Desktop">
+							<div class="row">
+								<span class="row-label">
+									Theme
+									<span class="note">Follow macOS, or stay light or dark.</span>
+								</span>
+								<SelectField
+									aria-label="Theme"
+									value={settings.theme}
+									onchange={(event) =>
+										set(
+											'theme',
+											pickOption(LIST_THEME_CHOICES, event.currentTarget.value) ?? 'system'
+										)}
+								>
+									{#each LIST_THEME_CHOICES as theme (theme)}
+										<option value={theme}>{MAP_THEME_LABEL[theme]}</option>
+									{/each}
+								</SelectField>
+							</div>
+							<div class="row">
+								<span class="row-label">
+									Git path
+									<span class="note">Empty runs the git found on your PATH.</span>
+								</span>
+								<input
+									class="text-field"
+									type="text"
+									aria-label="Git path"
+									placeholder="git"
+									spellcheck="false"
+									autocomplete="off"
+									value={settings.gitPath}
+									onchange={(event) => set('gitPath', event.currentTarget.value.trim())}
+								/>
+							</div>
+							<div class="row">
+								<span class="row-label">
+									External editor
+									<span class="note">Where "Open File" and conflicted files open.</span>
+								</span>
+								<SelectField
+									aria-label="External editor"
+									value={settings.externalEditor}
+									onchange={(event) =>
+										set(
+											'externalEditor',
+											pickOption(LIST_EXTERNAL_EDITORS, event.currentTarget.value) ?? 'auto'
+										)}
+								>
+									{#each LIST_EXTERNAL_EDITORS as editor (editor)}
+										<option value={editor}>{MAP_EXTERNAL_EDITOR_LABEL[editor]}</option>
+									{/each}
+								</SelectField>
+							</div>
+							{#if settings.externalEditor === 'custom'}
+								<div class="row">
+									<span class="row-label">
+										Editor command
+										<span class="note">
+											<code>{'{file}'}</code> stands for the file's path; without it the path goes last.
+										</span>
+									</span>
+									<input
+										class="text-field"
+										type="text"
+										aria-label="Editor command"
+										placeholder={'subl --wait {file}'}
+										spellcheck="false"
+										autocomplete="off"
+										value={settings.externalEditorCommand}
+										onchange={(event) => set('externalEditorCommand', event.currentTarget.value)}
+									/>
+								</div>
+							{/if}
+							<div class="row">
+								<span class="row-label">
+									Terminal app
+									<span class="note">What "Open in terminal" launches.</span>
+								</span>
+								<SelectField
+									aria-label="Terminal app"
+									value={settings.terminalApp}
+									onchange={(event) =>
+										set(
+											'terminalApp',
+											pickOption(LIST_TERMINAL_APPS, event.currentTarget.value) ?? 'Terminal'
+										)}
+								>
+									{#each LIST_TERMINAL_APPS as app (app)}
+										<option value={app}>{app}</option>
+									{/each}
+								</SelectField>
+							</div>
+						</section>
+					{/if}
 				{:else if tab === 'graph'}
 					<section class="gg-block">
 						<div class="row">
@@ -786,6 +904,33 @@
 		margin: 0 0 var(--gg-space-2);
 		font-size: var(--gg-text-md);
 		font-weight: 600;
+	}
+	/* A group's name, between two blocks of one page. */
+	.block-title {
+		margin: var(--gg-space-4) 0 var(--gg-space-2);
+		font-size: var(--gg-text-sm);
+		font-weight: 600;
+		color: var(--gg-fg-muted);
+	}
+	.text-field {
+		width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
+		height: var(--gg-control-h);
+		padding: 0 var(--gg-space-2);
+		background: var(--gg-input-bg);
+		color: var(--gg-input-fg);
+		border: 1px solid var(--gg-input-border);
+		border-radius: var(--gg-radius);
+		font: inherit;
+	}
+	.text-field:focus {
+		outline: 1px solid var(--gg-focus);
+		outline-offset: -1px;
+	}
+	.note code {
+		font-family: var(--gg-font-mono);
+		font-size: inherit;
 	}
 	section {
 		display: flex;

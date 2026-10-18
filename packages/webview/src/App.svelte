@@ -42,15 +42,29 @@
 		type RoutedByStore,
 	} from './lib/hostRouter';
 	import { buildRefPayload, commitRefPayload, commitStashName } from './lib/refPayload';
+	import { dragForRepo, type PanelDrag } from './lib/panelDrag';
 	import type { MultiAction, RefTarget } from './lib/graphMenu';
 	import { nextRowIndex, stepAcrossLanes, stepAlongLane } from './lib/keyNav';
 	import { buildPanelFiles, stepPath, type PanelMode } from './lib/panelFiles';
 	import {
+		branchesPanelShown,
+		clampRefPanelWidth,
 		moveColumn,
 		normalizeColumnOrder,
 		pullActionFor,
 		settingsRequireReload,
 	} from './lib/viewSettings';
+	import { buildRefMenu, resolveMenuSelection, type MenuEntry } from './lib/graphMenu';
+	import { chipRef, chipRemote, type RefChip } from './lib/graphChips';
+	import ContextMenu from './lib/ui/ContextMenu.svelte';
+	import RefPanel from './features/ref-panel/RefPanel.svelte';
+	import type { RefPanelItem } from './features/ref-panel/refPanelModel';
+	import {
+		chipForItem,
+		commitForItem,
+		refPanel,
+		toggleHiddenRef,
+	} from './lib/stores/refPanel.svelte';
 	import ControlBar from './features/control-bar/ControlBar.svelte';
 	import DiffPanel from './features/diff/DiffPanel.svelte';
 	import FindWidget from './features/find/FindWidget.svelte';
@@ -70,6 +84,9 @@
 	import { capabilities } from './lib/stores/capabilities.svelte';
 	import './lib/stores/hostNotices.svelte';
 	import HostNotices from './lib/ui/HostNotices.svelte';
+	import { credentials } from './lib/stores/credentials.svelte';
+	import CredentialDialog from './features/credential/CredentialDialog.svelte';
+	import MarkdownOverlay from './features/markdown/MarkdownOverlay.svelte';
 	import { rebaseEditor } from './lib/stores/rebaseEditor.svelte';
 	import GraphView from './features/graph/GraphView.svelte';
 	import GraphSkeleton from './features/graph/GraphSkeleton.svelte';
@@ -294,7 +311,12 @@
 
 	// Only what belongs to this window: the rest lives in the host's global state.
 	$effect(() => {
-		updateState({ widths: prefs.widths, panelRatio });
+		updateState({
+			widths: prefs.widths,
+			panelRatio,
+			refPanelWidth,
+			listRefPanelCollapsed,
+		});
 	});
 
 	const stacked = $derived(shellWidth < STACK_BREAKPOINT);
@@ -1270,6 +1292,162 @@
 		if (document.hasFocus()) postToHost({ type: 'viewFocus', focused: true });
 	});
 
+	const refPanelOn = $derived(branchesPanelShown(prefs.settings, capabilities.desktop) && !stacked);
+	const refPanelData = $derived(refPanel.repoPath === session.repoPath ? refPanel.data : null);
+	const listSubmodules = $derived(repos.filter((repo) => repo.parent === session.repoPath));
+	let refPanelWidth = $state(clampRefPanelWidth(saved.refPanelWidth));
+	let listRefPanelCollapsed = $state<string[]>(
+		Array.isArray(saved.listRefPanelCollapsed)
+			? saved.listRefPanelCollapsed.filter((key) => typeof key === 'string')
+			: []
+	);
+	let refMenu = $state<{
+		x: number;
+		y: number;
+		chip: RefChip;
+		commit: Commit;
+		repoPath: string;
+	} | null>(null);
+
+	$effect(() => {
+		if (refMenu && refMenu.repoPath !== session.repoPath) refMenu = null;
+	});
+
+	// The host answers once a repository is active, and again after every graph reload.
+	$effect(() => {
+		if (refPanelOn && session.activeRepo !== null) postToHost({ type: 'loadRefPanel' });
+	});
+
+	function resizeRefPanel(clientX: number): void {
+		if (!shell) return;
+		refPanelWidth = clampRefPanelWidth(clientX - shell.getBoundingClientRect().left);
+	}
+
+	function loadedCommit(item: RefPanelItem): Commit | undefined {
+		return item.hash ? rows.find((row) => row.commit.hash === item.hash)?.commit : undefined;
+	}
+
+	function selectRefItem(item: RefPanelItem): void {
+		if (item.hash) revealCommit(item.hash);
+	}
+
+	function activateRefItem(item: RefPanelItem): void {
+		if (item.kind === 'local') {
+			if (!item.current) checkoutBranch(item.name, null);
+		} else if (item.kind === 'remote' && refPanelData) {
+			const chip = chipForItem(item, refPanelData, {});
+			if (!chip) return;
+			checkoutBranch(null, chipRemote(chip));
+		} else if (item.kind === 'worktree') {
+			if (!item.current) worktrees.open(item.name);
+		} else if (item.kind === 'submodule') {
+			selectRepo(item.name);
+		}
+	}
+
+	function openRefItemMenu(item: RefPanelItem, event: MouseEvent): void {
+		event.preventDefault();
+		if (!refPanelData) return;
+		const chip = chipForItem(item, refPanelData, mapTracking);
+		if (!chip) return;
+		refMenu = {
+			x: event.clientX,
+			y: event.clientY,
+			chip,
+			commit: commitForItem(item, loadedCommit(item)),
+			repoPath: session.repoPath,
+		};
+	}
+
+	const refMenuBuild = $derived(
+		refMenu
+			? buildRefMenu(refMenu.chip, currentBranch, {
+					pinnedRef,
+					listSolo,
+					mapWorktrees: worktrees.mapElsewhere,
+				})
+			: { items: [], mapEntries: {} }
+	);
+
+	function runRefMenuEntry(entry: MenuEntry, commit: Commit): void {
+		switch (entry.type) {
+			case 'filter':
+				setBranchFilter(entry.ref);
+				return;
+			case 'pin':
+				setPinned(entry.ref);
+				return;
+			case 'solo':
+				changeSolo(entry.op, entry.ref);
+				return;
+			case 'hide':
+				hideRefs(entry.refs);
+				return;
+			case 'related':
+				showRelated();
+				return;
+			case 'explain':
+				aiCommit.explain(entry.target);
+				return;
+			case 'worktree':
+				if (entry.op === 'open') worktrees.open(entry.path);
+				else worktrees.add(entry.branch);
+				return;
+			case 'commit':
+				runAction(entry.action, commit, entry.target);
+				return;
+			case 'branch': {
+				const source = chipRef(entry.target.chip);
+				if (source) runBranchAction(entry.action, source.ref, source.label, entry.onto);
+				return;
+			}
+			default:
+				return;
+		}
+	}
+
+	function onRefMenuSelect(id: string): void {
+		const open = refMenu;
+		const build = refMenuBuild;
+		refMenu = null;
+		const selected = resolveMenuSelection(build.items, id);
+		const entry = build.mapEntries[id];
+		if (!open || open.repoPath !== session.repoPath || !selected || !entry) return;
+		runRefMenuEntry(entry, open.commit);
+	}
+
+	/**
+	 * The press that began on a splitter. Grabbing the panel's edge to resize it can start a native
+	 * drag of the row beside it, which would end the resize after one step.
+	 */
+	let edgeGrab = false;
+	/** The ref dragged out of the panel; the graph reads it to take the drop on a chip. */
+	let panelDrag = $state<PanelDrag | null>(null);
+	const activePanelDrag = $derived(dragForRepo(panelDrag, session.repoPath));
+
+	$effect(() => {
+		if (panelDrag && panelDrag.repoPath !== session.repoPath) panelDrag = null;
+	});
+
+	function dragRefItem(item: RefPanelItem, event: DragEvent): void {
+		const chip = refPanelData ? chipForItem(item, refPanelData, mapTracking) : null;
+		const source = chip && chipRef(chip);
+		if (!source || edgeGrab) {
+			event.preventDefault();
+			return;
+		}
+		panelDrag = { ...source, local: chip.hasLocal, repoPath: session.repoPath };
+		window.addEventListener('dragend', endPanelDrag, { once: true });
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'copy';
+			event.dataTransfer.setData('text/plain', source.label);
+		}
+	}
+
+	function endPanelDrag(): void {
+		panelDrag = null;
+	}
+
 	function resizePanel(clientPos: number): void {
 		if (!shell) return;
 		const box = shell.getBoundingClientRect();
@@ -1281,6 +1459,8 @@
 </script>
 
 <svelte:window
+	onmousedowncapture={(event) =>
+		(edgeGrab = event.target instanceof Element && event.target.closest('.splitter') !== null)}
 	onkeydown={onKeydown}
 	onfocus={() => postToHost({ type: 'viewFocus', focused: true })}
 	onblur={() => postToHost({ type: 'viewFocus', focused: false })}
@@ -1419,6 +1599,27 @@
 			is what read as a flash. Underneath, the graph is `inert` so nothing there takes a click, a
 			key or the focus while it cannot be seen.
 		-->
+		{#if refPanelOn}
+			<div class="ref-area" style="width:{refPanelWidth}px">
+				{#if refPanelData}
+					<RefPanel
+						data={refPanelData}
+						listWorktrees={worktrees.list ?? []}
+						{listSubmodules}
+						hidden={hiddenRefs}
+						listCollapsed={listRefPanelCollapsed}
+						oncollapsechange={(next) => (listRefPanelCollapsed = next)}
+						onselect={selectRefItem}
+						onactivate={activateRefItem}
+						oncontextmenu={openRefItemMenu}
+						ondragstart={dragRefItem}
+						ontogglehidden={(item) => saveHidden(toggleHiddenRef(item, hiddenRefs))}
+					/>
+				{/if}
+			</div>
+			<Splitter onresize={resizeRefPanel} />
+		{/if}
+
 		<div class="graph-area">
 			<div class="graph-stack" inert={diffView.target !== null}>
 				<ControlBar
@@ -1563,6 +1764,8 @@
 									op === 'open' ? worktrees.open(value) : worktrees.add(value)}
 								oninteractiveRebaseOnto={rebaseEditor.openOnto}
 								mapCommitStats={commitStats.map}
+								externalDrag={activePanelDrag}
+								onexternalDragEnd={endPanelDrag}
 								onneedStats={commitStats.request}
 								onjumpPinned={jumpToPinned}
 								{findCurrent}
@@ -1703,6 +1906,32 @@
 	</div>
 </div>
 
+{#if refMenu}
+	<ContextMenu
+		x={refMenu.x}
+		y={refMenu.y}
+		items={refMenuBuild.items}
+		onselect={onRefMenuSelect}
+		onclose={() => (refMenu = null)}
+	/>
+{/if}
+
+<MarkdownOverlay />
+
+{#if credentials.current}
+	{@const question = credentials.current}
+	{#key question.id}
+		<CredentialDialog
+			title={question.title}
+			prompt={question.prompt}
+			secret={question.secret}
+			confirm={question.confirm}
+			onanswer={(answer) => credentials.answer(question.id, answer)}
+			oncancel={() => credentials.cancel(question.id)}
+		/>
+	{/key}
+{/if}
+
 <HostNotices />
 
 <style>
@@ -1717,6 +1946,13 @@
 		min-height: 0;
 	}
 	.shell.stacked {
+		flex-direction: column;
+	}
+	.ref-area {
+		flex: none;
+		min-width: 0;
+		min-height: 0;
+		display: flex;
 		flex-direction: column;
 	}
 	.graph-area {

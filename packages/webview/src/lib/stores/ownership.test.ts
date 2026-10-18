@@ -29,7 +29,10 @@ beforeAll(async () => {
 	await import('./identity.svelte');
 	await import('./prefs.svelte');
 	await import('./capabilities.svelte');
+	await import('./refPanel.svelte');
 	await import('./hostNotices.svelte');
+	await import('./credentials.svelte');
+	await import('./markdown.svelte');
 });
 
 describe('store ownership', () => {

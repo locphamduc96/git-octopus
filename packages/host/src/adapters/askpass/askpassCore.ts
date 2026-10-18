@@ -3,7 +3,8 @@ import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import * as net from 'node:net';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import type { GitAuthContext } from '@git-octopus/host/core/git/GitExecutor';
+import type { GitAuthContext } from '../../core/git/GitExecutor.js';
+import { buildAskpassEnv } from './askpassEnv.js';
 import {
 	buildReply,
 	classifyPrompt,
@@ -56,15 +57,15 @@ export interface AskpassCoreOptions {
 	scriptPath: string;
 	/** Absolute path of askpass-main.cjs, run by the script under `nodePath`. */
 	mainPath: string;
-	/** The node binary the script uses — the editor's own executable run as node. */
+	/** The node binary the script uses — the host app's own executable run as node. */
 	nodePath: string;
 	promptTimeoutMs?: number;
 }
 
 /**
- * The extension-host half of the askpass bridge, kept free of vscode imports so it can be
- * driven end-to-end in tests: a unix-socket server in a private 0700 directory, answering only
- * requests that carry the live nonce of a git invocation this extension spawned.
+ * The host half of the askpass bridge, kept free of any UI so it can be driven end-to-end in
+ * tests: a unix-socket server in a private 0700 directory, answering only requests that carry
+ * the live nonce of a git invocation this host spawned.
  *
  * Security shape (see feature-039 plan): the environment — and so the socket handle and nonce —
  * is granted per network invocation and revoked when that process closes. Requests are answered
@@ -116,17 +117,14 @@ export class AskpassCore {
 		if (!this.socketPath) throw new Error('askpass server is not running');
 		const nonce = randomBytes(32).toString('hex');
 		this.mapLeases.set(nonce, { context, expiresAt: Date.now() + LEASE_TTL_MS });
-		const mapEnv: Record<string, string> = {
-			GIT_ASKPASS: this.options.scriptPath,
-			SSH_ASKPASS: this.options.scriptPath,
-			// OpenSSH ≥ 8.4 honours this; older versions want DISPLAY, provided below.
-			SSH_ASKPASS_REQUIRE: 'force',
-			GIT_OCTOPUS_ASKPASS_NODE: this.options.nodePath,
-			GIT_OCTOPUS_ASKPASS_MAIN: this.options.mainPath,
-			GIT_OCTOPUS_ASKPASS_HANDLE: this.socketPath,
-			GIT_OCTOPUS_ASKPASS_NONCE: nonce,
-		};
-		if (!process.env.DISPLAY) mapEnv.DISPLAY = ':0';
+		const mapEnv = buildAskpassEnv({
+			scriptPath: this.options.scriptPath,
+			mainPath: this.options.mainPath,
+			nodePath: this.options.nodePath,
+			handle: this.socketPath,
+			nonce,
+			display: process.env.DISPLAY,
+		});
 		return { nonce, mapEnv };
 	}
 

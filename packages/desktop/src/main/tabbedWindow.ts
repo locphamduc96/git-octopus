@@ -1,12 +1,16 @@
-import { BrowserWindow, type Rectangle, type WebContents } from 'electron';
+import { BrowserWindow, WebContentsView, type Rectangle, type WebContents } from 'electron';
 import { TAB_STRIP_H, type TabsState, type ThemeKind } from '../ipc.js';
+import type { WelcomeState } from '../welcome/api.js';
 import { backgroundFor, type RepoTab } from './repoTab.js';
 
 export interface TabbedWindowOptions {
 	bounds?: Rectangle;
 	theme: ThemeKind;
-	/** The tab strip's preload, next to this file in `dist/`. */
+	/** The tab strip's and the Welcome page's preloads, next to this file in `dist/`. */
 	tabsPreload: string;
+	welcomePreload: string;
+	/** The recent repositories the Welcome page lists, as they stand now. */
+	recent: () => string[];
 	/** Something about the tabs changed that is worth remembering: order, the active one, a title. */
 	onChanged: (window: TabbedWindow) => void;
 	onClosed: (window: TabbedWindow) => void;
@@ -21,6 +25,8 @@ export class TabbedWindow {
 	private listTabs: RepoTab[] = [];
 	private active: RepoTab | null = null;
 	private theme: ThemeKind;
+	/** The Welcome page, there only while the window has no tab. */
+	private welcome: WebContentsView | null = null;
 
 	public constructor(private readonly options: TabbedWindowOptions) {
 		this.theme = options.theme;
@@ -53,6 +59,8 @@ export class TabbedWindow {
 		this.win.on('closed', () => {
 			for (const tab of this.listTabs) tab.dispose();
 			this.listTabs = [];
+			this.welcome?.webContents.close();
+			this.welcome = null;
 			options.onClosed(this);
 		});
 		void this.win.loadURL('app://git-octopus/tabs.html');
@@ -78,7 +86,48 @@ export class TabbedWindow {
 		return this.listTabs.find((tab) => tab.id === id);
 	}
 
+	public isWelcome(contents: WebContents): boolean {
+		return this.welcome?.webContents === contents;
+	}
+
+	/** The page a window with no tab shows: Open Repository…, the recent ones, a folder to drop. */
+	public showWelcome(): void {
+		if (this.welcome || this.listTabs.length > 0) return;
+		const view = new WebContentsView({
+			webPreferences: {
+				preload: this.options.welcomePreload,
+				contextIsolation: true,
+				sandbox: true,
+				nodeIntegration: false,
+			},
+		});
+		view.setBackgroundColor(backgroundFor(this.theme));
+		view.webContents.on('will-navigate', (event) => event.preventDefault());
+		view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+		this.welcome = view;
+		this.win.contentView.addChildView(view);
+		this.layout();
+		void view.webContents.loadURL('app://git-octopus/welcome.html');
+		this.win.setTitle('Git Octopus');
+	}
+
+	private hideWelcome(): void {
+		if (!this.welcome) return;
+		const view = this.welcome;
+		this.welcome = null;
+		this.win.contentView.removeChildView(view);
+		view.webContents.close();
+	}
+
+	/** Sent again whenever the Welcome page (re)loads and asks, and when the list changes. */
+	public pushWelcome(): void {
+		if (!this.welcome) return;
+		const state: WelcomeState = { listRecent: this.options.recent(), theme: this.theme };
+		this.welcome.webContents.send('welcome:state', state);
+	}
+
 	public add(tab: RepoTab): void {
+		this.hideWelcome();
 		this.listTabs.push(tab);
 		this.win.contentView.addChildView(tab.view);
 		this.layout();
@@ -115,10 +164,11 @@ export class TabbedWindow {
 		this.win.contentView.removeChildView(tab.view);
 		tab.dispose();
 		if (this.listTabs.length === 0) {
-			// The last tab going is the user closing everything: remembered as nothing open.
+			// The last tab going is the user closing everything: remembered as nothing open, and the
+			// window falls back to the Welcome page rather than closing.
 			this.active = null;
-			this.options.onChanged(this);
-			this.win.close();
+			this.showWelcome();
+			this.refresh();
 			return;
 		}
 		if (this.active === tab) this.select(this.listTabs[Math.min(at, this.listTabs.length - 1)]);
@@ -137,7 +187,9 @@ export class TabbedWindow {
 		this.theme = theme;
 		this.win.setBackgroundColor(backgroundFor(theme));
 		for (const tab of this.listTabs) tab.setTheme(theme);
+		this.welcome?.setBackgroundColor(backgroundFor(theme));
 		this.pushState();
+		this.pushWelcome();
 	}
 
 	/** A tab's title, branch or count moved: the strip and the window title follow. */
@@ -164,5 +216,6 @@ export class TabbedWindow {
 		const [width, height] = this.win.getContentSize();
 		const bounds = { x: 0, y: TAB_STRIP_H, width, height: Math.max(0, height - TAB_STRIP_H) };
 		for (const tab of this.listTabs) tab.view.setBounds(bounds);
+		this.welcome?.setBounds(bounds);
 	}
 }

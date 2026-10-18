@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import type { Rectangle } from 'electron';
 
 /** What the app remembers between launches: where its window was, and what was open. */
@@ -38,4 +38,27 @@ export function writeAppState(file: string, state: AppState): void {
 
 export function withRecent(listRecent: string[], folder: string): string[] {
 	return [folder, ...listRecent.filter((item) => item !== folder)].slice(0, MAX_RECENT);
+}
+
+export function withoutRecent(listRecent: string[], folder: string): string[] {
+	return listRecent.filter((item) => item !== folder);
+}
+
+export function isExistingFolder(candidate: string): boolean {
+	try {
+		return statSync(candidate).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * A recent folder that was moved or deleted is dropped, not kept greyed out: the list is for
+ * reopening, and an entry that cannot open only invites a click that ends in an error.
+ */
+export function withoutMissing(
+	listRecent: string[],
+	exists: (folder: string) => boolean = isExistingFolder
+): string[] {
+	return listRecent.filter(exists);
 }

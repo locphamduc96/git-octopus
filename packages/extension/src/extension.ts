@@ -22,7 +22,8 @@ import { RepoWatcher } from './adapters/vscode/RepoWatcher.js';
 import { AutoFetchScheduler } from '@git-octopus/host/adapters/services/AutoFetchScheduler';
 import { vscodeControllerShell } from './adapters/vscode/vscodeShell.js';
 import { pickAutoFetchMinutes } from '@git-octopus/shared';
-import { AskpassServer } from './adapters/askpass/askpassServer.js';
+import { AskpassServer } from '@git-octopus/host/adapters/askpass/askpassServer';
+import { nativeCredentialPrompt } from './adapters/vscode/nativeCredentialPrompt.js';
 import { nativePrompt } from './adapters/vscode/nativePrompt.js';
 import { pathExists } from '@git-octopus/host/adapters/fs/pathExists';
 
@@ -35,7 +36,9 @@ async function startAskpass(context: vscode.ExtensionContext): Promise<AskpassSe
 	if (process.platform === 'win32') return undefined;
 	if (process.env.GIT_ASKPASS || process.env.SSH_ASKPASS) return undefined;
 	try {
-		const askpass = new AskpassServer(context.extensionUri.fsPath);
+		// esbuild.mjs copies the helper next to the bundle, into dist/askpass.
+		const helperDir = vscode.Uri.joinPath(context.extensionUri, 'dist', 'askpass').fsPath;
+		const askpass = new AskpassServer(helperDir, nativeCredentialPrompt);
 		await askpass.start();
 		context.subscriptions.push(askpass);
 		return askpass;

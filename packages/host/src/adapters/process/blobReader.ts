@@ -2,11 +2,15 @@ import { spawn } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { BlobRead, BlobReader } from '../../app/ports/blobReader.js';
+import { resolveGitProgram } from './gitProgram.js';
 
 /** Run git and collect stdout as bytes; rejects on a non-zero exit. */
 function gitBytes(args: string[], cwd: string): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
-		const child = spawn('git', args, { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+		const child = spawn(resolveGitProgram(), args, {
+			cwd,
+			env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+		});
 		const listChunks: Buffer[] = [];
 		child.stdout.on('data', (chunk: Buffer) => listChunks.push(chunk));
 		child.on('error', reject);

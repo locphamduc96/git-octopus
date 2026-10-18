@@ -39,6 +39,22 @@ describe('JsonStore', () => {
 		store.dispose();
 	});
 
+	it('tells its listener about each write once it has landed', async () => {
+		const file = path.join(dir, 'state.json');
+		const listHeard: [string, unknown][] = [];
+		const store = new JsonStore(file, (key, value) => {
+			listHeard.push([key, value]);
+			expect(JSON.parse(readFileSync(file, 'utf8'))[key]).toEqual(value);
+		});
+		await store.update('a', { n: 1 });
+		await store.update('b', 2);
+		expect(listHeard).toEqual([
+			['a', { n: 1 }],
+			['b', 2],
+		]);
+		store.dispose();
+	});
+
 	it('starts empty on a file that is missing or not JSON', () => {
 		expect(new JsonStore(path.join(dir, 'nothing.json')).get('x', 'fallback')).toBe('fallback');
 	});

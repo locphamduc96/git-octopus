@@ -464,6 +464,74 @@ export interface HostProgressCancelMessage {
 	id: number;
 }
 
+/**
+ * Git or ssh is waiting on a credential, and the shell has no dialog of its own to ask in (the
+ * desktop app). Answered with `credentialReply`; withdrawn with `credentialCancel` once the asking
+ * git process is gone. `title` is the host's own words; `prompt` is what git asked — data, shown
+ * as text.
+ */
+export interface CredentialRequestMessage {
+	type: 'credentialRequest';
+	id: number;
+	title: string;
+	prompt: string;
+	/** Mask the answer. */
+	secret: boolean;
+	/** A yes/no question (a host key to trust): two buttons, answered `yes` or `no`. */
+	confirm: boolean;
+}
+
+export interface CredentialCancelMessage {
+	type: 'credentialCancel';
+	id: number;
+}
+
+/** Markdown for the view to show in a panel of its own — an AI explanation in the desktop app. */
+export interface ShowMarkdownMessage {
+	type: 'showMarkdown';
+	title: string;
+	content: string;
+}
+
+/** The answer to a `credentialRequest`; no `answer` means the user cancelled. */
+export interface CredentialReplyMessage {
+	type: 'credentialReply';
+	id: number;
+	answer?: string;
+}
+
+/** Save the Markdown panel's text to a file the user picks. */
+export interface SaveMarkdownMessage {
+	type: 'saveMarkdown';
+	content: string;
+	suggestedName: string;
+}
+
+/** A link in the Markdown panel; the host opens it in the browser if it is `https:`. */
+export interface OpenLinkMessage {
+	type: 'openLink';
+	url: string;
+}
+
+/**
+ * What the desktop shell takes from the view for itself. The controller never sees these — they
+ * are about the window around the repository, not the repository — so they are not part of
+ * {@link WebviewToHost}.
+ */
+export type DesktopViewMessage = CredentialReplyMessage | SaveMarkdownMessage | OpenLinkMessage;
+
+export const LIST_DESKTOP_VIEW_MESSAGE_TYPES = [
+	'credentialReply',
+	'saveMarkdown',
+	'openLink',
+] as const satisfies readonly DesktopViewMessage['type'][];
+
+export function isDesktopViewMessage(message: unknown): message is DesktopViewMessage {
+	if (typeof message !== 'object' || message === null) return false;
+	const { type } = message as { type?: unknown };
+	return (LIST_DESKTOP_VIEW_MESSAGE_TYPES as readonly unknown[]).includes(type);
+}
+
 /** Cherry-pick commits in the order the cherry-pick editor left them. */
 export interface CherryPickCommitsMessage {
 	type: 'cherryPickCommits';
@@ -629,6 +697,45 @@ export interface LoadWorktreesMessage {
 export interface WorktreesMessage {
 	type: 'worktrees';
 	listWorktrees: WorktreeInfo[];
+}
+
+/** One ref in the side panel; `hash` is the commit it points at (annotated tags peeled to their commit). */
+export interface RefPanelRef {
+	/** Short name: `feature/x` (local), `origin/feature/x` (remote), `v1.0` (tag). */
+	name: string;
+	hash: string;
+}
+
+export interface RefPanelRemoteRef extends RefPanelRef {
+	/** The remote's name, e.g. `origin`. */
+	remote: string;
+}
+
+export interface RefPanelStash {
+	/** `stash@{0}` */
+	selector: string;
+	hash: string;
+	message: string;
+}
+
+export interface RefPanelData {
+	listLocal: RefPanelRef[];
+	listRemote: RefPanelRemoteRef[];
+	listTags: RefPanelRef[];
+	listStashes: RefPanelStash[];
+	/** The checked-out branch's short name; null when detached. */
+	current: string | null;
+}
+
+/** View -> host: send the side panel's refs now, and again after every reload of the graph. */
+export interface LoadRefPanelMessage {
+	type: 'loadRefPanel';
+}
+
+export interface RefPanelMessage {
+	type: 'refPanel';
+	repoPath: string;
+	data: RefPanelData;
 }
 
 /** Open, add, remove or prune worktrees. */
@@ -1261,6 +1368,7 @@ export type WebviewToHost =
 	| LoadSigningMessage
 	| SigningActionMessage
 	| LoadWorktreesMessage
+	| LoadRefPanelMessage
 	| WorktreeActionMessage
 	| LoadRebaseTodoMessage
 	| InteractiveRebaseMessage
@@ -1489,6 +1597,9 @@ export type HostToWebview =
 	| CapabilitiesMessage
 	| HostNoticeMessage
 	| HostProgressMessage
+	| CredentialRequestMessage
+	| CredentialCancelMessage
+	| ShowMarkdownMessage
 	| CommitOutcomeMessage
 	| CommitStatsMessage
 	| StatusUpdateMessage
@@ -1501,6 +1612,7 @@ export type HostToWebview =
 	| RemotesMessage
 	| SigningMessage
 	| WorktreesMessage
+	| RefPanelMessage
 	| RebaseTodoMessage
 	| ViewSettingsMessage
 	| FileIconsMessage

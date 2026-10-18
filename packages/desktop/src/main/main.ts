@@ -1,10 +1,20 @@
-import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { app, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from 'electron';
 import type { HostCommand } from '@git-octopus/shared';
 import type { ThemeKind } from '../ipc.js';
-import { readAppState, withRecent, writeAppState, type AppState } from './appState.js';
+import { readStoredThemeSource } from '../themeSource.js';
+import { renderWelcomePage } from '../welcome/page.js';
+import {
+	isExistingFolder,
+	readAppState,
+	withRecent,
+	withoutMissing,
+	withoutRecent,
+	writeAppState,
+	type AppState,
+} from './appState.js';
 import { adoptLoginShellPath } from './loginShell.js';
 import { buildMenu } from './menu.js';
 import { renderPage, renderTabsPage } from './page.js';
@@ -43,12 +53,22 @@ function foldersFromArgv(listArgs: string[]): string[] {
 	return listFolders.map((folder) => path.resolve(folder));
 }
 
-function isFolder(candidate: string): boolean {
-	try {
-		return statSync(candidate).isDirectory();
-	} catch {
-		return false;
+/** The recent list as it stands, folders that were moved or deleted already dropped from it. */
+function recentFolders(): string[] {
+	const listKept = withoutMissing(appState.listRecent);
+	if (listKept.length !== appState.listRecent.length) {
+		appState = { ...appState, listRecent: listKept };
+		writeAppState(appStateFile, appState);
 	}
+	return appState.listRecent;
+}
+
+/** The list changed: remembered, and shown in the menu and on the Welcome page. */
+function changeRecent(listRecent: string[]): void {
+	appState = { ...appState, listRecent };
+	saveState();
+	refreshMenu();
+	window?.pushWelcome();
 }
 
 function saveState(): void {
@@ -73,17 +93,14 @@ function updateBadge(): void {
 function refreshMenu(): void {
 	Menu.setApplicationMenu(
 		buildMenu({
-			listRecent: appState.listRecent,
+			listRecent: recentFolders(),
 			openFolder: () => void chooseFolder(),
 			openRecent: (folder) => openFolder(folder),
-			clearRecent: () => {
-				appState = { ...appState, listRecent: [] };
-				writeAppState(appStateFile, appState);
-				refreshMenu();
-			},
+			clearRecent: () => changeRecent([]),
 			closeTab: () => {
 				const active = window?.activeTab;
 				if (window && active) window.close(active);
+				else window?.win.close();
 			},
 			cycleTab: (step) => window?.cycle(step),
 			selectTab: (number) => window?.selectNumber(number),
@@ -99,6 +116,8 @@ function ensureWindow(): TabbedWindow {
 		bounds: appState.bounds,
 		theme: currentTheme(),
 		tabsPreload: path.join(DIST, 'tabsPreload.js'),
+		welcomePreload: path.join(DIST, 'welcomePreload.js'),
+		recent: recentFolders,
 		onChanged: () => {
 			saveState();
 			updateBadge();
@@ -115,10 +134,12 @@ function ensureWindow(): TabbedWindow {
 }
 
 function openFolder(folder: string): void {
-	if (!isFolder(folder)) {
+	if (!isExistingFolder(folder)) {
+		changeRecent(withoutRecent(appState.listRecent, folder));
 		void dialog.showMessageBox({ type: 'warning', message: `${folder} is not a folder.` });
 		return;
 	}
+	changeRecent(withRecent(appState.listRecent, folder));
 	const target = ensureWindow();
 	const existing = target.tabByFolder(folder);
 	if (existing) {
@@ -146,9 +167,7 @@ function openFolder(folder: string): void {
 		},
 	});
 	target.add(tab);
-	appState = { ...appState, listRecent: withRecent(appState.listRecent, folder) };
 	saveState();
-	refreshMenu();
 }
 
 async function chooseFolder(): Promise<void> {
@@ -162,7 +181,7 @@ async function chooseFolder(): Promise<void> {
 
 /** The tabs that were open, in their order, with the one in front in front again. */
 function reopen(listFolders: string[], activeIndex?: number): void {
-	for (const folder of listFolders.filter(isFolder)) openFolder(folder);
+	for (const folder of listFolders.filter(isExistingFolder)) openFolder(folder);
 	const active = activeIndex === undefined ? undefined : window?.tabs[activeIndex];
 	if (window && active) window.select(active);
 }
@@ -180,6 +199,8 @@ app.on('open-file', (event, file) => {
 });
 
 void app.whenReady().then(async () => {
+	// Before any window opens, so the first paint is already in the theme the user chose.
+	nativeTheme.themeSource = readStoredThemeSource(path.join(dataDir, 'state.json'));
 	// Before any host starts: each inherits this process's environment, PATH included.
 	await adoptLoginShellPath();
 	try {
@@ -199,12 +220,18 @@ void app.whenReady().then(async () => {
 				? renderPage(currentTheme())
 				: pathname === '/tabs.html'
 					? renderTabsPage(currentTheme())
-					: null;
+					: pathname === '/welcome.html'
+						? renderWelcomePage(currentTheme())
+						: null;
 		if (page) {
 			return new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8' } });
 		}
-		// The strip's bundle sits in dist/tabs; everything else is the view's, in dist/renderer.
-		const root = pathname.startsWith('/tabs/') ? DIST : path.join(DIST, 'renderer');
+		// The strip's and the Welcome page's bundles sit in dist/tabs and dist/welcome; everything
+		// else is the view's, in dist/renderer.
+		const root =
+			pathname.startsWith('/tabs/') || pathname.startsWith('/welcome/')
+				? DIST
+				: path.join(DIST, 'renderer');
 		const file = path.join(root, path.normalize(decodeURIComponent(pathname)));
 		if (!file.startsWith(root + path.sep) || !existsSync(file)) {
 			return new Response(null, { status: 404 });
@@ -235,13 +262,32 @@ void app.whenReady().then(async () => {
 		const tab = owner?.tabById(id);
 		if (owner && tab && Number.isInteger(toIndex)) owner.move(tab, toIndex);
 	});
+	// The Welcome page's requests are taken from that page alone, like the strip's.
+	const fromWelcome = (sender: Electron.WebContents): boolean => !!window?.isWelcome(sender);
+	ipcMain.on('welcome:ready', (event) => {
+		if (fromWelcome(event.sender)) window?.pushWelcome();
+	});
+	ipcMain.on('welcome:open-dialog', (event) => {
+		if (fromWelcome(event.sender)) void chooseFolder();
+	});
+	ipcMain.on('welcome:open-recent', (event, folder: unknown) => {
+		if (fromWelcome(event.sender) && typeof folder === 'string') openFolder(folder);
+	});
+	ipcMain.on('welcome:remove-recent', (event, folder: unknown) => {
+		if (fromWelcome(event.sender) && typeof folder === 'string') {
+			changeRecent(withoutRecent(appState.listRecent, folder));
+		}
+	});
+	ipcMain.on('welcome:open-dropped', (event, folder: unknown) => {
+		if (fromWelcome(event.sender) && typeof folder === 'string') openFolder(folder);
+	});
 	nativeTheme.on('updated', () => window?.setTheme(currentTheme()));
 	refreshMenu();
 
 	const listAsked = foldersFromArgv(process.argv);
 	if (listAsked.length > 0) reopen(listAsked);
 	else reopen(appState.listOpen, appState.activeIndex);
-	if (!window) void chooseFolder();
+	if (!window) ensureWindow().showWelcome();
 });
 
 // On a Mac the app stays in the Dock with no window; clicking it brings the last tabs back.
@@ -251,5 +297,5 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
 	if (window) return;
 	reopen(appState.listOpen, appState.activeIndex);
-	if (!window) void chooseFolder();
+	if (!window) ensureWindow().showWelcome();
 });

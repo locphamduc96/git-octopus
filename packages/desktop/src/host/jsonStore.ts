@@ -14,7 +14,11 @@ export class JsonStore implements KeyValueStore, Settings {
 	private mapValues: Record<string, unknown>;
 	private watcher: FSWatcher | null = null;
 
-	public constructor(private readonly file: string) {
+	/** `onUpdate` hears of this process's own writes, after they landed. */
+	public constructor(
+		private readonly file: string,
+		private readonly onUpdate?: (key: string, value: unknown) => void
+	) {
 		mkdirSync(path.dirname(file), { recursive: true });
 		this.mapValues = this.read();
 		try {
@@ -40,6 +44,7 @@ export class JsonStore implements KeyValueStore, Settings {
 		writeFileSync(temp, `${JSON.stringify(mapLatest, null, '\t')}\n`);
 		renameSync(temp, this.file);
 		this.mapValues = mapLatest;
+		this.onUpdate?.(key, value);
 		return Promise.resolve();
 	}
 

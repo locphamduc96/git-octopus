@@ -6,8 +6,17 @@ import {
 	LIST_COMMIT_ORDERS,
 	LIST_DATE_TYPES,
 	LIST_DIFF_TARGETS,
+	LIST_EXTERNAL_EDITORS,
 	LIST_GRAPH_STYLES,
 	LIST_PULL_STRATEGIES,
+	LIST_THEME_CHOICES,
+	MAP_EXTERNAL_EDITOR_LABEL,
+	MAP_THEME_LABEL,
+	REF_PANEL_DEFAULT_WIDTH,
+	REF_PANEL_MAX_WIDTH,
+	REF_PANEL_MIN_WIDTH,
+	branchesPanelShown,
+	clampRefPanelWidth,
 	mergePreferences,
 	pickOption,
 	pullActionFor,
@@ -25,6 +34,120 @@ function currentPreferences(): GlobalPreferences {
 		listCollapsedSections: [],
 	};
 }
+
+describe('terminalApp', () => {
+	it('defaults to Terminal and keeps a valid stored choice', () => {
+		expect(DEFAULT_VIEW_SETTINGS.terminalApp).toBe('Terminal');
+		const merged = mergePreferences(currentPreferences(), { settings: { terminalApp: 'Warp' } });
+		expect(merged.settings.terminalApp).toBe('Warp');
+	});
+
+	it.each([['kitty'], [42], [null], [{}], ['']])('reads %j back as Terminal', (bad) => {
+		const merged = mergePreferences(currentPreferences(), { settings: { terminalApp: bad } });
+		expect(merged.settings.terminalApp).toBe('Terminal');
+	});
+});
+
+describe('desktop settings', () => {
+	it('start on the system theme, the git on the PATH and the first installed editor', () => {
+		expect(DEFAULT_VIEW_SETTINGS).toMatchObject({
+			theme: 'system',
+			gitPath: '',
+			externalEditor: 'auto',
+			externalEditorCommand: '',
+		});
+	});
+
+	it('keep what was stored', () => {
+		const merged = mergePreferences(currentPreferences(), {
+			settings: {
+				theme: 'dark',
+				gitPath: '/opt/homebrew/bin/git',
+				externalEditor: 'custom',
+				externalEditorCommand: 'subl --wait {file}',
+			},
+		});
+		expect(merged.settings).toMatchObject({
+			theme: 'dark',
+			gitPath: '/opt/homebrew/bin/git',
+			externalEditor: 'custom',
+			externalEditorCommand: 'subl --wait {file}',
+		});
+	});
+
+	it.each([['solarized'], [42], [null], [{}], ['']])('read a theme of %j back as system', (bad) => {
+		const merged = mergePreferences(currentPreferences(), { settings: { theme: bad } });
+		expect(merged.settings.theme).toBe('system');
+	});
+
+	it.each([['emacs'], [42], [null], [{}], ['']])('read an editor of %j back as auto', (bad) => {
+		const merged = mergePreferences(currentPreferences(), {
+			settings: { externalEditor: bad },
+		});
+		expect(merged.settings.externalEditor).toBe('auto');
+	});
+
+	it.each([[42], [null], [{}], [['git']]])(
+		'read a git path or command of %j back as empty',
+		(bad) => {
+			const merged = mergePreferences(currentPreferences(), {
+				settings: { gitPath: bad, externalEditorCommand: bad },
+			});
+			expect(merged.settings.gitPath).toBe('');
+			expect(merged.settings.externalEditorCommand).toBe('');
+		}
+	);
+
+	it('list every theme and every editor the settings offer, each with a label', () => {
+		expect(LIST_THEME_CHOICES.map((theme) => MAP_THEME_LABEL[theme])).toEqual([
+			'System',
+			'Light',
+			'Dark',
+		]);
+		expect(LIST_EXTERNAL_EDITORS.map((editor) => MAP_EXTERNAL_EDITOR_LABEL[editor])).toEqual([
+			'Automatic',
+			'VS Code',
+			'Cursor',
+			'Zed',
+			'Sublime Text',
+			'Custom command',
+		]);
+	});
+});
+
+describe('showBranchesPanel', () => {
+	it('is unset by default, so the shell decides: desktop shows the panel, the extension hides it', () => {
+		expect(DEFAULT_VIEW_SETTINGS.showBranchesPanel).toBeNull();
+		expect(branchesPanelShown(DEFAULT_VIEW_SETTINGS, true)).toBe(true);
+		expect(branchesPanelShown(DEFAULT_VIEW_SETTINGS, false)).toBe(false);
+	});
+
+	it('lets an explicit choice win in both shells', () => {
+		const off: ViewSettings = { ...DEFAULT_VIEW_SETTINGS, showBranchesPanel: false };
+		const on: ViewSettings = { ...DEFAULT_VIEW_SETTINGS, showBranchesPanel: true };
+		expect(branchesPanelShown(off, true)).toBe(false);
+		expect(branchesPanelShown(on, false)).toBe(true);
+	});
+
+	it('keeps a stored choice and leaves it unset for a blob that predates the setting', () => {
+		const chosen = mergePreferences(currentPreferences(), {
+			settings: { showBranchesPanel: false },
+		});
+		expect(chosen.settings.showBranchesPanel).toBe(false);
+		const older = mergePreferences(currentPreferences(), { settings: { commitLimit: 100 } });
+		expect(older.settings.showBranchesPanel).toBeNull();
+	});
+});
+
+describe('clampRefPanelWidth', () => {
+	it('clamps a width into the allowed range and ignores garbage', () => {
+		expect(clampRefPanelWidth(9000)).toBe(REF_PANEL_MAX_WIDTH);
+		expect(clampRefPanelWidth(3)).toBe(REF_PANEL_MIN_WIDTH);
+		expect(clampRefPanelWidth('wide')).toBe(REF_PANEL_DEFAULT_WIDTH);
+		expect(clampRefPanelWidth(undefined)).toBe(REF_PANEL_DEFAULT_WIDTH);
+		expect(clampRefPanelWidth(300.4)).toBe(300);
+	});
+});
 
 describe('mergePreferences', () => {
 	it('lays stored values over the defaults', () => {
@@ -91,6 +214,7 @@ describe('settingsRequireReload', () => {
 		'showStashes',
 		'showUncommitted',
 		'showSignatures',
+		'gitPath',
 	];
 
 	function changed<K extends keyof ViewSettings>(key: K, value: ViewSettings[K]): ViewSettings {
@@ -109,6 +233,7 @@ describe('settingsRequireReload', () => {
 		expect(settingsRequireReload(DEFAULT_VIEW_SETTINGS, changed('showUncommitted', false))).toBe(
 			true
 		);
+		expect(settingsRequireReload(DEFAULT_VIEW_SETTINGS, changed('gitPath', '/opt/git'))).toBe(true);
 	});
 
 	it('leaves pure view settings alone', () => {

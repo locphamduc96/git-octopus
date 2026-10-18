@@ -1,5 +1,5 @@
 // IPC client half of the askpass bridge. git (or ssh) runs askpass.sh with a prompt; this
-// forwards it — with the per-invocation nonce — to the extension host over the socket in the
+// forwards it — with the per-invocation nonce — to the Git Octopus host over the socket in the
 // environment, prints the answer to stdout, and exits non-zero on refusal so git aborts.
 //
 // Refusal covers a confirmation the user declined, not only a cancelled one: OpenSSH takes the
