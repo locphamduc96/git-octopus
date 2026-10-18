@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0
+
+- **Branches panel** from Git Octopus 0.28.0, on by default in the app.
+- **Welcome page** when no tab is open: Open Repository…, the recent list (entries can be removed,
+  missing folders are shown struck out) and a folder dropped on the window opens it.
+- **The repository is watched**: edits, commits and checkouts made outside the app show up without ⌘R.
+- **Git asks for credentials inside the app**: usernames, passwords and host-key questions come up as a
+  dialog in the window; nothing is written to the log.
+- **Settings → General → Desktop**: Theme (System, Light, Dark), Git path, External editor (Automatic,
+  VS Code, Cursor, Zed, Sublime Text or a custom command) and Terminal app (Terminal, iTerm, Ghostty,
+  Warp).
+- **Open File and conflicted files open in your editor**; without one, in the default app with a note.
+- **AI Explain opens in a Markdown panel** with Copy and Save as….
+
 ## 0.4.0
 
 - The look from Git Octopus 0.27.0: areas told apart by tone instead of lines, button groups on soft

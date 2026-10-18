@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.28.0
+
+### Added
+
+- **Branches panel, left of the graph.** Local branches grouped in folders, remote branches by remote,
+  tags, stashes, worktrees and submodules, each with a count and a filter box on top. A click brings
+  the commit forward in the graph, a double-click checks the branch out, a right-click opens the same
+  menu a chip has, and a branch dragged onto a chip offers what a chip drag offers. Branches can be
+  hidden and shown from the panel; its width and folds are remembered per window. Off by default in
+  VS Code: turn on **Settings → General → Show branches panel**.
+
 ## 0.27.0
 
 ### Changed
