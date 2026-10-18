@@ -1089,15 +1089,20 @@
 	/*
 	 * Line numbers sit in their own fixed columns so the code starts on one vertical line, and stay
 	 * put while the code scrolls sideways under them — opaque, with the row's own tint on top.
+	 *
+	 * Stretched to the full row: the row centres its cells, so an empty one (the old number of an
+	 * added line, the new number of a removed one) came out 0px tall and the code showed through it.
 	 */
 	.gutter {
 		position: sticky;
 		left: 0;
 		z-index: 1;
 		flex: none;
+		align-self: stretch;
 		width: 44px;
 		padding-right: var(--gg-space-2);
 		box-sizing: border-box;
+		line-height: 18px;
 		text-align: right;
 		color: var(--gg-fg-subtle);
 		background: linear-gradient(var(--row-tint), var(--row-tint)), var(--gg-bg);
@@ -1121,6 +1126,7 @@
 		left: 0;
 		z-index: 1;
 		flex: none;
+		align-self: stretch;
 		width: 240px;
 		padding: 0 var(--gg-space-2);
 		box-sizing: border-box;
@@ -1211,6 +1217,11 @@
 	.row.wrap .gutter,
 	.row.wrap .text {
 		line-height: 18px;
+	}
+	/* Wrapped code never scrolls sideways, so the number stays on the first line instead of filling the row. */
+	.row.wrap .gutter,
+	.row.wrap .blame {
+		align-self: flex-start;
 	}
 	.row.wrap .text {
 		flex: 1 1 0;

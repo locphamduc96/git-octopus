@@ -62,6 +62,26 @@ test('2.1 the diff marks changed words, goes side by side, wraps, and ignores wh
 	await expect(view.locator('.row.add')).toHaveCount(1);
 });
 
+test('2.1b line numbers fill their row, so code scrolled sideways never shows through them', async () => {
+	await closeDiff(s);
+	await row(s, 'feat: scoreboard').click();
+	await file(s.graph.locator('body'), 'constants.ts').locator('button.open').click();
+	const view = diff(s);
+	await expect(view.locator('.row.add').first()).toBeVisible();
+	// An added line has no old number: that empty cell is the one that used to collapse to 0px.
+	const listGaps = await view
+		.locator('.row:not(.pair)')
+		.evaluateAll((listRows) =>
+			listRows.flatMap((line) =>
+				[...line.querySelectorAll('.gutter')].map(
+					(gutter) => line.getBoundingClientRect().height - gutter.getBoundingClientRect().height
+				)
+			)
+		);
+	expect(listGaps.length).toBeGreaterThan(0);
+	expect(listGaps.filter((gap) => gap !== 0)).toEqual([]);
+});
+
 test('2.2 lines and hunks are staged, unstaged and discarded on their own', async () => {
 	await openWorking('Changes', 'board.ts');
 	const view = diff(s);

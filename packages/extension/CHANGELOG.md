@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.28.1
+
+### Fixed
+
+- **Code no longer shows through the line numbers** when a diff is scrolled sideways. On an added or
+  removed line the empty number cell collapsed to nothing, so the scrolled code appeared to the left
+  of the numbers; the blame column had the same gap.
+
 ## 0.28.0
 
 ### Added
