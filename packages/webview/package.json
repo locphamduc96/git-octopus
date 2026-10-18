@@ -15,12 +15,14 @@
 		"@shikijs/langs": "^4.4.3",
 		"@shikijs/themes": "^4.4.3",
 		"@vscode/codicons": "^0.0.36",
+		"markdown-it": "^15.0.3",
 		"shiki": "^4.4.3"
 	},
 	"devDependencies": {
 		"@sveltejs/vite-plugin-svelte": "^5.0.3",
 		"@testing-library/svelte": "^5.4.2",
 		"@testing-library/user-event": "^14.6.6",
+		"@types/markdown-it": "^14.2.0",
 		"svelte": "^5.16.0",
 		"svelte-check": "^4.1.1",
 		"vite": "^6.0.7"
